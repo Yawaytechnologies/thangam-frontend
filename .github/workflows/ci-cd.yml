@@ -40,8 +40,8 @@ jobs:
       - name: Build
         run: npm run build
         env:
-          # Set the real backend URL here as a repo secret
           VITE_API_URL: ${{ secrets.VITE_API_URL }}
+          VITE_SOCKET_URL: ${{ secrets.VITE_SOCKET_URL }}
 
   # ─── Deploy (main branch only, after CI passes) ───────────────────────────────
   deploy:
