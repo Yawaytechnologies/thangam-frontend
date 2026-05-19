@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useProperties, useProperty, usePropertyWorkflow } from '../../hooks/useProperties';
+import { useProperties, usePropertyWorkflow } from '../../hooks/useProperties';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Pagination } from '../../components/ui/Pagination';
 import { SearchInput } from '../../components/ui/SearchInput';

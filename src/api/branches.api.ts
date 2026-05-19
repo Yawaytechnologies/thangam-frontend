@@ -1,5 +1,5 @@
 import api from '../lib/axios';
-import type { Branch, BranchStatus, PaginatedResponse } from '../types';
+import type { Branch, BranchStatus } from '../types';
 
 export interface BranchParams {
   page?: number;
@@ -21,7 +21,7 @@ export interface CreateBranchData {
 export type UpdateBranchData = Partial<CreateBranchData>;
 
 export const branchesApi = {
-  getAll: (params?: BranchParams): Promise<PaginatedResponse<Branch>> =>
+  getAll: (params?: BranchParams): Promise<Branch[]> =>
     api.get('/branches', { params }).then((r) => r.data.data),
 
   getOne: (id: string): Promise<Branch> =>
