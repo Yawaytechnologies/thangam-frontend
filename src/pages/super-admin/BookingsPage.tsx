@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useBookings, useBooking, useUpdateBookingStatus } from '../../hooks/useBookings';
+import { useBookings, useBooking } from '../../hooks/useBookings';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Pagination } from '../../components/ui/Pagination';
 import { SearchInput } from '../../components/ui/SearchInput';

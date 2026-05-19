@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useBillings, useBilling, useCreateBilling, useUpdateBilling, useUpdateBillingStatus } from '../../hooks/useBilling';
+import { useBillings, useBilling, useCreateBilling, useUpdateBillingStatus } from '../../hooks/useBilling';
 import { useBookings } from '../../hooks/useBookings';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Pagination } from '../../components/ui/Pagination';

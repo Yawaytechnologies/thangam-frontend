@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { MemoryRouter, Routes, Route, Outlet } from 'react-router-dom';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { ProtectedRoute } from '../components/layout/ProtectedRoute';
 import { useAuthStore } from '../stores/auth.store';
 import type { User } from '../types';
