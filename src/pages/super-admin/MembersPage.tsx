@@ -58,8 +58,7 @@ function MemberOverviewModal({ member, open, onClose }: { member: Member | null;
 
 function EditMemberModal({ member, open, onClose }: { member: Member | null; open: boolean; onClose: () => void }) {
   const updateMutation = useUpdateMember();
-  const { data: branchesData } = useBranches();
-  const branches = branchesData?.data ?? [];
+  const { data: branches = [] } = useBranches();
 
   const [form, setForm] = useState<UpdateMemberData>({});
 
@@ -171,8 +170,7 @@ function EditMemberModal({ member, open, onClose }: { member: Member | null; ope
 
 function CreateMemberModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const createMutation = useCreateMember();
-  const { data: branchesData } = useBranches();
-  const branches = branchesData?.data ?? [];
+  const { data: branches = [] } = useBranches();
   const [form, setForm] = useState<CreateMemberData>({
     fullName: '', phone: '', role: 'AGENT', branchId: '', password: '',
   });
