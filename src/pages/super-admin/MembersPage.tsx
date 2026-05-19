@@ -64,6 +64,7 @@ function EditMemberModal({ member, open, onClose }: { member: Member | null; ope
 
   React.useEffect(() => {
     if (member) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setForm({
         fullName: member.fullName,
         phone: member.phone,

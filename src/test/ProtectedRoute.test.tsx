@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { ProtectedRoute } from '../components/layout/ProtectedRoute';
 import { useAuthStore } from '../stores/auth.store';
+import type { Role } from '../types';
 import type { User } from '../types';
 
 const superAdmin: User = { id: '1', email: 'sa@test.com', role: 'SUPER_ADMIN', status: 'ACTIVE' };
@@ -15,7 +16,7 @@ function renderWithRouter(user: User | null, allowedRoles: string[]) {
     <MemoryRouter initialEntries={['/protected']}>
       <Routes>
         <Route path="/login" element={<div>Login Page</div>} />
-        <Route element={<ProtectedRoute allowedRoles={allowedRoles as any} />}>
+        <Route element={<ProtectedRoute allowedRoles={allowedRoles as Role[]} />}>
           <Route path="/protected" element={<div>Protected Content</div>} />
         </Route>
       </Routes>

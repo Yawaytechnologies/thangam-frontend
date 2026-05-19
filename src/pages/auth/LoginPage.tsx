@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import type { AxiosError } from 'axios';
 import { useLogin } from '../../hooks/useAuth';
 
 const GOLD_RING = '0 0 0 2px rgba(201,162,39,0.2)';
@@ -25,7 +26,7 @@ const LoginPage: React.FC = () => {
   const errorMessage =
     fieldError ||
     (login.isError
-      ? (login.error as any)?.response?.data?.message ?? 'Invalid credentials. Please try again.'
+      ? (login.error as AxiosError<{ message: string }>)?.response?.data?.message ?? 'Invalid credentials. Please try again.'
       : '');
 
   return (
