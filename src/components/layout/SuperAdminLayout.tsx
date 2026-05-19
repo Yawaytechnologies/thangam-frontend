@@ -251,3 +251,5 @@ export function SuperAdminLayout() {
     </div>
   );
 }
+
+export default SuperAdminLayout;

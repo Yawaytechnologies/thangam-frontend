@@ -62,7 +62,7 @@ const navItems = [
   },
 ];
 
-export const AdminLayout: React.FC = () => {
+const AdminLayout: React.FC = () => {
   const user = useAuthStore((s) => s.user);
   const logout = useLogout();
   const navigate = useNavigate();
@@ -180,3 +180,5 @@ export const AdminLayout: React.FC = () => {
     </div>
   );
 };
+
+export default AdminLayout;
