@@ -1,0 +1,9 @@
+@import "tailwindcss";
+
+@theme {
+  /* Brand palette — change these to retheme the entire app */
+  --color-gold:       #c9a227;
+  --color-gold-light: #e8c547;
+  --color-navy:       #0f1419;
+  --color-navy-mid:   #1a2332;
+}

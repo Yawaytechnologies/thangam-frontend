@@ -1,0 +1,19 @@
+# Render infrastructure-as-code
+# Docs: https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: thangam-frontend
+    runtime: static
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist
+    autoDeploy: false  # Controlled by GitHub Actions CI/CD
+    routes:
+      # SPA fallback — all routes served from index.html
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      # Set this in the Render dashboard before first deploy
+      - key: VITE_API_URL
+        sync: false
