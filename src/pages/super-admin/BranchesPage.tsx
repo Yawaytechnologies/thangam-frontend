@@ -6,14 +6,14 @@ import type { CreateBranchData } from '../../api/branches.api';
 
 function CreateBranchModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const create = useCreateBranch();
-  const [form, setForm] = useState<CreateBranchData>({ name: '', branchCode: '' });
+  const [form, setForm] = useState<CreateBranchData>({ name: '' });
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     create.mutate(form, {
       onSuccess: () => {
         onClose();
-        setForm({ name: '', branchCode: '' });
+        setForm({ name: '' });
       },
     });
   }
@@ -29,16 +29,6 @@ function CreateBranchModal({ open, onClose }: { open: boolean; onClose: () => vo
               required
               value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Branch Code *</label>
-            <input
-              type="text"
-              required
-              value={form.branchCode}
-              onChange={(e) => setForm((f) => ({ ...f, branchCode: e.target.value }))}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -69,6 +59,15 @@ function CreateBranchModal({ open, onClose }: { open: boolean; onClose: () => vo
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
+          <div className="col-span-2">
+            <label className="block text-xs font-medium text-gray-700 mb-1">Address</label>
+            <input
+              type="text"
+              value={form.address ?? ''}
+              onChange={(e) => setForm((f) => ({ ...f, address: e.target.value || undefined }))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">City</label>
             <input
@@ -79,11 +78,29 @@ function CreateBranchModal({ open, onClose }: { open: boolean; onClose: () => vo
             />
           </div>
           <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">District</label>
+            <input
+              type="text"
+              value={form.district ?? ''}
+              onChange={(e) => setForm((f) => ({ ...f, district: e.target.value || undefined }))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">State</label>
             <input
               type="text"
               value={form.state ?? ''}
               onChange={(e) => setForm((f) => ({ ...f, state: e.target.value || undefined }))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Pincode</label>
+            <input
+              type="text"
+              value={form.pincode ?? ''}
+              onChange={(e) => setForm((f) => ({ ...f, pincode: e.target.value || undefined }))}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -110,7 +127,7 @@ function CreateBranchModal({ open, onClose }: { open: boolean; onClose: () => vo
 }
 
 const BranchesPage: React.FC = () => {
-  const { data: branches, isLoading } = useBranches();
+  const { data: branchesPage, isLoading } = useBranches();
   const [createOpen, setCreateOpen] = useState(false);
 
   return (
@@ -140,10 +157,10 @@ const BranchesPage: React.FC = () => {
             <tbody className="divide-y divide-gray-100">
               {isLoading ? (
                 <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-500">Loading...</td></tr>
-              ) : !branches?.length ? (
+              ) : !branchesPage?.data?.length ? (
                 <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">No branches found</td></tr>
               ) : (
-                branches.map((b) => (
+                branchesPage.data.map((b) => (
                   <tr key={b.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 font-mono text-xs text-gray-600">{b.branchCode}</td>
                     <td className="px-4 py-3 font-medium text-gray-900">{b.name}</td>
