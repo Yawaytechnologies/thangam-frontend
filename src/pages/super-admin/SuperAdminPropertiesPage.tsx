@@ -12,7 +12,8 @@ const PROPERTY_TYPES: PropertyType[] = ['RESIDENTIAL', 'COMMERCIAL', 'VILLA', 'A
 
 function CreatePropertyModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const create = useCreateProperty();
-  const { data: branches = [] } = useBranches();
+  const branchesQuery = useBranches();
+  const branches = branchesQuery.data?.data ?? [];
   const [form, setForm] = useState<CreatePropertyData>({
     propertyName: '',
     projectName: '',

@@ -13,7 +13,7 @@ const ROLES: Role[] = ['DIRECTOR', 'EXECUTIVE_DIRECTOR', 'DEPUTY_DIRECTOR', 'SEN
 function MemberAvatar({ name }: { name: string }) {
   const initials = name.split(' ').slice(0, 2).map((w) => w[0]?.toUpperCase() ?? '').join('');
   return (
-    <div className="w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-semibold text-sm flex-shrink-0">
+    <div className="w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-semibold text-sm shrink-0">
       {initials}
     </div>
   );
@@ -58,7 +58,8 @@ function MemberOverviewModal({ member, open, onClose }: { member: Member | null;
 
 function EditMemberModal({ member, open, onClose }: { member: Member | null; open: boolean; onClose: () => void }) {
   const updateMutation = useUpdateMember();
-  const { data: branches = [] } = useBranches();
+  const branchesQuery = useBranches();
+  const branches = branchesQuery.data?.data ?? [];
 
   const [form, setForm] = useState<UpdateMemberData>({});
 
@@ -171,7 +172,8 @@ function EditMemberModal({ member, open, onClose }: { member: Member | null; ope
 
 function CreateMemberModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const createMutation = useCreateMember();
-  const { data: branches = [] } = useBranches();
+  const branchesQuery = useBranches();
+  const branches = branchesQuery.data?.data ?? [];
   const [form, setForm] = useState<CreateMemberData>({
     fullName: '', phone: '', role: 'AGENT', branchId: '', password: '',
   });

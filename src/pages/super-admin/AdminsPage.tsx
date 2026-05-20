@@ -9,7 +9,8 @@ import type { CreateAdminData } from '../../api/admins.api';
 
 function CreateAdminModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const create = useCreateAdmin();
-  const { data: branches = [] } = useBranches();
+  const branchesQuery = useBranches();
+  const branches = branchesQuery.data?.data ?? [];
   const [form, setForm] = useState<CreateAdminData>({ fullName: '', phone: '', branchId: '', password: '' });
 
   function handleSubmit(e: React.FormEvent) {
