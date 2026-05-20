@@ -1,15 +1,150 @@
 import React, { useState } from 'react';
-import { useProperties } from '../../hooks/useProperties';
+import { useProperties, useCreateProperty } from '../../hooks/useProperties';
+import { useBranches } from '../../hooks/useBranches';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Pagination } from '../../components/ui/Pagination';
 import { SearchInput } from '../../components/ui/SearchInput';
+import { Modal } from '../../components/ui/Modal';
 import type { PropertyType, WorkflowStatus } from '../../types';
+import type { CreatePropertyData } from '../../api/properties.api';
+
+const PROPERTY_TYPES: PropertyType[] = ['RESIDENTIAL', 'COMMERCIAL', 'VILLA', 'APARTMENT', 'PLOT'];
+
+function CreatePropertyModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const create = useCreateProperty();
+  const { data: branches = [] } = useBranches();
+  const [form, setForm] = useState<CreatePropertyData>({
+    propertyName: '',
+    projectName: '',
+    plotNumber: '',
+    propertyType: 'RESIDENTIAL',
+  });
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    create.mutate(form, {
+      onSuccess: () => {
+        onClose();
+        setForm({ propertyName: '', projectName: '', plotNumber: '', propertyType: 'RESIDENTIAL' });
+      },
+    });
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Add Property" size="lg">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Property Name *</label>
+            <input
+              type="text"
+              required
+              value={form.propertyName}
+              onChange={(e) => setForm((f) => ({ ...f, propertyName: e.target.value }))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Project Name *</label>
+            <input
+              type="text"
+              required
+              value={form.projectName}
+              onChange={(e) => setForm((f) => ({ ...f, projectName: e.target.value }))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Plot Number *</label>
+            <input
+              type="text"
+              required
+              value={form.plotNumber}
+              onChange={(e) => setForm((f) => ({ ...f, plotNumber: e.target.value }))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Property Type *</label>
+            <select
+              required
+              value={form.propertyType}
+              onChange={(e) => setForm((f) => ({ ...f, propertyType: e.target.value as PropertyType }))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {PROPERTY_TYPES.map((t) => (
+                <option key={t} value={t}>{t.charAt(0) + t.slice(1).toLowerCase()}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Square Feet</label>
+            <input
+              type="number"
+              value={form.squareFeet ?? ''}
+              onChange={(e) => setForm((f) => ({ ...f, squareFeet: e.target.value ? Number(e.target.value) : undefined }))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">City</label>
+            <input
+              type="text"
+              value={form.city ?? ''}
+              onChange={(e) => setForm((f) => ({ ...f, city: e.target.value || undefined }))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">State</label>
+            <input
+              type="text"
+              value={form.state ?? ''}
+              onChange={(e) => setForm((f) => ({ ...f, state: e.target.value || undefined }))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Branch</label>
+            <select
+              value={form.branchId ?? ''}
+              onChange={(e) => setForm((f) => ({ ...f, branchId: e.target.value || undefined }))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Select branch</option>
+              {branches.map((b) => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={create.isPending}
+            className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+          >
+            {create.isPending ? 'Creating...' : 'Add Property'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
 
 const SuperAdminPropertiesPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [propertyType, setPropertyType] = useState<PropertyType | ''>('');
   const [workflowStatus, setWorkflowStatus] = useState<WorkflowStatus | ''>('');
+  const [createOpen, setCreateOpen] = useState(false);
 
   const { data, isLoading } = useProperties({
     page,
@@ -21,7 +156,15 @@ const SuperAdminPropertiesPage: React.FC = () => {
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Properties</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold text-gray-900">Properties</h1>
+        <button
+          onClick={() => setCreateOpen(true)}
+          className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+        >
+          + Add Property
+        </button>
+      </div>
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
         <div className="p-4 border-b border-gray-200 flex flex-wrap gap-3">
           <SearchInput
@@ -93,6 +236,7 @@ const SuperAdminPropertiesPage: React.FC = () => {
         </div>
         {data && <Pagination page={page} total={data.total} limit={data.limit} onPageChange={setPage} />}
       </div>
+      <CreatePropertyModal open={createOpen} onClose={() => setCreateOpen(false)} />
     </div>
   );
 };
