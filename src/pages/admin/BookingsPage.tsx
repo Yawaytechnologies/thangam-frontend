@@ -1,11 +1,139 @@
 import React, { useState } from 'react';
-import { useBookings, useBooking, useUpdateBookingStatus } from '../../hooks/useBookings';
+import { useBookings, useBooking, useUpdateBookingStatus, useCreateBooking } from '../../hooks/useBookings';
+import { useProperties } from '../../hooks/useProperties';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Pagination } from '../../components/ui/Pagination';
 import { SearchInput } from '../../components/ui/SearchInput';
 import { Modal } from '../../components/ui/Modal';
 import { bookingsApi } from '../../api/bookings.api';
-import type { BookingStatus, Booking } from '../../types';
+import type { BookingStatus, Booking, Property } from '../../types';
+import type { CreateBookingData } from '../../api/bookings.api';
+
+function CreateBookingModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const create = useCreateBooking();
+  const { data: propertiesData } = useProperties({ limit: 100, workflowStatus: 'AVAILABLE' });
+  const properties: Property[] = propertiesData?.data ?? [];
+
+  const [form, setForm] = useState<CreateBookingData>({
+    propertyId: '',
+    applicantName: '',
+    cellNumber: '',
+    projectName: '',
+    plotNumber: '',
+    bookingDate: new Date().toISOString().split('T')[0],
+  });
+
+  function handlePropertyChange(propertyId: string) {
+    const prop = properties.find((p) => p.id === propertyId);
+    setForm((f) => ({
+      ...f,
+      propertyId,
+      projectName: prop?.projectName ?? f.projectName,
+      plotNumber: prop?.plotNumber ?? f.plotNumber,
+    }));
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    create.mutate(form, {
+      onSuccess: () => {
+        onClose();
+        setForm({ propertyId: '', applicantName: '', cellNumber: '', projectName: '', plotNumber: '', bookingDate: new Date().toISOString().split('T')[0] });
+      },
+    });
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Create Booking" size="lg">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Property *</label>
+          <select
+            required
+            value={form.propertyId}
+            onChange={(e) => handlePropertyChange(e.target.value)}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">Select available property</option>
+            {properties.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.projectName} — Plot {p.plotNumber} ({p.propertyType})
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Project Name *</label>
+            <input
+              type="text"
+              required
+              value={form.projectName}
+              onChange={(e) => setForm((f) => ({ ...f, projectName: e.target.value }))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Plot Number *</label>
+            <input
+              type="text"
+              required
+              value={form.plotNumber}
+              onChange={(e) => setForm((f) => ({ ...f, plotNumber: e.target.value }))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Applicant Name *</label>
+            <input
+              type="text"
+              required
+              value={form.applicantName}
+              onChange={(e) => setForm((f) => ({ ...f, applicantName: e.target.value }))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Cell Number *</label>
+            <input
+              type="tel"
+              required
+              value={form.cellNumber}
+              onChange={(e) => setForm((f) => ({ ...f, cellNumber: e.target.value }))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div className="col-span-2">
+            <label className="block text-xs font-medium text-gray-700 mb-1">Booking Date *</label>
+            <input
+              type="date"
+              required
+              value={form.bookingDate}
+              onChange={(e) => setForm((f) => ({ ...f, bookingDate: e.target.value }))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={create.isPending}
+            className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+          >
+            {create.isPending ? 'Creating...' : 'Create Booking'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
 
 const NEXT_STATUS: Partial<Record<BookingStatus, BookingStatus>> = {
   BOOKING_INITIATED: 'TOKEN_RECEIVED',
@@ -91,6 +219,7 @@ const AdminBookingsPage: React.FC = () => {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<BookingStatus | ''>('');
   const [selected, setSelected] = useState<Booking | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
 
   const { data, isLoading } = useBookings({
     page,
@@ -101,9 +230,17 @@ const AdminBookingsPage: React.FC = () => {
 
   return (
     <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Bookings</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Manage branch bookings and workflow</p>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Bookings</h1>
+          <p className="text-sm text-gray-500 mt-0.5">Manage branch bookings and workflow</p>
+        </div>
+        <button
+          onClick={() => setCreateOpen(true)}
+          className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+        >
+          + New Booking
+        </button>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
@@ -167,6 +304,7 @@ const AdminBookingsPage: React.FC = () => {
         {data && <Pagination page={page} total={data.total} limit={data.limit} onPageChange={setPage} />}
       </div>
 
+      <CreateBookingModal open={createOpen} onClose={() => setCreateOpen(false)} />
       {selected && <BookingDetailModal booking={selected} onClose={() => setSelected(null)} />}
     </div>
   );
