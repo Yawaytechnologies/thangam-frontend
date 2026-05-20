@@ -8,7 +8,7 @@ import {
 } from '../../hooks/useDashboard';
 import { useLatestNotifications } from '../../hooks/useNotifications';
 import { StatusBadge } from '../../components/ui/StatusBadge';
-import type { ActivityEntry } from '../../api/dashboard.api';
+import type { AdminMemberActivity, AdminBookingActivity, AdminBillingActivity } from '../../api/dashboard.api';
 import type { NotificationRecipient } from '../../types';
 
 interface KpiCardProps {
@@ -71,7 +71,7 @@ const AdminDashboardPage: React.FC = () => {
     },
     {
       label: 'New Members',
-      value: statsLoading ? '—' : stats?.activeMembers ?? 0,
+      value: statsLoading ? '—' : stats?.newMembersThisMonth ?? 0,
       color: 'bg-green-100',
       icon: (
         <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -91,7 +91,7 @@ const AdminDashboardPage: React.FC = () => {
     },
     {
       label: 'Pending Billing',
-      value: statsLoading ? '—' : stats?.totalBillings ?? 0,
+      value: statsLoading ? '—' : stats?.pendingBilling ?? 0,
       color: 'bg-yellow-100',
       icon: (
         <svg className="w-5 h-5 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -101,9 +101,7 @@ const AdminDashboardPage: React.FC = () => {
     },
     {
       label: 'Completed Settlements',
-      value: statsLoading
-        ? '—'
-        : `₹${(stats?.totalRevenue ?? 0).toLocaleString('en-IN')}`,
+      value: statsLoading ? '—' : stats?.completedSettlements ?? 0,
       color: 'bg-purple-100',
       icon: (
         <svg className="w-5 h-5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -113,9 +111,9 @@ const AdminDashboardPage: React.FC = () => {
     },
   ];
 
-  const recentMembers: ActivityEntry[] = (memberActivity ?? []).slice(0, 5);
-  const recentBookings: ActivityEntry[] = (bookingActivity ?? []).slice(0, 5);
-  const recentBilling: ActivityEntry[] = (billingActivity ?? []).slice(0, 5);
+  const recentMembers: AdminMemberActivity[] = (memberActivity ?? []).slice(0, 5);
+  const recentBookings: AdminBookingActivity[] = (bookingActivity ?? []).slice(0, 5);
+  const recentBilling: AdminBillingActivity[] = (billingActivity ?? []).slice(0, 5);
   const recentNotifications: NotificationRecipient[] = (latestNotifications ?? []).slice(0, 5);
 
   return (
@@ -144,7 +142,7 @@ const AdminDashboardPage: React.FC = () => {
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Name</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Role</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Joined Date</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Branch Activity</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -163,14 +161,14 @@ const AdminDashboardPage: React.FC = () => {
               ) : (
                 recentMembers.map((m) => (
                   <tr key={m.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-mono text-xs text-gray-500">{m.id}</td>
-                    <td className="px-4 py-3 font-medium text-gray-900">{m.label}</td>
-                    <td className="px-4 py-3 text-gray-600">{String(m.value)}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-gray-500">{m.memberId}</td>
+                    <td className="px-4 py-3 font-medium text-gray-900">{m.fullName}</td>
+                    <td className="px-4 py-3 text-gray-600">{m.role}</td>
                     <td className="px-4 py-3 text-gray-500">
-                      {new Date(m.date).toLocaleDateString('en-IN')}
+                      {new Date(m.createdAt).toLocaleDateString('en-IN')}
                     </td>
                     <td className="px-4 py-3">
-                      <StatusBadge status="ACTIVE" />
+                      <StatusBadge status={m.status} />
                     </td>
                   </tr>
                 ))
@@ -210,14 +208,14 @@ const AdminDashboardPage: React.FC = () => {
               ) : (
                 recentBookings.map((b) => (
                   <tr key={b.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-mono text-xs text-gray-500">{b.id}</td>
-                    <td className="px-4 py-3 font-medium text-gray-900">{b.label}</td>
-                    <td className="px-4 py-3 text-gray-600">{String(b.value)}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-gray-500">{b.bookingId}</td>
+                    <td className="px-4 py-3 font-medium text-gray-900">{b.applicantName}</td>
+                    <td className="px-4 py-3 text-gray-600">{b.projectName} / {b.plotNumber}</td>
                     <td className="px-4 py-3">
-                      <StatusBadge status="BOOKING_INITIATED" />
+                      <StatusBadge status={b.status} />
                     </td>
                     <td className="px-4 py-3 text-gray-500">
-                      {new Date(b.date).toLocaleDateString('en-IN')}
+                      {new Date(b.bookingDate).toLocaleDateString('en-IN')}
                     </td>
                   </tr>
                 ))
@@ -235,9 +233,7 @@ const AdminDashboardPage: React.FC = () => {
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Billing ID</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Booking ID</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Buyer</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Method</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Amt Paid</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Balance</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
@@ -246,31 +242,29 @@ const AdminDashboardPage: React.FC = () => {
             <tbody className="divide-y divide-gray-100">
               {billingLoading ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-6 text-center text-gray-400">
+                  <td colSpan={5} className="px-4 py-6 text-center text-gray-400">
                     Loading...
                   </td>
                 </tr>
               ) : !recentBilling.length ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-6 text-center text-gray-400">
+                  <td colSpan={5} className="px-4 py-6 text-center text-gray-400">
                     No recent billing
                   </td>
                 </tr>
               ) : (
                 recentBilling.map((b) => (
                   <tr key={b.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-mono text-xs text-gray-500">{b.id}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-gray-500">{String(b.bookingId ?? '—')}</td>
-                    <td className="px-4 py-3 font-medium text-gray-900">{b.label}</td>
-                    <td className="px-4 py-3 text-gray-600">{String(b.method ?? '—')}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-gray-500">{b.billingId}</td>
+                    <td className="px-4 py-3 font-medium text-gray-900">{b.buyerName}</td>
                     <td className="px-4 py-3 text-gray-900 font-medium">
-                      ₹{Number(b.value ?? 0).toLocaleString('en-IN')}
+                      ₹{Number(b.amountInNumbers).toLocaleString('en-IN')}
                     </td>
                     <td className="px-4 py-3 text-red-600">
-                      ₹{Number(b.balance ?? 0).toLocaleString('en-IN')}
+                      ₹{Number(b.totalBalance).toLocaleString('en-IN')}
                     </td>
                     <td className="px-4 py-3">
-                      <StatusBadge status="PENDING" />
+                      <StatusBadge status={b.status} />
                     </td>
                   </tr>
                 ))
