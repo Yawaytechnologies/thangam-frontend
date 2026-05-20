@@ -1,23 +1,39 @@
 import api from '../lib/axios';
 
-export interface TopPerformer {
+export interface DbTopPerformerMember {
   id: string;
   memberId: string;
-  memberName: string;
+  fullName: string;
   role: string;
-  branchName?: string;
-  metric: string;
-  value: number;
+  status: string;
+  branch?: { id: string; name: string } | null;
+}
+
+export interface DbTopPerformer {
+  id: string;
+  memberId: string;
+  role: string;
   rank: number;
-  isFrozen: boolean;
+  displayOrder: number;
+  taggedCount: number;
+  propertiesCount: number;
+  isActive: boolean;
   createdAt: string;
+  member: DbTopPerformerMember;
+}
+
+export interface TopPerformersResponse {
+  froze: boolean;
+  performers: { role: string; items: DbTopPerformer[] }[];
 }
 
 export interface CreateTopPerformerData {
   memberId: string;
-  metric: string;
-  value: number;
-  rank?: number;
+  role: string;
+  rank: number;
+  displayOrder: number;
+  taggedCount?: number;
+  propertiesCount?: number;
 }
 
 export type UpdateTopPerformerData = Partial<CreateTopPerformerData>;
@@ -27,21 +43,21 @@ export interface ReorderTopPerformersData {
 }
 
 export const topPerformersApi = {
-  getAll: (): Promise<TopPerformer[]> =>
-    api.get('/top-performers').then((r) => r.data.data),
+  getAll: (): Promise<TopPerformersResponse> =>
+    api.get('/super-admin/dashboard/top-performers').then((r) => r.data.data),
 
-  create: (data: CreateTopPerformerData): Promise<TopPerformer> =>
+  create: (data: CreateTopPerformerData): Promise<DbTopPerformer> =>
     api.post('/top-performers', data).then((r) => r.data.data),
 
-  update: (id: string, data: UpdateTopPerformerData): Promise<TopPerformer> =>
+  update: (id: string, data: UpdateTopPerformerData): Promise<DbTopPerformer> =>
     api.put(`/top-performers/${id}`, data).then((r) => r.data.data),
 
   remove: (id: string): Promise<void> =>
     api.delete(`/top-performers/${id}`).then(() => undefined),
 
-  reorder: (data: ReorderTopPerformersData): Promise<TopPerformer[]> =>
-    api.patch('/top-performers/reorder', data).then((r) => r.data.data),
+  reorder: (data: ReorderTopPerformersData): Promise<void> =>
+    api.patch('/top-performers/reorder', data).then(() => undefined),
 
-  toggleFreeze: (id: string): Promise<TopPerformer> =>
-    api.patch(`/top-performers/${id}/freeze`).then((r) => r.data.data),
+  toggleFreeze: (frozen: boolean): Promise<{ frozen: boolean }> =>
+    api.patch('/settings/top-performers/freeze', { frozen }).then((r) => r.data.data),
 };

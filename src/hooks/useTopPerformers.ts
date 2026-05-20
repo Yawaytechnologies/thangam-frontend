@@ -62,7 +62,7 @@ export function useToggleFreeze() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => topPerformersApi.toggleFreeze(id),
+    mutationFn: (frozen: boolean) => topPerformersApi.toggleFreeze(frozen),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['top-performers'] });
     },
