@@ -16,37 +16,53 @@ export interface SuperAdminStats {
 
 export interface AdminStats {
   totalMembers: number;
-  activeMembers: number;
-  totalProperties: number;
-  availableProperties: number;
-  totalBookings: number;
+  newMembersThisMonth: number;
   activeBookings: number;
-  totalBillings: number;
-  totalRevenue: number;
-  pendingRevenue: number;
+  pendingBilling: number;
+  completedSettlements: number;
 }
 
-export interface ActivityEntry {
+export interface AdminMemberActivity {
   id: string;
-  label: string;
-  value: number | string;
-  date: string;
-  [key: string]: unknown;
+  memberId: string;
+  fullName: string;
+  role: string;
+  createdAt: string;
+  status: string;
+}
+
+export interface AdminBookingActivity {
+  id: string;
+  bookingId: string;
+  applicantName: string;
+  projectName: string;
+  plotNumber: string;
+  status: string;
+  bookingDate: string;
+}
+
+export interface AdminBillingActivity {
+  id: string;
+  billingId: string;
+  buyerName: string;
+  amountInNumbers: number;
+  totalBalance: number;
+  status: string;
 }
 
 export const dashboardApi = {
   getSuperAdminStats: (): Promise<SuperAdminStats> =>
-    api.get('/dashboard/super-admin/stats').then((r) => r.data.data),
+    api.get('/super-admin/dashboard/stats').then((r) => r.data.data),
 
   getAdminStats: (): Promise<AdminStats> =>
-    api.get('/dashboard/admin/stats').then((r) => r.data.data),
+    api.get('/admin/dashboard/stats').then((r) => r.data.data),
 
-  getAdminMemberActivity: (): Promise<ActivityEntry[]> =>
-    api.get('/dashboard/admin/member-activity').then((r) => r.data.data),
+  getAdminMemberActivity: (): Promise<AdminMemberActivity[]> =>
+    api.get('/admin/dashboard/member-activity').then((r) => r.data.data),
 
-  getAdminBookingActivity: (): Promise<ActivityEntry[]> =>
-    api.get('/dashboard/admin/booking-activity').then((r) => r.data.data),
+  getAdminBookingActivity: (): Promise<AdminBookingActivity[]> =>
+    api.get('/admin/dashboard/booking-activity').then((r) => r.data.data),
 
-  getAdminBillingActivity: (): Promise<ActivityEntry[]> =>
-    api.get('/dashboard/admin/billing-activity').then((r) => r.data.data),
+  getAdminBillingActivity: (): Promise<AdminBillingActivity[]> =>
+    api.get('/admin/dashboard/billing-activity').then((r) => r.data.data),
 };
