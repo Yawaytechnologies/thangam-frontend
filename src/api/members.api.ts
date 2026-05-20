@@ -31,10 +31,10 @@ export const membersApi = {
     api.get(`/members/${id}`).then((r) => r.data.data),
 
   getTeam: (): Promise<Member[]> =>
-    api.get('/team').then((r) => r.data.data),
+    api.get('/members/team').then((r) => r.data.data),
 
   getTeamMember: (id: string): Promise<Member> =>
-    api.get(`/team/${id}`).then((r) => r.data.data),
+    api.get(`/members/team/${id}`).then((r) => r.data.data),
 
   create: (data: CreateMemberData): Promise<Member> =>
     api.post('/members', data).then((r) => r.data.data),
