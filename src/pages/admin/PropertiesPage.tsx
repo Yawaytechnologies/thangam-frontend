@@ -146,7 +146,7 @@ const PropertyDetailModal: React.FC<{
         <div>
           <h3 className="text-sm font-semibold text-gray-700 mb-4">Workflow Timeline</h3>
           {workflow ? (
-            <WorkflowStepper currentStatus={workflow.status} />
+            <WorkflowStepper currentStatus={workflow.workflowStatus} />
           ) : (
             <WorkflowStepper currentStatus={property.workflowStatus} />
           )}
