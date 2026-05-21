@@ -1,10 +1,89 @@
 import React, { useState } from 'react';
-import { useBranches, useCreateBranch } from '../../hooks/useBranches';
+import { useBranches, useCreateBranch, useUpdateBranch } from '../../hooks/useBranches';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Modal } from '../../components/ui/Modal';
-import type { CreateBranchData } from '../../api/branches.api';
+import type { CreateBranchData, UpdateBranchData } from '../../api/branches.api';
+import type { Branch, BranchStatus } from '../../types';
 
-function CreateBranchModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+// ─── Icons ───────────────────────────────────────────────────────────────────
+
+const PinIcon = () => (
+  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+      d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+  </svg>
+);
+
+const PencilIcon = () => (
+  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+      d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+  </svg>
+);
+
+const TrashIcon = () => (
+  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+  </svg>
+);
+
+const BuildingIcon = () => (
+  <svg className="w-12 h-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+      d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+  </svg>
+);
+
+const UploadIcon = () => (
+  <svg className="w-8 h-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+      d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+  </svg>
+);
+
+const PhoneIcon = () => (
+  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+      d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 7V5z" />
+  </svg>
+);
+
+const UserIcon = () => (
+  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+      d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+  </svg>
+);
+
+const UsersIcon = () => (
+  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+      d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+  </svg>
+);
+
+// ─── Shared input style helpers ───────────────────────────────────────────────
+
+const inputClass =
+  'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white';
+const labelClass = 'block text-xs font-medium text-gray-600 mb-1';
+
+// ─── Branch location helper ───────────────────────────────────────────────────
+
+function branchLocation(b: Branch): string {
+  return [b.city, b.state].filter(Boolean).join(', ') || '—';
+}
+
+// ─── CreateBranchModal ────────────────────────────────────────────────────────
+
+interface CreateBranchModalProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+function CreateBranchModal({ open, onClose }: CreateBranchModalProps) {
   const create = useCreateBranch();
   const [form, setForm] = useState<CreateBranchData>({ name: '' });
 
@@ -18,107 +97,165 @@ function CreateBranchModal({ open, onClose }: { open: boolean; onClose: () => vo
     });
   }
 
+  function field<K extends keyof CreateBranchData>(key: K, value: string) {
+    setForm((f) => ({ ...f, [key]: value || undefined }));
+  }
+
   return (
-    <Modal open={open} onClose={onClose} title="Create Branch" size="lg">
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Create New Branch"
+      subtitle="Add a new regional branch to the organisation."
+      size="lg"
+    >
       <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Branch Name — full width */}
+        <div>
+          <label className={labelClass}>Branch Name *</label>
+          <input
+            type="text"
+            required
+            placeholder="e.g. Chennai North Branch"
+            value={form.name}
+            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+            className={inputClass}
+          />
+        </div>
+
+        {/* Status + Branch Type */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Branch Name *</label>
-            <input
-              type="text"
-              required
-              value={form.name}
-              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Branch Type</label>
-            <input
-              type="text"
+            <label className={labelClass}>Status</label>
+            <select
               value={form.branchType ?? ''}
-              onChange={(e) => setForm((f) => ({ ...f, branchType: e.target.value || undefined }))}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+              onChange={(e) => field('branchType', e.target.value)}
+              className={inputClass}
+            >
+              <option value="">Select type</option>
+              <option value="ACTIVE">Active</option>
+              <option value="INACTIVE">Inactive</option>
+            </select>
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Phone</label>
-            <input
-              type="tel"
-              value={form.phone ?? ''}
-              onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value || undefined }))}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+            <label className={labelClass}>Phone Number</label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                <PhoneIcon />
+              </span>
+              <input
+                type="tel"
+                placeholder="+91 98765 43210"
+                value={form.phone ?? ''}
+                onChange={(e) => field('phone', e.target.value)}
+                className={`${inputClass} pl-9`}
+              />
+            </div>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Email</label>
-            <input
-              type="email"
-              value={form.email ?? ''}
-              onChange={(e) => setForm((f) => ({ ...f, email: e.target.value || undefined }))}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div className="col-span-2">
-            <label className="block text-xs font-medium text-gray-700 mb-1">Address</label>
+        </div>
+
+        {/* Location Address */}
+        <div>
+          <label className={labelClass}>Location Address</label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+              <PinIcon />
+            </span>
             <input
               type="text"
+              placeholder="Street address"
               value={form.address ?? ''}
-              onChange={(e) => setForm((f) => ({ ...f, address: e.target.value || undefined }))}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">City</label>
-            <input
-              type="text"
-              value={form.city ?? ''}
-              onChange={(e) => setForm((f) => ({ ...f, city: e.target.value || undefined }))}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">District</label>
-            <input
-              type="text"
-              value={form.district ?? ''}
-              onChange={(e) => setForm((f) => ({ ...f, district: e.target.value || undefined }))}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">State</label>
-            <input
-              type="text"
-              value={form.state ?? ''}
-              onChange={(e) => setForm((f) => ({ ...f, state: e.target.value || undefined }))}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Pincode</label>
-            <input
-              type="text"
-              value={form.pincode ?? ''}
-              onChange={(e) => setForm((f) => ({ ...f, pincode: e.target.value || undefined }))}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              onChange={(e) => field('address', e.target.value)}
+              className={`${inputClass} pl-9`}
             />
           </div>
         </div>
-        <div className="flex justify-end gap-2 pt-2">
+
+        {/* City / District / State / Pincode */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={labelClass}>City</label>
+            <input
+              type="text"
+              placeholder="Chennai"
+              value={form.city ?? ''}
+              onChange={(e) => field('city', e.target.value)}
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className={labelClass}>District</label>
+            <input
+              type="text"
+              placeholder="Chennai"
+              value={form.district ?? ''}
+              onChange={(e) => field('district', e.target.value)}
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className={labelClass}>State</label>
+            <input
+              type="text"
+              placeholder="Tamil Nadu"
+              value={form.state ?? ''}
+              onChange={(e) => field('state', e.target.value)}
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className={labelClass}>Pincode</label>
+            <input
+              type="text"
+              placeholder="600001"
+              value={form.pincode ?? ''}
+              onChange={(e) => field('pincode', e.target.value)}
+              className={inputClass}
+            />
+          </div>
+        </div>
+
+        {/* Manager Name (email field repurposed as manager label in display) */}
+        <div>
+          <label className={labelClass}>Manager Email</label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+              <UserIcon />
+            </span>
+            <input
+              type="email"
+              placeholder="manager@thangam.com"
+              value={form.email ?? ''}
+              onChange={(e) => field('email', e.target.value)}
+              className={`${inputClass} pl-9`}
+            />
+          </div>
+        </div>
+
+        {/* Image upload placeholder */}
+        <div>
+          <label className={labelClass}>Branch Image</label>
+          <div className="border-2 border-dashed border-gray-200 rounded-xl p-6 flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-gold transition-colors bg-gray-50">
+            <UploadIcon />
+            <p className="text-sm font-medium text-gray-600">Click to upload or drag &amp; drop</p>
+            <p className="text-xs text-gray-400">PNG, JPG up to 10MB</p>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 pt-2">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+            className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 text-sm"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={create.isPending}
-            className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            className="bg-gold text-navy font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 text-sm"
           >
-            {create.isPending ? 'Creating...' : 'Create Branch'}
+            {create.isPending ? 'Submitting...' : 'Submit Branch'}
           </button>
         </div>
       </form>
@@ -126,56 +263,507 @@ function CreateBranchModal({ open, onClose }: { open: boolean; onClose: () => vo
   );
 }
 
+// ─── EditBranchModal ──────────────────────────────────────────────────────────
+
+interface EditBranchModalProps {
+  open: boolean;
+  onClose: () => void;
+  branch: Branch;
+}
+
+function EditBranchModal({ open, onClose, branch }: EditBranchModalProps) {
+  const update = useUpdateBranch();
+  const [form, setForm] = useState<UpdateBranchData>({
+    name: branch.name,
+    branchType: branch.branchType,
+    phone: branch.phone,
+    email: branch.email,
+    city: branch.city,
+    state: branch.state,
+  });
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    update.mutate({ id: branch.id, data: form }, { onSuccess: onClose });
+  }
+
+  function field<K extends keyof UpdateBranchData>(key: K, value: string) {
+    setForm((f) => ({ ...f, [key]: value || undefined }));
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Edit Branch"
+      subtitle="Update the details for this regional branch."
+      size="lg"
+    >
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className={labelClass}>Branch Name *</label>
+          <input
+            type="text"
+            required
+            value={form.name ?? ''}
+            onChange={(e) => field('name', e.target.value)}
+            className={inputClass}
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={labelClass}>Branch Type / Status</label>
+            <select
+              value={form.branchType ?? ''}
+              onChange={(e) => field('branchType', e.target.value)}
+              className={inputClass}
+            >
+              <option value="">Select type</option>
+              <option value="ACTIVE">Active</option>
+              <option value="INACTIVE">Inactive</option>
+            </select>
+          </div>
+          <div>
+            <label className={labelClass}>Phone Number</label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                <PhoneIcon />
+              </span>
+              <input
+                type="tel"
+                value={form.phone ?? ''}
+                onChange={(e) => field('phone', e.target.value)}
+                className={`${inputClass} pl-9`}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label className={labelClass}>Location Address</label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+              <PinIcon />
+            </span>
+            <input
+              type="text"
+              value={form.address ?? ''}
+              onChange={(e) => field('address', e.target.value)}
+              className={`${inputClass} pl-9`}
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={labelClass}>City</label>
+            <input type="text" value={form.city ?? ''} onChange={(e) => field('city', e.target.value)} className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>District</label>
+            <input type="text" value={form.district ?? ''} onChange={(e) => field('district', e.target.value)} className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>State</label>
+            <input type="text" value={form.state ?? ''} onChange={(e) => field('state', e.target.value)} className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>Pincode</label>
+            <input type="text" value={form.pincode ?? ''} onChange={(e) => field('pincode', e.target.value)} className={inputClass} />
+          </div>
+        </div>
+
+        <div>
+          <label className={labelClass}>Manager Email</label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+              <UserIcon />
+            </span>
+            <input
+              type="email"
+              value={form.email ?? ''}
+              onChange={(e) => field('email', e.target.value)}
+              className={`${inputClass} pl-9`}
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 pt-2">
+          <button type="button" onClick={onClose} className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 text-sm">
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={update.isPending}
+            className="bg-gold text-navy font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 text-sm"
+          >
+            {update.isPending ? 'Saving...' : 'Save Changes'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// ─── ViewBranchModal ──────────────────────────────────────────────────────────
+
+interface ViewBranchModalProps {
+  open: boolean;
+  onClose: () => void;
+  branch: Branch;
+}
+
+function ViewBranchModal({ open, onClose, branch }: ViewBranchModalProps) {
+  // Mock activity feed (branch has no imageUrl or members in the Branch type)
+  const activities = [
+    {
+      id: 1,
+      color: 'bg-green-100 text-green-600',
+      title: 'Branch Activated',
+      description: 'Branch status updated to active by Super Admin.',
+      time: '2 days ago',
+    },
+    {
+      id: 2,
+      color: 'bg-blue-100 text-blue-600',
+      title: 'Manager Assigned',
+      description: 'Regional manager assigned to this branch.',
+      time: '5 days ago',
+    },
+    {
+      id: 3,
+      color: 'bg-yellow-100 text-yellow-700',
+      title: 'Branch Created',
+      description: 'Branch was registered and initialised.',
+      time: new Date(branch.createdAt).toLocaleDateString('en-IN'),
+    },
+  ];
+
+  return (
+    <Modal open={open} onClose={onClose} title="Branch Details" size="xl">
+      {/* Hero */}
+      <div className="rounded-xl overflow-hidden relative h-48 bg-gray-800 mb-6 flex items-end">
+        <div className="absolute inset-0 flex items-center justify-center">
+          <BuildingIcon />
+        </div>
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
+        <div className="relative z-10 p-4 w-full flex items-end justify-between">
+          <div>
+            <h3 className="text-xl font-bold text-white">{branch.name}</h3>
+            <p className="text-sm text-gray-300 flex items-center gap-1 mt-0.5">
+              <PinIcon />
+              {branchLocation(branch)}
+            </p>
+          </div>
+          <StatusBadge status={branch.status} />
+        </div>
+      </div>
+
+      {/* Two-column sections */}
+      <div className="grid grid-cols-2 gap-6 mb-6">
+        {/* Branch Overview */}
+        <div className="space-y-3">
+          <h4 className="text-sm font-semibold text-gray-800 border-b border-gray-100 pb-2">Branch Overview</h4>
+          {[
+            { label: 'Official Name', value: branch.name },
+            { label: 'Branch Code', value: branch.branchCode },
+            { label: 'Registered Phone', value: branch.phone ?? '—' },
+            { label: 'Email', value: branch.email ?? '—' },
+            { label: 'City', value: branch.city ?? '—' },
+            { label: 'State', value: branch.state ?? '—' },
+            { label: 'Established', value: new Date(branch.createdAt).toLocaleDateString('en-IN') },
+            { label: 'Operational Status', value: <StatusBadge status={branch.status} /> },
+          ].map(({ label, value }) => (
+            <div key={label} className="flex justify-between items-center">
+              <span className="text-xs text-gray-500 uppercase tracking-wide">{label}</span>
+              <span className="text-xs font-medium text-gray-800">{value}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Regional Leadership + quick stats */}
+        <div className="space-y-3">
+          <h4 className="text-sm font-semibold text-gray-800 border-b border-gray-100 pb-2">Regional Leadership</h4>
+          {/* Placeholder leadership chips since Admin data isn't on Branch */}
+          <div className="flex flex-wrap gap-3">
+            {['Regional Manager', 'Deputy Manager'].map((role, i) => (
+              <div key={role} className="flex flex-col items-center gap-1">
+                <div className="w-8 h-8 rounded-full bg-navy/10 flex items-center justify-center text-navy text-xs font-bold">
+                  {String.fromCharCode(65 + i)}
+                </div>
+                <span className="text-xs text-gray-600">{role}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Quick stats */}
+          <div className="mt-4 pt-3 border-t border-gray-100">
+            <h4 className="text-sm font-semibold text-gray-800 mb-3">Quick Stats</h4>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { icon: <UsersIcon />, label: 'Members', value: '—' },
+                { icon: <PhoneIcon />, label: 'Contact', value: branch.phone ?? '—' },
+              ].map(({ icon, label, value }) => (
+                <div key={label} className="bg-gray-50 rounded-lg p-3">
+                  <div className="flex items-center gap-1.5 text-gray-500 mb-1">
+                    {icon}
+                    <span className="text-xs uppercase tracking-wide">{label}</span>
+                  </div>
+                  <p className="text-sm font-semibold text-gray-800">{value}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Recent Activity Feed */}
+      <div>
+        <h4 className="text-sm font-semibold text-gray-800 mb-3">Recent Activity</h4>
+        <div className="space-y-3">
+          {activities.map((a) => (
+            <div key={a.id} className="flex items-start gap-3">
+              <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center ${a.color}`}>
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-gray-800">{a.title}</p>
+                <p className="text-xs text-gray-500">{a.description}</p>
+              </div>
+              <span className="text-xs text-gray-400 whitespace-nowrap">{a.time}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-100">
+        <button
+          type="button"
+          onClick={onClose}
+          className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 text-sm"
+        >
+          Close
+        </button>
+        <button
+          type="button"
+          className="bg-gold text-navy font-semibold px-4 py-2 rounded-lg hover:opacity-90 text-sm"
+        >
+          Open Full Workspace
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+// ─── BranchCard ───────────────────────────────────────────────────────────────
+
+interface BranchCardProps {
+  branch: Branch;
+  onView: (b: Branch) => void;
+  onEdit: (b: Branch) => void;
+  onDelete: (b: Branch) => void;
+}
+
+function BranchCard({ branch, onView, onEdit, onDelete }: BranchCardProps) {
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
+      {/* Image area */}
+      <div className="h-40 bg-gray-200 relative flex items-center justify-center">
+        <BuildingIcon />
+        {/* Status badge overlay */}
+        <div className="absolute top-3 right-3">
+          <StatusBadge status={branch.status} />
+        </div>
+      </div>
+
+      {/* Card body */}
+      <div className="p-4 flex-1">
+        <h3 className="font-semibold text-gray-900 text-sm mb-1 truncate">{branch.name}</h3>
+        <p className="text-xs text-gray-500 flex items-center gap-1 mb-3">
+          <PinIcon />
+          <span className="truncate">{branchLocation(branch)}</span>
+        </p>
+
+        {/* 2-col stats */}
+        <div className="grid grid-cols-2 gap-2">
+          <div className="bg-gray-50 rounded-lg p-2">
+            <p className="text-xs text-gray-400 uppercase tracking-wide mb-0.5">Manager</p>
+            <p className="text-xs font-medium text-gray-700 truncate">{branch.email ?? '—'}</p>
+          </div>
+          <div className="bg-gray-50 rounded-lg p-2">
+            <p className="text-xs text-gray-400 uppercase tracking-wide mb-0.5">Members</p>
+            <p className="text-xs font-medium text-gray-700">—</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Card footer */}
+      <div className="border-t border-gray-100 px-4 pt-3 pb-4 flex items-center justify-between">
+        <button
+          type="button"
+          onClick={() => onView(branch)}
+          className="text-xs font-semibold text-gold hover:opacity-80 transition-opacity"
+        >
+          View Details
+        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onEdit(branch)}
+            className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
+            aria-label="Edit branch"
+          >
+            <PencilIcon />
+          </button>
+          <button
+            type="button"
+            onClick={() => onDelete(branch)}
+            className="p-1.5 rounded-lg text-gray-500 hover:bg-red-50 hover:text-red-600 transition-colors"
+            aria-label="Delete branch"
+          >
+            <TrashIcon />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Filter tab types ─────────────────────────────────────────────────────────
+
+type FilterTab = 'all' | BranchStatus;
+
+const filterTabs: { key: FilterTab; label: string }[] = [
+  { key: 'all', label: 'All Branches' },
+  { key: 'ACTIVE', label: 'Active' },
+  { key: 'INACTIVE', label: 'Inactive' },
+];
+
+// ─── BranchesPage ─────────────────────────────────────────────────────────────
+
 const BranchesPage: React.FC = () => {
   const { data: branchesPage, isLoading } = useBranches();
+  const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
   const [createOpen, setCreateOpen] = useState(false);
+  const [viewBranch, setViewBranch] = useState<Branch | null>(null);
+  const [editBranch, setEditBranch] = useState<Branch | null>(null);
+
+  const branches = branchesPage?.data ?? [];
+
+  const filtered = activeFilter === 'all'
+    ? branches
+    : branches.filter((b) => b.status === activeFilter);
+
+  const activeCount = branches.filter((b) => b.status === 'ACTIVE').length;
+
+  function handleDelete(b: Branch) {
+    // No useDeleteBranch hook exists — stub
+    if (window.confirm(`Delete branch "${b.name}"? This action cannot be undone.`)) {
+      // stub: no-op until API hook is added
+    }
+  }
 
   return (
     <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Branches</h1>
-        <button
-          onClick={() => setCreateOpen(true)}
-          className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          + Add Branch
-        </button>
-      </div>
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Branch Code</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Name</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">City</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Phone</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Created</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {isLoading ? (
-                <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-500">Loading...</td></tr>
-              ) : !branchesPage?.data?.length ? (
-                <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">No branches found</td></tr>
-              ) : (
-                branchesPage.data.map((b) => (
-                  <tr key={b.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-mono text-xs text-gray-600">{b.branchCode}</td>
-                    <td className="px-4 py-3 font-medium text-gray-900">{b.name}</td>
-                    <td className="px-4 py-3 text-gray-600">{b.city ?? '—'}</td>
-                    <td className="px-4 py-3 text-gray-600">{b.phone ?? '—'}</td>
-                    <td className="px-4 py-3"><StatusBadge status={b.status} /></td>
-                    <td className="px-4 py-3 text-gray-500">{new Date(b.createdAt).toLocaleDateString('en-IN')}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+      {/* Page header */}
+      <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Branch Management</h1>
+          <p className="text-sm text-gray-500 mt-0.5">
+            Manage and monitor {activeCount} active regional branch{activeCount !== 1 ? 'es' : ''}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Filter tabs */}
+          <div className="flex items-center bg-gray-100 rounded-lg p-1 gap-1">
+            {filterTabs.map(({ key, label }) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setActiveFilter(key)}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  activeFilter === key
+                    ? 'bg-gold text-navy shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Add Branch button */}
+          <button
+            type="button"
+            onClick={() => setCreateOpen(true)}
+            className="bg-gold text-navy font-semibold px-4 py-2 rounded-lg hover:opacity-90 text-sm"
+          >
+            + Add Branch
+          </button>
         </div>
       </div>
+
+      {/* Branch card grid */}
+      {isLoading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden animate-pulse">
+              <div className="h-40 bg-gray-100" />
+              <div className="p-4 space-y-2">
+                <div className="h-4 bg-gray-100 rounded w-3/4" />
+                <div className="h-3 bg-gray-100 rounded w-1/2" />
+                <div className="h-12 bg-gray-100 rounded mt-3" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+            <BuildingIcon />
+          </div>
+          <p className="text-gray-600 font-medium">No branches found</p>
+          <p className="text-sm text-gray-400 mt-1">
+            {activeFilter === 'all' ? 'Create your first branch to get started.' : `No ${activeFilter.toLowerCase()} branches.`}
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          {filtered.map((b) => (
+            <BranchCard
+              key={b.id}
+              branch={b}
+              onView={setViewBranch}
+              onEdit={setEditBranch}
+              onDelete={handleDelete}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Modals */}
       <CreateBranchModal open={createOpen} onClose={() => setCreateOpen(false)} />
+
+      {viewBranch && (
+        <ViewBranchModal
+          open
+          onClose={() => setViewBranch(null)}
+          branch={viewBranch}
+        />
+      )}
+
+      {editBranch && (
+        <EditBranchModal
+          open
+          onClose={() => setEditBranch(null)}
+          branch={editBranch}
+        />
+      )}
     </div>
   );
 };
