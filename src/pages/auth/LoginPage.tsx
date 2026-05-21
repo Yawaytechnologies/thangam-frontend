@@ -80,7 +80,7 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1.5">Email Address</label>
+              <label htmlFor="email" className="block text-xs font-medium text-gray-600 mb-1.5">Email Address</label>
               <input
                 id="email"
                 name="email"
@@ -95,7 +95,7 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1.5">Password</label>
+              <label htmlFor="password" className="block text-xs font-medium text-gray-600 mb-1.5">Password</label>
               <div className="relative">
                 <input
                   id="password"

@@ -265,9 +265,12 @@ function AddAdminModal({ open, onClose }: AddAdminModalProps) {
           <input
             type="tel"
             required
-            placeholder="+91 98765 43210"
+            pattern="[6-9][0-9]{9}"
+            maxLength={10}
+            title="Enter a valid 10-digit Indian mobile number (starts with 6–9)"
+            placeholder="9876543210"
             value={form.phone}
-            onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+            onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value.replace(/\D/g, '').slice(0, 10) }))}
             className={inputClass}
           />
         </div>
@@ -439,8 +442,12 @@ function EditAdminModal({ open, onClose, admin }: EditAdminModalProps) {
             <input
               type="tel"
               required
+              pattern="[6-9][0-9]{9}"
+              maxLength={10}
+              title="Enter a valid 10-digit Indian mobile number (starts with 6–9)"
+              placeholder="9876543210"
               value={form.phone ?? ''}
-              onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+              onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value.replace(/\D/g, '').slice(0, 10) }))}
               className={inputClass}
             />
           </div>

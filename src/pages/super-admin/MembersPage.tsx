@@ -104,8 +104,12 @@ function EditMemberModal({ member, open, onClose }: { member: Member | null; ope
             <label className="block text-xs font-medium text-gray-700 mb-1">Phone</label>
             <input
               type="tel"
+              pattern="[6-9][0-9]{9}"
+              maxLength={10}
+              title="Enter a valid 10-digit Indian mobile number (starts with 6–9)"
+              placeholder="9876543210"
               value={form.phone ?? ''}
-              onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+              onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value.replace(/\D/g, '').slice(0, 10) }))}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
@@ -189,18 +193,22 @@ function CreateMemberModal({ open, onClose }: { open: boolean; onClose: () => vo
         <div className="grid grid-cols-2 gap-4">
           {([
             { key: 'fullName', label: 'Full Name', type: 'text', required: true },
-            { key: 'phone', label: 'Phone', type: 'tel', required: true },
+            { key: 'phone', label: 'Phone', type: 'tel', required: true, pattern: '[6-9][0-9]{9}', maxLength: 10, title: 'Enter a valid 10-digit Indian mobile number (starts with 6–9)', placeholder: '9876543210' },
             { key: 'email', label: 'Email', type: 'email' },
             { key: 'codeNumber', label: 'Code Number', type: 'text' },
             { key: 'password', label: 'Password', type: 'password', required: true },
-          ] as Array<{ key: keyof CreateMemberData; label: string; type: string; required?: boolean }>).map(({ key, label, type, required }) => (
+          ] as Array<{ key: keyof CreateMemberData; label: string; type: string; required?: boolean; pattern?: string; maxLength?: number; title?: string; placeholder?: string }>).map(({ key, label, type, required, pattern, maxLength, title, placeholder }) => (
             <div key={key}>
               <label className="block text-xs font-medium text-gray-700 mb-1">{label}{required && ' *'}</label>
               <input
                 type={type}
                 required={required}
+                pattern={pattern}
+                maxLength={maxLength}
+                title={title}
+                placeholder={placeholder}
                 value={(form[key] as string) ?? ''}
-                onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
+                onChange={(e) => setForm((f) => ({ ...f, [key]: key === 'phone' ? e.target.value.replace(/\D/g, '').slice(0, 10) : e.target.value }))}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
