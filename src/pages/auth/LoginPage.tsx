@@ -37,7 +37,7 @@ export default function LoginPage() {
 
           {/* Headline */}
           <div className="flex-1 flex flex-col justify-center">
-            <p className="text-gold text-sm font-semibold uppercase tracking-widest mb-4">Super Admin Portal</p>
+            <p className="text-gold text-sm font-semibold uppercase tracking-widest mb-4">Management Portal</p>
             <h1 className="text-4xl font-bold text-white leading-tight mb-6">
               Precision in<br />Property Management.
             </h1>
@@ -75,15 +75,18 @@ export default function LoginPage() {
             <span className="font-bold text-navy">Sri Thangam Housing</span>
           </div>
 
-          <h2 className="text-2xl font-bold text-gray-900 mb-1">Super Admin Login</h2>
+          <h2 className="text-2xl font-bold text-gray-900 mb-1">Staff Login</h2>
           <p className="text-gray-500 text-sm mb-8">Enter your credentials to access the management portal</p>
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Email Address</label>
               <input
+                id="email"
+                name="email"
                 type="email"
                 required
+                autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="admin@srithangam.com"
@@ -95,8 +98,11 @@ export default function LoginPage() {
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Password</label>
               <div className="relative">
                 <input
+                  id="password"
+                  name="password"
                   type={showPw ? 'text' : 'password'}
                   required
+                  autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Enter your password"
