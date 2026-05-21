@@ -16,7 +16,7 @@ export interface CreateBillingData {
   buyerPhone: string;
   paymentMethod: PaymentMethod;
   amountInNumbers: number;
-  amountInWords: string;
+  amountInWords?: string;
   billingDate: string;
 }
 

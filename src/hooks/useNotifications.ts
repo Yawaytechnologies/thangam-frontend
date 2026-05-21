@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { notificationsApi, type NotificationParams } from '../api/notifications.api';
+import { notificationsApi, type NotificationParams, type SendMessageData } from '../api/notifications.api';
 
 export function useNotifications(params?: NotificationParams) {
   return useQuery({
@@ -49,5 +49,11 @@ export function useMarkAllRead() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
     },
+  });
+}
+
+export function useSendMessage() {
+  return useMutation({
+    mutationFn: (data: SendMessageData) => notificationsApi.sendMessage(data),
   });
 }

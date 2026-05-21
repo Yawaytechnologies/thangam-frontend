@@ -205,18 +205,22 @@ function ManageTopPerformersModal({
     );
   }
 
+  function buildReorderItems(performers: typeof sorted) {
+    return performers.map((p, i) => ({ id: p.id, rank: i + 1, displayOrder: i + 1 }));
+  }
+
   function handleMoveUp(index: number) {
     if (index === 0) return;
-    const ids = sorted.map((p) => p.id);
-    [ids[index - 1], ids[index]] = [ids[index], ids[index - 1]];
-    reorderMutation.mutate({ orderedIds: ids });
+    const reordered = [...sorted];
+    [reordered[index - 1], reordered[index]] = [reordered[index], reordered[index - 1]];
+    reorderMutation.mutate({ items: buildReorderItems(reordered) });
   }
 
   function handleMoveDown(index: number) {
     if (index >= sorted.length - 1) return;
-    const ids = sorted.map((p) => p.id);
-    [ids[index], ids[index + 1]] = [ids[index + 1], ids[index]];
-    reorderMutation.mutate({ orderedIds: ids });
+    const reordered = [...sorted];
+    [reordered[index], reordered[index + 1]] = [reordered[index + 1], reordered[index]];
+    reorderMutation.mutate({ items: buildReorderItems(reordered) });
   }
 
   return (

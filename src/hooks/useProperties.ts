@@ -73,3 +73,16 @@ export function useUpdatePropertyWorkflow() {
     },
   });
 }
+
+export function useUploadPropertyImages() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, files }: { id: string; files: File[] }) =>
+      propertiesApi.uploadImages(id, files),
+    onSuccess: (_data, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['properties', id] });
+      queryClient.invalidateQueries({ queryKey: ['properties'] });
+    },
+  });
+}

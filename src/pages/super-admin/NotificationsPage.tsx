@@ -4,6 +4,7 @@ import {
   useNotification,
   useMarkRead,
   useMarkAllRead,
+  useSendMessage,
 } from '../../hooks/useNotifications';
 import { useBranches } from '../../hooks/useBranches';
 import { Modal } from '../../components/ui/Modal';
@@ -406,6 +407,7 @@ interface SendMessageModalProps {
 
 function SendMessageModal({ open, onClose, recipient }: SendMessageModalProps) {
   const n = recipient.notification;
+  const sendMessage = useSendMessage();
   const [msgType, setMsgType] = useState('Internal Note');
   const [priority, setPriority] = useState<'Standard' | 'Urgent'>('Standard');
   const [subject, setSubject] = useState('');
@@ -413,10 +415,24 @@ function SendMessageModal({ open, onClose, recipient }: SendMessageModalProps) {
 
   function handleSend(e: React.FormEvent) {
     e.preventDefault();
-    toast.success('Message sent successfully.');
-    onClose();
-    setSubject('');
-    setMessage('');
+    sendMessage.mutate(
+      {
+        recipientId: recipient.userId,
+        subject,
+        message,
+        messageType: msgType,
+        priority,
+        notificationId: n?.id,
+      },
+      {
+        onSuccess: () => {
+          toast.success('Message sent successfully.');
+          onClose();
+          setSubject('');
+          setMessage('');
+        },
+      },
+    );
   }
 
   if (!n) return null;
@@ -531,12 +547,13 @@ function SendMessageModal({ open, onClose, recipient }: SendMessageModalProps) {
           </button>
           <button
             type="submit"
-            className="bg-gold text-navy font-semibold px-4 py-2 rounded-lg hover:opacity-90 text-sm flex items-center gap-1.5"
+            disabled={sendMessage.isPending}
+            className="bg-gold text-navy font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 text-sm flex items-center gap-1.5"
           >
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
               <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
             </svg>
-            Send Message
+            {sendMessage.isPending ? 'Sending...' : 'Send Message'}
           </button>
         </div>
       </form>

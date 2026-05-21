@@ -51,3 +51,16 @@ export function useUpdateMemberStatus() {
     },
   });
 }
+
+export function useUploadMemberPhoto() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, file }: { id: string; file: File }) =>
+      membersApi.uploadPhoto(id, file),
+    onSuccess: (_data, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['members', id] });
+      queryClient.invalidateQueries({ queryKey: ['members'] });
+    },
+  });
+}

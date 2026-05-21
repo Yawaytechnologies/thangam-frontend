@@ -33,13 +33,13 @@ export interface WorkflowDocument {
 export interface PropertyWorkflow {
   id: string;
   propertyId: string;
-  status: WorkflowStatus;
+  workflowStatus: WorkflowStatus;
   updatedAt: string;
 }
 
 export interface UpdateWorkflowData {
-  status: WorkflowStatus;
-  notes?: string;
+  workflowStatus: WorkflowStatus;
+  remarks?: string;
 }
 
 export const propertiesApi = {
@@ -63,4 +63,12 @@ export const propertiesApi = {
 
   updateWorkflow: (id: string, data: UpdateWorkflowData): Promise<PropertyWorkflow> =>
     api.patch(`/properties/${id}/workflow`, data).then((r) => r.data.data),
+
+  uploadImages: (id: string, files: File[]): Promise<Property> => {
+    const form = new FormData();
+    files.forEach((f) => form.append('images', f));
+    return api.post(`/properties/${id}/images`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data.data);
+  },
 };

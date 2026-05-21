@@ -18,6 +18,15 @@ export interface UnreadCountResponse {
   count: number;
 }
 
+export interface SendMessageData {
+  recipientId: string;
+  subject: string;
+  message: string;
+  messageType: string;
+  priority: 'Standard' | 'Urgent';
+  notificationId?: string;
+}
+
 export const notificationsApi = {
   getAll: (params?: NotificationParams): Promise<PaginatedResponse<NotificationRecipient>> =>
     api.get('/notifications', { params }).then((r) => r.data.data),
@@ -36,4 +45,7 @@ export const notificationsApi = {
 
   markAllRead: (): Promise<{ updated: number }> =>
     api.patch('/notifications/mark-all-read').then((r) => r.data.data),
+
+  sendMessage: (data: SendMessageData): Promise<void> =>
+    api.post('/notifications/send-message', data).then(() => undefined),
 };

@@ -3,7 +3,7 @@ import type { User } from '../types';
 
 export const authApi = {
   login: async (credentials: { email?: string; phone?: string; password: string }) => {
-    const { data } = await api.post<{ data: { user: User; accessToken: string } }>('/auth/login', credentials);
+    const { data } = await api.post<{ data: { user: User; accessToken: string; refreshToken: string } }>('/auth/login', credentials);
     return data.data;
   },
   logout: () => api.post('/auth/logout'),

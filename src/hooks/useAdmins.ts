@@ -58,3 +58,16 @@ export function useUpdateAdminStatus() {
     },
   });
 }
+
+export function useUploadAdminPhoto() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, file }: { id: string; file: File }) =>
+      adminsApi.uploadPhoto(id, file),
+    onSuccess: (_data, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['admins', id] });
+      queryClient.invalidateQueries({ queryKey: ['admins'] });
+    },
+  });
+}

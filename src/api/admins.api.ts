@@ -37,4 +37,12 @@ export const adminsApi = {
 
   updateStatus: (id: string, status: UserStatus): Promise<Admin> =>
     api.patch(`/admins/${id}/status`, { status }).then((r) => r.data.data),
+
+  uploadPhoto: (id: string, file: File): Promise<Admin> => {
+    const form = new FormData();
+    form.append('photo', file);
+    return api.post(`/admins/${id}/photo`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data.data);
+  },
 };

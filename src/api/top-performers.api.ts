@@ -38,8 +38,14 @@ export interface CreateTopPerformerData {
 
 export type UpdateTopPerformerData = Partial<CreateTopPerformerData>;
 
+export interface ReorderTopPerformerItem {
+  id: string;
+  rank: number;
+  displayOrder: number;
+}
+
 export interface ReorderTopPerformersData {
-  orderedIds: string[];
+  items: ReorderTopPerformerItem[];
 }
 
 export const topPerformersApi = {

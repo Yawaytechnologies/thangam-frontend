@@ -9,8 +9,8 @@ export function useLogin() {
 
   return useMutation({
     mutationFn: authApi.login,
-    onSuccess: ({ user, accessToken }) => {
-      setAuth(user, accessToken);
+    onSuccess: ({ user, accessToken, refreshToken }) => {
+      setAuth(user, accessToken, refreshToken);
       if (user.role === 'SUPER_ADMIN') {
         navigate('/super-admin/dashboard');
       } else if (user.role === 'ADMIN') {

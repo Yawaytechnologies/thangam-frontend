@@ -44,4 +44,12 @@ export const membersApi = {
 
   updateStatus: (id: string, status: UserStatus): Promise<Member> =>
     api.patch(`/members/${id}/status`, { status }).then((r) => r.data.data),
+
+  uploadPhoto: (id: string, file: File): Promise<Member> => {
+    const form = new FormData();
+    form.append('photo', file);
+    return api.post(`/members/${id}/photo`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data.data);
+  },
 };
