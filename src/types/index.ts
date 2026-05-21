@@ -39,6 +39,13 @@ export type NotificationType =
   | 'SYSTEM_ACTIVITY'
   | 'TEAM_ACTIVITY';
 export type NotificationStatus = 'UNREAD' | 'READ' | 'RESOLVED' | 'IMPORTANT';
+export type MessageType =
+  | 'BOOKING_FOLLOW_UP'
+  | 'BILLING_FOLLOW_UP'
+  | 'SETTLEMENT_REMINDER'
+  | 'PROPERTY_WORKFLOW_UPDATE'
+  | 'DOCUMENT_SUBMISSION_REMINDER'
+  | 'GENERAL_MESSAGE';
 
 export interface User {
   id: string;
@@ -58,8 +65,11 @@ export interface Branch {
   branchType?: string;
   phone?: string;
   email?: string;
+  address?: string;
   city?: string;
+  district?: string;
   state?: string;
+  pincode?: string;
   status: BranchStatus;
   createdAt: string;
 }

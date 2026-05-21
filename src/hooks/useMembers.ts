@@ -17,6 +17,21 @@ export function useMember(id: string) {
   });
 }
 
+export function useTeam() {
+  return useQuery({
+    queryKey: ['members', 'team'],
+    queryFn: () => membersApi.getTeam(),
+  });
+}
+
+export function useTeamMember(id: string) {
+  return useQuery({
+    queryKey: ['members', 'team', id],
+    queryFn: () => membersApi.getTeamMember(id),
+    enabled: !!id,
+  });
+}
+
 export function useCreateMember() {
   const queryClient = useQueryClient();
 

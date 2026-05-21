@@ -21,8 +21,7 @@ export interface Document {
 }
 
 export interface DocumentUrlResponse {
-  url: string;
-  expiresAt: string;
+  signedUrl: string;
 }
 
 export const documentsApi = {

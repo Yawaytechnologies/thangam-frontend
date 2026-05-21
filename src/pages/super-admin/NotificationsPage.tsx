@@ -408,28 +408,31 @@ interface SendMessageModalProps {
 function SendMessageModal({ open, onClose, recipient }: SendMessageModalProps) {
   const n = recipient.notification;
   const sendMessage = useSendMessage();
-  const [msgType, setMsgType] = useState('Internal Note');
-  const [priority, setPriority] = useState<'Standard' | 'Urgent'>('Standard');
+  const [msgType, setMsgType] = useState<import('../../types').MessageType>('GENERAL_MESSAGE');
   const [subject, setSubject] = useState('');
-  const [message, setMessage] = useState('');
+  const [body, setBody] = useState('');
 
   function handleSend(e: React.FormEvent) {
     e.preventDefault();
+    if (!n) return;
     sendMessage.mutate(
       {
-        recipientId: recipient.userId,
-        subject,
-        message,
+        notificationId: n.id,
+        recipientName: 'System Admin',
+        recipientRole: 'SUPER_ADMIN',
         messageType: msgType,
-        priority,
-        notificationId: n?.id,
+        subject,
+        body,
+        branchId: n.branchId,
+        relatedModule: TYPE_LABELS[n.type],
+        relatedEntityId: n.bookingId ?? n.billingId ?? n.propertyId,
       },
       {
         onSuccess: () => {
           toast.success('Message sent successfully.');
           onClose();
           setSubject('');
-          setMessage('');
+          setBody('');
         },
       },
     );
@@ -479,35 +482,16 @@ function SendMessageModal({ open, onClose, recipient }: SendMessageModalProps) {
           <label className="block text-xs font-medium text-gray-600 mb-1">Message Type</label>
           <select
             value={msgType}
-            onChange={(e) => setMsgType(e.target.value)}
+            onChange={(e) => setMsgType(e.target.value as import('../../types').MessageType)}
             className={`w-full ${inputClass}`}
           >
-            <option>Internal Note</option>
-            <option>Follow Up</option>
-            <option>Urgent Alert</option>
-            <option>Status Update</option>
+            <option value="GENERAL_MESSAGE">General Message</option>
+            <option value="BOOKING_FOLLOW_UP">Booking Follow Up</option>
+            <option value="BILLING_FOLLOW_UP">Billing Follow Up</option>
+            <option value="SETTLEMENT_REMINDER">Settlement Reminder</option>
+            <option value="PROPERTY_WORKFLOW_UPDATE">Property Workflow Update</option>
+            <option value="DOCUMENT_SUBMISSION_REMINDER">Document Submission Reminder</option>
           </select>
-        </div>
-
-        {/* Priority Toggle */}
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Priority Level</label>
-          <div className="flex rounded-lg border border-gray-200 overflow-hidden w-fit">
-            {(['Standard', 'Urgent'] as const).map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => setPriority(p)}
-                className={`px-4 py-1.5 text-sm font-medium transition-colors ${
-                  priority === p
-                    ? 'bg-gold text-navy'
-                    : 'bg-white text-gray-600 hover:bg-gray-50'
-                }`}
-              >
-                {p}
-              </button>
-            ))}
-          </div>
         </div>
 
         {/* Subject */}
@@ -523,14 +507,14 @@ function SendMessageModal({ open, onClose, recipient }: SendMessageModalProps) {
           />
         </div>
 
-        {/* Message */}
+        {/* Message body */}
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Message</label>
           <textarea
             required
             rows={4}
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
             className={`w-full ${inputClass} resize-none`}
             placeholder="Write your message here..."
           />

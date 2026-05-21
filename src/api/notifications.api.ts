@@ -4,6 +4,7 @@ import type {
   NotificationRecipient,
   NotificationType,
   NotificationStatus,
+  MessageType,
   PaginatedResponse,
 } from '../types';
 
@@ -19,12 +20,15 @@ export interface UnreadCountResponse {
 }
 
 export interface SendMessageData {
-  recipientId: string;
+  notificationId: string;
+  recipientName: string;
+  recipientRole: string;
+  messageType: MessageType;
   subject: string;
-  message: string;
-  messageType: string;
-  priority: 'Standard' | 'Urgent';
-  notificationId?: string;
+  body: string;
+  branchId?: string;
+  relatedModule?: string;
+  relatedEntityId?: string;
 }
 
 export const notificationsApi = {
