@@ -6,4 +6,10 @@
   --color-gold-light: #e8c547;
   --color-navy:       #0f1419;
   --color-navy-mid:   #1a2332;
+
+  --font-sans: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  font-family: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
 }
