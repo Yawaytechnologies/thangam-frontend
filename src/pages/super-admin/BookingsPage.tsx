@@ -278,7 +278,7 @@ function CreateBookingModal({ open, onClose }: CreateBookingModalProps) {
 
   const [form, setForm] = useState<BookingForm>(emptyForm);
   const [denomRows, setDenomRows] = useState<DenomRow[]>([]);
-  let nextDenomId = React.useRef(1);
+  const nextDenomId = React.useRef(1);
 
   const denomTotal = denomRows.reduce((sum, r) => sum + r.denomination * r.count, 0);
   const cashAmount = parseFloat(form.cashAmount) || 0;

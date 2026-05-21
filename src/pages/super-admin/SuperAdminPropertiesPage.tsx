@@ -655,22 +655,20 @@ function EditPropertyModal({
   const branchesQuery = useBranches();
   const branches = branchesQuery.data?.data ?? [];
 
-  const [form, setForm] = useState<UpdatePropertyData>({});
+  const [form, setForm] = useState<UpdatePropertyData>(() =>
+    property
+      ? {
+          propertyName: property.propertyName,
+          projectName: property.projectName,
+          plotNumber: property.plotNumber,
+          propertyType: property.propertyType,
+          city: property.city,
+          state: property.state,
+          squareFeet: property.squareFeet,
+        }
+      : {}
+  );
   const [toast, setToast] = useState(false);
-
-  React.useEffect(() => {
-    if (property) {
-      setForm({
-        propertyName: property.propertyName,
-        projectName: property.projectName,
-        plotNumber: property.plotNumber,
-        propertyType: property.propertyType,
-        city: property.city,
-        state: property.state,
-        squareFeet: property.squareFeet,
-      });
-    }
-  }, [property]);
 
   if (!property) return null;
 

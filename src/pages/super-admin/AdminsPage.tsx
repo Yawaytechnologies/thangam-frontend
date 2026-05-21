@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useAdmins, useCreateAdmin, useUpdateAdmin, useUpdateAdminStatus } from '../../hooks/useAdmins';
 import { useBranches } from '../../hooks/useBranches';
 import { StatusBadge } from '../../components/ui/StatusBadge';
@@ -200,9 +200,8 @@ function AddAdminModal({ open, onClose }: AddAdminModalProps) {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const { status: _status, ...rest } = form;
     create.mutate(
-      { ...rest, email: rest.email || undefined },
+      { fullName: form.fullName, phone: form.phone, branchId: form.branchId, password: form.password, email: form.email || undefined },
       {
         onSuccess: () => {
           onClose();
@@ -370,8 +369,7 @@ function EditAdminModal({ open, onClose, admin }: EditAdminModalProps) {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const { status: _status, ...rest } = form;
-    update.mutate({ id: admin.id, data: rest }, { onSuccess: onClose });
+    update.mutate({ id: admin.id, data: { fullName: form.fullName, phone: form.phone, branchId: form.branchId, email: form.email || undefined } }, { onSuccess: onClose });
   }
 
   const initials = getInitials(admin.fullName);
@@ -619,13 +617,15 @@ const AdminsPage: React.FC = () => {
   const branchesQuery = useBranches();
   const branches = branchesQuery.data?.data ?? [];
 
-  const admins = data?.data ?? [];
+  const admins = useMemo(() => data?.data ?? [], [data]);
 
   const totalCount = data?.total ?? 0;
   const activeCount = admins.filter((a) => a.status === 'ACTIVE').length;
-  // Simple heuristic: admins created within the last 30 days
-  const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
-  const addedThisMonth = admins.filter((a) => new Date(a.createdAt).getTime() > thirtyDaysAgo).length;
+  const [now] = useState(() => Date.now());
+  const addedThisMonth = useMemo(
+    () => admins.filter((a) => new Date(a.createdAt).getTime() > now - 30 * 24 * 60 * 60 * 1000).length,
+    [admins, now]
+  );
 
   function handleDelete(a: Admin) {
     if (window.confirm(`Delete admin "${a.fullName}"? This action cannot be undone.`)) {
