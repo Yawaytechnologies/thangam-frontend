@@ -1,10 +1,70 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useMembers } from '../../hooks/useMembers';
+import { useMembers, useMember, useUpdateMemberStatus } from '../../hooks/useMembers';
 import { StatusBadge } from '../../components/ui/StatusBadge';
+import { Modal } from '../../components/ui/Modal';
 import { Pagination } from '../../components/ui/Pagination';
 import { SearchInput } from '../../components/ui/SearchInput';
-import type { Role, UserStatus } from '../../types';
+import type { Member, Role, UserStatus } from '../../types';
+
+function MemberDetailModal({ member, onClose }: { member: Member; onClose: () => void }) {
+  const { data } = useMember(member.id);
+  const updateStatus = useUpdateMemberStatus();
+  const m = data ?? member;
+
+  return (
+    <Modal open onClose={onClose} title="Member Details" size="lg">
+      <div className="space-y-4">
+        <div className="flex items-center gap-4">
+          <div className="w-14 h-14 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+            <span className="text-blue-700 font-bold text-xl">{m.fullName.charAt(0).toUpperCase()}</span>
+          </div>
+          <div>
+            <p className="text-lg font-bold text-gray-900">{m.fullName}</p>
+            <p className="text-sm text-gray-500 font-mono">{m.memberId}</p>
+            <div className="mt-1"><StatusBadge status={m.status} /></div>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          {([
+            ['Phone', m.phone],
+            ['Email', m.email ?? '—'],
+            ['Role', m.role.replace(/_/g, ' ')],
+            ['Branch', m.branch?.name ?? '—'],
+            ['Code', m.codeNumber ?? '—'],
+            ['Reports To', m.reportsTo?.fullName ?? '—'],
+            ['Joined', new Date(m.createdAt).toLocaleDateString('en-IN')],
+          ] as [string, string][]).map(([label, val]) => (
+            <div key={label}>
+              <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">{label}</p>
+              <p className="text-gray-800 font-medium mt-0.5">{val}</p>
+            </div>
+          ))}
+        </div>
+        <div className="pt-3 border-t border-gray-100 flex gap-2 justify-end">
+          {m.status !== 'ACTIVE' && (
+            <button
+              onClick={() => updateStatus.mutate({ id: m.id, status: 'ACTIVE' }, { onSuccess: onClose })}
+              disabled={updateStatus.isPending}
+              className="px-4 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium"
+            >
+              Activate
+            </button>
+          )}
+          {m.status !== 'INACTIVE' && (
+            <button
+              onClick={() => updateStatus.mutate({ id: m.id, status: 'INACTIVE' }, { onSuccess: onClose })}
+              disabled={updateStatus.isPending}
+              className="px-4 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 font-medium"
+            >
+              Deactivate
+            </button>
+          )}
+        </div>
+      </div>
+    </Modal>
+  );
+}
 
 const AdminMembersListPage: React.FC = () => {
   const navigate = useNavigate();
@@ -12,7 +72,7 @@ const AdminMembersListPage: React.FC = () => {
   const [search, setSearch] = useState('');
   const [role, setRole] = useState<Role | ''>('');
   const [status, setStatus] = useState<UserStatus | ''>('');
-  const [joinedDate, setJoinedDate] = useState('');
+  const [selected, setSelected] = useState<Member | null>(null);
 
   const { data, isLoading } = useMembers({
     page,
@@ -73,22 +133,9 @@ const AdminMembersListPage: React.FC = () => {
             <option value="INACTIVE">Inactive</option>
             <option value="PENDING">Pending</option>
           </select>
-          <input
-            type="date"
-            value={joinedDate}
-            onChange={(e) => { setJoinedDate(e.target.value); setPage(1); }}
-            className="px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            title="Filter by joined date"
-          />
-          {(search || role || status || joinedDate) && (
+          {(search || role || status) && (
             <button
-              onClick={() => {
-                setSearch('');
-                setRole('');
-                setStatus('');
-                setJoinedDate('');
-                setPage(1);
-              }}
+              onClick={() => { setSearch(''); setRole(''); setStatus(''); setPage(1); }}
               className="px-3 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
             >
               Clear
@@ -109,12 +156,13 @@ const AdminMembersListPage: React.FC = () => {
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Reports To</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Joined Date</th>
+                <th className="px-4 py-3 font-medium text-gray-600">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {isLoading ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center">
+                  <td colSpan={9} className="px-4 py-10 text-center">
                     <div className="flex items-center justify-center gap-2 text-gray-400">
                       <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -126,7 +174,7 @@ const AdminMembersListPage: React.FC = () => {
                 </tr>
               ) : !data?.data?.length ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-gray-400">
+                  <td colSpan={9} className="px-4 py-10 text-center text-gray-400">
                     No members found
                   </td>
                 </tr>
@@ -144,7 +192,9 @@ const AdminMembersListPage: React.FC = () => {
                     <td className="px-4 py-3 font-medium text-gray-900">{m.fullName}</td>
                     <td className="px-4 py-3 text-gray-600">{m.phone}</td>
                     <td className="px-4 py-3">
-                      <StatusBadge status={m.role} />
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 uppercase tracking-wide">
+                        {m.role.replace(/_/g, ' ')}
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-gray-600">{m.reportsTo?.fullName ?? '—'}</td>
                     <td className="px-4 py-3">
@@ -152,6 +202,17 @@ const AdminMembersListPage: React.FC = () => {
                     </td>
                     <td className="px-4 py-3 text-gray-500">
                       {new Date(m.createdAt).toLocaleDateString('en-IN')}
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => setSelected(m)}
+                        className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50"
+                        title="View Details"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0zM2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                      </button>
                     </td>
                   </tr>
                 ))
@@ -165,6 +226,8 @@ const AdminMembersListPage: React.FC = () => {
           <Pagination page={page} total={data.total} limit={data.limit} onPageChange={setPage} />
         )}
       </div>
+
+      {selected && <MemberDetailModal member={selected} onClose={() => setSelected(null)} />}
     </div>
   );
 };

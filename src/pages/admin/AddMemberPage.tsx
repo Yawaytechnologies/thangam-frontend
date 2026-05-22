@@ -146,7 +146,8 @@ const AddMemberPage: React.FC = () => {
       if (!file) continue;
       const formData = new FormData();
       formData.append('file', file);
-      formData.append('memberId', memberId);
+      formData.append('entityType', 'member');
+      formData.append('entityId', memberId);
       formData.append('documentType', key);
       try {
         await api.post('/documents/upload', formData, {
@@ -161,6 +162,10 @@ const AddMemberPage: React.FC = () => {
 
   const onSubmit = async (data: AddMemberFormData) => {
     setSubmitError('');
+    if (!branchId) {
+      setSubmitError('Your admin account is not linked to a branch. Contact the super-admin.');
+      return;
+    }
     try {
       const member = await createMember.mutateAsync({
         fullName: data.fullName,
@@ -171,6 +176,30 @@ const AddMemberPage: React.FC = () => {
         reportsToId: data.reportsToId || undefined,
         codeNumber: data.codeNumber || undefined,
         password: data.password,
+        gender: data.gender || undefined,
+        dateOfBirth: data.dob || undefined,
+        bloodGroup: data.bloodGroup || undefined,
+        qualification: data.qualification || undefined,
+        experience: data.experience || undefined,
+        alternatePhone: data.altPhone || undefined,
+        address: data.address || undefined,
+        city: data.city || undefined,
+        district: data.district || undefined,
+        state: data.state || undefined,
+        pincode: data.pincode || undefined,
+        panNumber: data.pan || undefined,
+        aadhaarNumber: data.aadhaar || undefined,
+        voterIdNumber: data.voterId || undefined,
+        drivingLicense: data.drivingLicense || undefined,
+        introName: data.introName || undefined,
+        nomineeName: data.nomineeName || undefined,
+        nomineeRelation: data.nomineeRelationship || undefined,
+        nomineePhone: data.nomineePhone || undefined,
+        bankName: data.bankName || undefined,
+        accountHolder: data.accountHolder || undefined,
+        accountNumber: data.accountNumber || undefined,
+        ifscCode: data.ifsc || undefined,
+        bankBranch: data.bankBranch || undefined,
       });
 
       // Upload documents after member creation

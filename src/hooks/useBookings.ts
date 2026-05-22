@@ -40,6 +40,17 @@ export function useUpdateBooking() {
   });
 }
 
+export function useDeleteBooking() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => bookingsApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bookings'] });
+    },
+  });
+}
+
 export function useUpdateBookingStatus() {
   const queryClient = useQueryClient();
 

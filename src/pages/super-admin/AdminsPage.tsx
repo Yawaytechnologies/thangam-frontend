@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { useAdmins, useCreateAdmin, useUpdateAdmin, useUpdateAdminStatus } from '../../hooks/useAdmins';
+import { useAdmins, useCreateAdmin, useUpdateAdmin, useUpdateAdminStatus, useDeleteAdmin, useUploadAdminPhoto } from '../../hooks/useAdmins';
 import { useBranches } from '../../hooks/useBranches';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Pagination } from '../../components/ui/Pagination';
@@ -74,13 +74,6 @@ const RefreshIcon = () => (
   </svg>
 );
 
-const UploadIcon = () => (
-  <svg className="w-8 h-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-      d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-  </svg>
-);
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getInitials(name: string): string {
@@ -111,10 +104,10 @@ function ToggleSwitch({ active, onToggle, disabled = false }: ToggleSwitchProps)
       type="button"
       onClick={onToggle}
       disabled={disabled}
-      className={`relative w-9 h-5 rounded-full transition-colors flex-shrink-0 ${active ? 'bg-gold' : 'bg-gray-300'} disabled:opacity-50`}
+      className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${active ? 'bg-gold' : 'bg-gray-300'} disabled:opacity-50`}
     >
       <span
-        className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${active ? 'translate-x-4' : 'translate-x-0.5'}`}
+        className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${active ? 'translate-x-5' : 'translate-x-0'}`}
       />
     </button>
   );
@@ -185,6 +178,7 @@ interface AddAdminModalProps {
 
 function AddAdminModal({ open, onClose }: AddAdminModalProps) {
   const create = useCreateAdmin();
+  const uploadAdminPhoto = useUploadAdminPhoto();
   const branchesQuery = useBranches();
   const branches = branchesQuery.data?.data ?? [];
 
@@ -197,15 +191,22 @@ function AddAdminModal({ open, onClose }: AddAdminModalProps) {
     status: 'ACTIVE',
   });
   const [showPassword, setShowPassword] = useState(false);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+
+  function handleClose() {
+    onClose();
+    setForm({ fullName: '', phone: '', email: '', branchId: '', password: '', status: 'ACTIVE' });
+    setPhotoFile(null);
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     create.mutate(
-      { fullName: form.fullName, phone: form.phone, branchId: form.branchId, password: form.password, email: form.email || undefined },
+      { fullName: form.fullName, phone: form.phone, branchId: form.branchId, password: form.password, email: form.email || undefined, status: form.status },
       {
-        onSuccess: () => {
-          onClose();
-          setForm({ fullName: '', phone: '', email: '', branchId: '', password: '', status: 'ACTIVE' });
+        onSuccess: (newAdmin) => {
+          if (photoFile) uploadAdminPhoto.mutate({ id: newAdmin.id, file: photoFile });
+          handleClose();
         },
       }
     );
@@ -214,7 +215,7 @@ function AddAdminModal({ open, onClose }: AddAdminModalProps) {
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={handleClose}
       title="Add New Admin"
       subtitle="Create a new administrative account and assign branch access."
       size="lg"
@@ -239,11 +240,12 @@ function AddAdminModal({ open, onClose }: AddAdminModalProps) {
         {/* Profile Photo upload */}
         <div>
           <label className={labelClass}>Profile Photo</label>
-          <div className="border-2 border-dashed border-gray-200 rounded-xl p-5 flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-gold transition-colors bg-gray-50">
-            <UploadIcon />
-            <p className="text-sm font-medium text-gray-600">Click to upload or drag &amp; drop</p>
-            <p className="text-xs text-gray-400">PNG, JPG up to 5MB</p>
-          </div>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(e) => setPhotoFile(e.target.files?.[0] ?? null)}
+            className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gold-50 file:text-gold-700 hover:file:bg-gold-100"
+          />
         </div>
 
         {/* Full Name */}
@@ -331,7 +333,7 @@ function AddAdminModal({ open, onClose }: AddAdminModalProps) {
         <div className="flex justify-end gap-3 pt-2">
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 text-sm"
           >
             Cancel
@@ -359,6 +361,8 @@ interface EditAdminModalProps {
 
 function EditAdminModal({ open, onClose, admin }: EditAdminModalProps) {
   const update = useUpdateAdmin();
+  const updateStatus = useUpdateAdminStatus();
+  const uploadAdminPhoto = useUploadAdminPhoto();
   const branchesQuery = useBranches();
   const branches = branchesQuery.data?.data ?? [];
 
@@ -369,18 +373,39 @@ function EditAdminModal({ open, onClose, admin }: EditAdminModalProps) {
     branchId: admin.branchId,
     status: admin.status,
   });
+  const [editPhotoFile, setEditPhotoFile] = useState<File | null>(null);
+
+  function handleClose() {
+    setEditPhotoFile(null);
+    onClose();
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    update.mutate({ id: admin.id, data: { fullName: form.fullName, phone: form.phone, branchId: form.branchId, email: form.email || undefined } }, { onSuccess: onClose });
+    const statusChanged = form.status !== admin.status;
+    update.mutate(
+      { id: admin.id, data: { fullName: form.fullName, phone: form.phone, branchId: form.branchId, email: form.email || undefined } },
+      {
+        onSuccess: () => {
+          if (editPhotoFile) uploadAdminPhoto.mutate({ id: admin.id, file: editPhotoFile });
+          if (statusChanged) {
+            updateStatus.mutate({ id: admin.id, status: form.status }, { onSuccess: handleClose });
+          } else {
+            handleClose();
+          }
+        },
+      }
+    );
   }
+
+  const isPending = update.isPending || updateStatus.isPending;
 
   const initials = getInitials(admin.fullName);
 
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={handleClose}
       title="Edit Admin"
       subtitle="Update admin account and branch access details."
       size="lg"
@@ -393,17 +418,12 @@ function EditAdminModal({ open, onClose, admin }: EditAdminModalProps) {
           </div>
           <div className="flex-1">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Profile Photo</p>
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                className="text-xs font-semibold text-gold hover:opacity-80 transition-opacity"
-              >
-                Replace Photo
-              </button>
-              <div className="border-2 border-dashed border-gray-200 rounded-lg px-3 py-1.5 text-xs text-gray-400 hover:border-gold transition-colors cursor-pointer">
-                Drag &amp; drop or browse
-              </div>
-            </div>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => setEditPhotoFile(e.target.files?.[0] ?? null)}
+              className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gold-50 file:text-gold-700 hover:file:bg-gold-100"
+            />
           </div>
         </div>
 
@@ -486,17 +506,17 @@ function EditAdminModal({ open, onClose, admin }: EditAdminModalProps) {
         <div className="flex justify-end gap-3 pt-2">
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 text-sm"
           >
             Cancel
           </button>
           <button
             type="submit"
-            disabled={update.isPending}
+            disabled={isPending}
             className="bg-gold text-navy font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 text-sm"
           >
-            {update.isPending ? 'Saving...' : 'Save Changes'}
+            {isPending ? 'Saving...' : 'Done'}
           </button>
         </div>
       </form>
@@ -621,6 +641,7 @@ const AdminsPage: React.FC = () => {
   });
 
   const updateStatus = useUpdateAdminStatus();
+  const deleteAdmin = useDeleteAdmin();
   const branchesQuery = useBranches();
   const branches = branchesQuery.data?.data ?? [];
 
@@ -635,8 +656,8 @@ const AdminsPage: React.FC = () => {
   );
 
   function handleDelete(a: Admin) {
-    if (window.confirm(`Delete admin "${a.fullName}"? This action cannot be undone.`)) {
-      // no-op until delete hook is added
+    if (window.confirm(`Delete admin "${a.fullName}"? This cannot be undone and will remove their login access.`)) {
+      deleteAdmin.mutate(a.id);
     }
   }
 
@@ -769,14 +790,6 @@ const AdminsPage: React.FC = () => {
           <p className="text-xs text-gray-400">Across all branch locations</p>
         </div>
 
-        <div className="w-px h-10 bg-gray-200" />
-
-        {/* Pending Approvals */}
-        <div>
-          <p className="text-xs text-gray-400 uppercase tracking-wide">Pending Approvals</p>
-          <p className="text-lg font-bold text-gray-900 leading-tight">0</p>
-          <p className="text-xs text-red-500 font-medium">! Requires super admin action</p>
-        </div>
       </div>
 
       {/* ── Modals ── */}

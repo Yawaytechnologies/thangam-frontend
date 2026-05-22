@@ -59,6 +59,17 @@ export function useUpdateAdminStatus() {
   });
 }
 
+export function useDeleteAdmin() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => adminsApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admins'] });
+    },
+  });
+}
+
 export function useUploadAdminPhoto() {
   const queryClient = useQueryClient();
 

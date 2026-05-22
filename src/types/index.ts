@@ -72,6 +72,7 @@ export interface Branch {
   pincode?: string;
   status: BranchStatus;
   createdAt: string;
+  _count?: { admins: number; members: number };
 }
 
 export interface Admin {
@@ -116,18 +117,52 @@ export interface Property {
   createdAt: string;
 }
 
+export interface BookingPayment {
+  id: string;
+  bookingId: string;
+  paymentMethod: PaymentMethod;
+  bankName?: string;
+  favourOf?: string;
+  chequeNumber?: string;
+  chequeDate?: string;
+  gpayReference?: string;
+  cashAmount?: number;
+  totalAmount: number;
+}
+
+export interface BookingDenomination {
+  id: string;
+  bookingId: string;
+  denomination: number;
+  count: number;
+  amount: number;
+}
+
 export interface Booking {
   id: string;
   bookingId: string;
   propertyId: string;
+  branchId?: string;
   property?: Property;
+  branch?: Branch;
   applicantName: string;
+  relation?: string;
+  applicantAddress?: string;
+  pinCode?: string;
   cellNumber: string;
+  dateOfBirth?: string;
+  weddingDay?: string;
   projectName: string;
   plotNumber: string;
+  squareFeet?: number;
   bookingDate: string;
+  edDdSmBmName?: string;
+  referenceCode?: string;
+  directorName?: string;
+  signatureUrl?: string;
   status: BookingStatus;
-  branch?: Branch;
+  payments?: BookingPayment[];
+  denominations?: BookingDenomination[];
   createdAt: string;
 }
 
@@ -135,14 +170,22 @@ export interface Billing {
   id: string;
   billingId: string;
   bookingId: string;
+  branchId?: string;
   booking?: Booking;
   buyerName: string;
   buyerPhone: string;
+  buyerAddress?: string;
+  orderNumber?: string;
+  billingNumber?: string;
   paymentMethod: PaymentMethod;
   amountInNumbers: number;
   amountInWords: string;
   totalReceived: number;
   totalBalance: number;
+  operationalNotes?: string;
+  settlementNotes?: string;
+  termsConditions?: string;
+  signatureUrl?: string;
   status: BillingStatus;
   billingDate: string;
   createdAt: string;

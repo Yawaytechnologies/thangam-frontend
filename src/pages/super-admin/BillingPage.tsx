@@ -4,8 +4,11 @@ import {
   useBilling,
   useCreateBilling,
   useUpdateBilling,
+  useUpdateBillingStatus,
+  useDeleteBilling,
 } from '../../hooks/useBilling';
 import { useBranches } from '../../hooks/useBranches';
+import { useBookings } from '../../hooks/useBookings';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Pagination } from '../../components/ui/Pagination';
 import { Modal } from '../../components/ui/Modal';
@@ -137,27 +140,37 @@ function paymentMethodBadgeClass(method: PaymentMethod): string {
 // ─── BillingForm type ─────────────────────────────────────────────────────────
 
 interface BillingForm {
+  // Booking reference
+  bookingId: string;
+  branchId: string;
   // Applicant
   buyerName: string;
   buyerPhone: string;
   buyerEmail: string;
   buyerAddress: string;
-  // Property
+  // Property (read-only display, populated from booking)
   projectName: string;
   plotNumber: string;
   plotArea: string;
-  branchId: string;
   // Payment
   paymentMethod: PaymentMethod;
   bankName: string;
   referenceNumber: string;
   amountInNumbers: string;
+  totalReceived: string;
   billingStatus: BillingStatus;
   billingDate: string;
   remarks: string;
+  // Additional
+  orderNumber: string;
+  billingNumber: string;
+  settlementNotes: string;
+  termsConditions: string;
 }
 
 const emptyForm: BillingForm = {
+  bookingId: '',
+  branchId: '',
   buyerName: '',
   buyerPhone: '',
   buyerEmail: '',
@@ -165,14 +178,18 @@ const emptyForm: BillingForm = {
   projectName: '',
   plotNumber: '',
   plotArea: '',
-  branchId: '',
   paymentMethod: 'BANK_TRANSFER',
   bankName: '',
   referenceNumber: '',
   amountInNumbers: '',
+  totalReceived: '',
   billingStatus: 'PENDING',
   billingDate: '',
   remarks: '',
+  orderNumber: '',
+  billingNumber: '',
+  settlementNotes: '',
+  termsConditions: '',
 };
 
 // ─── UploadArea sub-component ─────────────────────────────────────────────────
@@ -206,22 +223,37 @@ function AddBillingModal({ open, onClose }: AddBillingModalProps) {
   const branches = branchesQuery.data?.data ?? [];
 
   const [form, setForm] = useState<BillingForm>(emptyForm);
+  const bookingsQuery = useBookings({ branchId: form.branchId || undefined, limit: 200 });
+  const bookings = (bookingsQuery.data?.data ?? []).filter(
+    (b) => b.status !== 'CANCELLED' && b.status !== 'COMPLETED',
+  );
 
   function setField(field: keyof BillingForm, value: string) {
     setForm((f) => ({ ...f, [field]: value }));
   }
 
+  // Auto-calculate balance
+  const balanceAmt = Math.max(0, (parseFloat(form.amountInNumbers) || 0) - (parseFloat(form.totalReceived) || 0));
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!form.bookingId || !form.buyerName || !form.buyerPhone || !form.amountInNumbers || !form.totalReceived || !form.billingDate) return;
     create.mutate(
       {
-        bookingId: '', // billing API requires bookingId; pass empty to let backend handle
+        bookingId: form.bookingId,
         buyerName: form.buyerName,
         buyerPhone: form.buyerPhone,
+        buyerAddress: form.buyerAddress || undefined,
+        orderNumber: form.orderNumber || undefined,
+        billingNumber: form.billingNumber || undefined,
+        billingDate: form.billingDate,
         paymentMethod: form.paymentMethod,
         amountInNumbers: parseFloat(form.amountInNumbers) || 0,
-        amountInWords: '',
-        billingDate: form.billingDate,
+        totalReceived: parseFloat(form.totalReceived) || 0,
+        totalBalance: balanceAmt,
+        operationalNotes: form.remarks || undefined,
+        settlementNotes: form.settlementNotes || undefined,
+        termsConditions: form.termsConditions || undefined,
       },
       {
         onSuccess: () => {
@@ -241,112 +273,94 @@ function AddBillingModal({ open, onClose }: AddBillingModalProps) {
       size="2xl"
     >
       <form onSubmit={handleSubmit}>
-        {/* ── Section 1: Applicant Details ── */}
+        {/* ── Section 1: Booking Reference ── */}
         <div>
           <div className={sectionHeaderClass}>
             <span>1.</span>
+            <span>Booking Reference</span>
+          </div>
+          <div className="grid grid-cols-2 gap-4 mb-3">
+            <div>
+              <label className={labelClass}>Branch</label>
+              <select
+                value={form.branchId}
+                onChange={(e) => { setField('branchId', e.target.value); setField('bookingId', ''); }}
+                className={inputClass}
+              >
+                <option value="">All Branches</option>
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={labelClass}>Select Booking *</label>
+              <select
+                value={form.bookingId}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  const found = bookings.find((x) => x.id === id);
+                  setForm((f) => ({
+                    ...f,
+                    bookingId: id,
+                    ...(found ? {
+                      buyerName: found.applicantName,
+                      buyerPhone: found.cellNumber,
+                      projectName: found.projectName,
+                      plotNumber: found.plotNumber,
+                    } : {}),
+                  }));
+                }}
+                required
+                className={inputClass}
+              >
+                <option value="">— Select a booking —</option>
+                {bookings.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.bookingId} — {b.applicantName} ({b.projectName} / {b.plotNumber})
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {form.bookingId && (
+            <div className="bg-gray-50 rounded-lg p-3 grid grid-cols-3 gap-3 text-sm">
+              <div><span className="text-xs text-gray-400">Project</span><p className="font-medium text-gray-800">{form.projectName || '—'}</p></div>
+              <div><span className="text-xs text-gray-400">Plot</span><p className="font-medium text-gray-800">{form.plotNumber || '—'}</p></div>
+              <div>
+                <div className="grid grid-cols-2 gap-2 mt-0">
+                  <div><span className="text-xs text-gray-400">Order No.</span><input type="text" value={form.orderNumber} onChange={(e) => setField('orderNumber', e.target.value)} placeholder="ORD-001" className={inputClass} /></div>
+                  <div><span className="text-xs text-gray-400">Billing No.</span><input type="text" value={form.billingNumber} onChange={(e) => setField('billingNumber', e.target.value)} placeholder="BILL-001" className={inputClass} /></div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <hr className="border-gray-100 my-4" />
+
+        {/* ── Section 2: Applicant Details ── */}
+        <div>
+          <div className={sectionHeaderClass}>
+            <span>2.</span>
             <span>Applicant Details</span>
           </div>
           <div className="grid grid-cols-3 gap-4">
             <div>
               <label className={labelClass}>Full Name *</label>
-              <input
-                type="text"
-                required
-                value={form.buyerName}
-                onChange={(e) => setField('buyerName', e.target.value)}
-                className={inputClass}
-                placeholder="e.g. Rajesh Kumar"
-              />
+              <input type="text" required value={form.buyerName} onChange={(e) => setField('buyerName', e.target.value)} className={inputClass} placeholder="e.g. Rajesh Kumar" />
             </div>
             <div>
               <label className={labelClass}>Phone Number *</label>
-              <input
-                type="tel"
-                required
-                value={form.buyerPhone}
-                onChange={(e) => setField('buyerPhone', e.target.value)}
-                className={inputClass}
-                placeholder="+91 98765 43210"
-              />
+              <input type="tel" required value={form.buyerPhone} onChange={(e) => setField('buyerPhone', e.target.value.replace(/\D/g, '').slice(0, 10))} pattern="[6-9][0-9]{9}" maxLength={10} className={inputClass} placeholder="10-digit mobile" />
             </div>
             <div>
               <label className={labelClass}>Email Address</label>
-              <input
-                type="email"
-                value={form.buyerEmail}
-                onChange={(e) => setField('buyerEmail', e.target.value)}
-                className={inputClass}
-                placeholder="buyer@example.com"
-              />
+              <input type="email" value={form.buyerEmail} onChange={(e) => setField('buyerEmail', e.target.value)} className={inputClass} placeholder="buyer@example.com" />
             </div>
             <div className="col-span-3">
               <label className={labelClass}>Address</label>
-              <textarea
-                rows={2}
-                value={form.buyerAddress}
-                onChange={(e) => setField('buyerAddress', e.target.value)}
-                className={`${inputClass} resize-none`}
-                placeholder="Full residential / office address"
-              />
-            </div>
-          </div>
-        </div>
-
-        <hr className="border-gray-100 my-4" />
-
-        {/* ── Section 2: Property Details ── */}
-        <div>
-          <div className={sectionHeaderClass}>
-            <span>2.</span>
-            <span>Property Details</span>
-          </div>
-          <div className="grid grid-cols-4 gap-4">
-            <div>
-              <label className={labelClass}>Project Name</label>
-              <input
-                type="text"
-                value={form.projectName}
-                onChange={(e) => setField('projectName', e.target.value)}
-                className={inputClass}
-                placeholder="e.g. Sri Thangam Nagar"
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Plot / Unit Number</label>
-              <input
-                type="text"
-                value={form.plotNumber}
-                onChange={(e) => setField('plotNumber', e.target.value)}
-                className={inputClass}
-                placeholder="e.g. A-42"
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Plot Area (Sq.Ft)</label>
-              <input
-                type="number"
-                min={0}
-                value={form.plotArea}
-                onChange={(e) => setField('plotArea', e.target.value)}
-                className={inputClass}
-                placeholder="e.g. 1200"
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Branch</label>
-              <select
-                value={form.branchId}
-                onChange={(e) => setField('branchId', e.target.value)}
-                className={inputClass}
-              >
-                <option value="">Select branch</option>
-                {branches.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </select>
+              <textarea rows={2} value={form.buyerAddress} onChange={(e) => setField('buyerAddress', e.target.value)} className={`${inputClass} resize-none`} placeholder="Full residential / office address" />
             </div>
           </div>
         </div>
@@ -360,114 +374,56 @@ function AddBillingModal({ open, onClose }: AddBillingModalProps) {
             <span>Payment Details</span>
           </div>
 
-          {/* Row 1 */}
           <div className="grid grid-cols-4 gap-4 mb-4">
             <div>
-              <label className={labelClass}>Payment Method</label>
-              <select
-                value={form.paymentMethod}
-                onChange={(e) => setField('paymentMethod', e.target.value as PaymentMethod)}
-                className={inputClass}
-              >
-                {PAYMENT_METHOD_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className={labelClass}>Bank Name</label>
-              <input
-                type="text"
-                value={form.bankName}
-                onChange={(e) => setField('bankName', e.target.value)}
-                className={inputClass}
-                placeholder="e.g. State Bank of India"
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Reference Number</label>
-              <input
-                type="text"
-                value={form.referenceNumber}
-                onChange={(e) => setField('referenceNumber', e.target.value)}
-                className={inputClass}
-                placeholder="Cheque / UTR / Txn ID"
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Amount Received (₹) *</label>
-              <input
-                type="number"
-                required
-                min={0}
-                value={form.amountInNumbers}
-                onChange={(e) => setField('amountInNumbers', e.target.value)}
-                className={inputClass}
-                placeholder="0"
-              />
-            </div>
-          </div>
-
-          {/* Row 2 */}
-          <div className="grid grid-cols-2 gap-4 mb-4">
-            <div>
-              <label className={labelClass}>Billing Status</label>
-              <select
-                value={form.billingStatus}
-                onChange={(e) => setField('billingStatus', e.target.value as BillingStatus)}
-                className={inputClass}
-              >
-                {STATUS_OPTIONS.map((s) => (
-                  <option key={s} value={s}>
-                    {s.replace(/_/g, ' ')}
-                  </option>
-                ))}
+              <label className={labelClass}>Payment Method *</label>
+              <select value={form.paymentMethod} onChange={(e) => setField('paymentMethod', e.target.value as PaymentMethod)} className={inputClass}>
+                {PAYMENT_METHOD_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
             <div>
               <label className={labelClass}>Transaction Date *</label>
-              <input
-                type="date"
-                required
-                value={form.billingDate}
-                onChange={(e) => setField('billingDate', e.target.value)}
-                className={inputClass}
-              />
+              <input type="date" required value={form.billingDate} onChange={(e) => setField('billingDate', e.target.value)} className={inputClass} />
+            </div>
+            <div>
+              <label className={labelClass}>Total Amount (₹) *</label>
+              <input type="number" required min={0} value={form.amountInNumbers} onChange={(e) => setField('amountInNumbers', e.target.value)} className={inputClass} placeholder="0" />
+            </div>
+            <div>
+              <label className={labelClass}>Total Received (₹) *</label>
+              <input type="number" required min={0} value={form.totalReceived} onChange={(e) => setField('totalReceived', e.target.value)} className={inputClass} placeholder="0" />
             </div>
           </div>
 
-          {/* Upload */}
-          <UploadArea label="Drag and drop file here" />
+          <div className="bg-gray-50 rounded-lg px-4 py-2 flex justify-between items-center mb-4">
+            <span className="text-xs text-gray-500 font-medium">Balance Amount</span>
+            <span className={`text-sm font-bold ${balanceAmt > 0 ? 'text-red-600' : 'text-green-600'}`}>
+              ₹{balanceAmt.toLocaleString('en-IN')}
+            </span>
+          </div>
 
-          {/* Remarks */}
-          <div className="mt-4">
-            <label className={labelClass}>Remarks / Internal Notes</label>
-            <textarea
-              rows={3}
-              value={form.remarks}
-              onChange={(e) => setField('remarks', e.target.value)}
-              className={`${inputClass} resize-none`}
-              placeholder="Add internal notes about this payment..."
-            />
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={labelClass}>Remarks / Operational Notes</label>
+              <textarea rows={3} value={form.remarks} onChange={(e) => setField('remarks', e.target.value)} className={`${inputClass} resize-none`} placeholder="Internal operational notes..." />
+            </div>
+            <div>
+              <label className={labelClass}>Settlement Notes</label>
+              <textarea rows={3} value={form.settlementNotes} onChange={(e) => setField('settlementNotes', e.target.value)} className={`${inputClass} resize-none`} placeholder="Settlement remarks..." />
+            </div>
+            <div className="col-span-2">
+              <label className={labelClass}>Terms &amp; Conditions</label>
+              <textarea rows={2} value={form.termsConditions} onChange={(e) => setField('termsConditions', e.target.value)} className={`${inputClass} resize-none`} placeholder="e.g. Payment is non-refundable." />
+            </div>
           </div>
         </div>
 
         {/* ── Footer ── */}
         <div className="flex items-center justify-end gap-3 pt-5 mt-4 border-t border-gray-100">
-          <button
-            type="button"
-            onClick={onClose}
-            className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 text-sm"
-          >
+          <button type="button" onClick={onClose} className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 text-sm">
             Cancel
           </button>
-          <button
-            type="submit"
-            disabled={create.isPending}
-            className="bg-gold text-navy font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 text-sm"
-          >
+          <button type="submit" disabled={create.isPending} className="bg-gold text-navy font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 text-sm">
             {create.isPending ? 'Saving...' : 'Save Billing Record'}
           </button>
         </div>
@@ -486,43 +442,74 @@ interface EditBillingModalProps {
 
 function EditBillingModal({ open, onClose, billing }: EditBillingModalProps) {
   const update = useUpdateBilling();
+  const updateStatus = useUpdateBillingStatus();
   const branchesQuery = useBranches({ limit: 100 });
   const branches = branchesQuery.data?.data ?? [];
 
   const [form, setForm] = useState<BillingForm>({
     ...emptyForm,
+    bookingId: billing.bookingId,
     buyerName: billing.buyerName,
     buyerPhone: billing.buyerPhone,
+    buyerAddress: billing.buyerAddress ?? '',
     paymentMethod: billing.paymentMethod,
     amountInNumbers: billing.amountInNumbers.toString(),
+    totalReceived: billing.totalReceived.toString(),
     billingStatus: billing.status,
     billingDate: billing.billingDate.split('T')[0],
     projectName: billing.booking?.projectName ?? '',
     plotNumber: billing.booking?.plotNumber ?? '',
-    branchId: billing.booking?.branch?.id ?? '',
+    branchId: billing.branchId ?? billing.booking?.branch?.id ?? '',
+    orderNumber: billing.orderNumber ?? '',
+    billingNumber: billing.billingNumber ?? '',
+    remarks: billing.operationalNotes ?? '',
+    settlementNotes: billing.settlementNotes ?? '',
+    termsConditions: billing.termsConditions ?? '',
   });
 
   function setField(field: keyof BillingForm, value: string) {
     setForm((f) => ({ ...f, [field]: value }));
   }
 
-  const dueDate = ''; // Not stored in current Billing type
-  const isOverdue = dueDate ? new Date(dueDate) < new Date() : false;
+  const isOverdue = false;
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    const amtNum = parseFloat(form.amountInNumbers) || 0;
+    const received = parseFloat(form.totalReceived) || 0;
+    const balance = amtNum - received;
+
     update.mutate(
       {
         id: billing.id,
         data: {
           buyerName: form.buyerName || undefined,
           buyerPhone: form.buyerPhone || undefined,
+          buyerAddress: form.buyerAddress || undefined,
+          orderNumber: form.orderNumber || undefined,
+          billingNumber: form.billingNumber || undefined,
           paymentMethod: form.paymentMethod || undefined,
-          amountInNumbers: parseFloat(form.amountInNumbers) || undefined,
+          amountInNumbers: amtNum || undefined,
+          totalReceived: received || undefined,
+          totalBalance: balance,
           billingDate: form.billingDate || undefined,
+          operationalNotes: form.remarks || undefined,
+          settlementNotes: form.settlementNotes || undefined,
+          termsConditions: form.termsConditions || undefined,
         },
       },
-      { onSuccess: onClose }
+      {
+        onSuccess: () => {
+          if (form.billingStatus !== billing.status) {
+            updateStatus.mutate(
+              { id: billing.id, status: form.billingStatus },
+              { onSuccess: onClose }
+            );
+          } else {
+            onClose();
+          }
+        },
+      }
     );
   }
 
@@ -722,24 +709,6 @@ function EditBillingModal({ open, onClose, billing }: EditBillingModalProps) {
                     {s.replace(/_/g, ' ')}
                   </option>
                 ))}
-              </select>
-            </div>
-            <div>
-              <label className={labelClass}>Payment Status</label>
-              <select className={inputClass} defaultValue="">
-                <option value="">Select status</option>
-                <option value="RECEIVED">Received</option>
-                <option value="PENDING">Pending</option>
-                <option value="FAILED">Failed</option>
-              </select>
-            </div>
-            <div>
-              <label className={labelClass}>Settlement Status</label>
-              <select className={inputClass} defaultValue="">
-                <option value="">Select status</option>
-                <option value="SETTLED">Settled</option>
-                <option value="PARTIAL">Partial</option>
-                <option value="UNSETTLED">Unsettled</option>
               </select>
             </div>
           </div>
@@ -1153,7 +1122,8 @@ const SuperAdminBillingPage: React.FC = () => {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<BillingStatus | ''>('');
   const [branchFilter, setBranchFilter] = useState('');
-  const [dateFilter, setDateFilter] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
   const [addOpen, setAddOpen] = useState(false);
   const [viewBilling, setViewBilling] = useState<Billing | null>(null);
@@ -1168,8 +1138,11 @@ const SuperAdminBillingPage: React.FC = () => {
     search: search || undefined,
     status: status || undefined,
     branchId: branchFilter || undefined,
+    startDate: dateFrom || undefined,
+    endDate: dateTo || undefined,
   });
 
+  const deleteBilling = useDeleteBilling();
   const billings = data?.data ?? [];
   const totalRecords = data?.total ?? 0;
 
@@ -1186,7 +1159,7 @@ const SuperAdminBillingPage: React.FC = () => {
 
   function handleDelete(b: Billing) {
     if (window.confirm(`Delete billing record "${b.billingId}"? This cannot be undone.`)) {
-      // no-op until delete endpoint is available
+      deleteBilling.mutate(b.id);
     }
   }
 
@@ -1272,13 +1245,22 @@ const SuperAdminBillingPage: React.FC = () => {
           ))}
         </select>
 
-        {/* Date */}
-        <input
-          type="date"
-          value={dateFilter}
-          onChange={(e) => setDateFilter(e.target.value)}
-          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white text-gray-700"
-        />
+        {/* Date range */}
+        <div className="flex items-center gap-1.5">
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white text-gray-700"
+          />
+          <span className="text-gray-400 text-sm">–</span>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white text-gray-700"
+          />
+        </div>
       </div>
 
       {/* ── KPI Cards ── */}
