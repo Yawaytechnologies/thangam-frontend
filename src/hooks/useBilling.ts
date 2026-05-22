@@ -40,6 +40,17 @@ export function useUpdateBilling() {
   });
 }
 
+export function useDeleteBilling() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => billingApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['billing'] });
+    },
+  });
+}
+
 export function useUpdateBillingStatus() {
   const queryClient = useQueryClient();
 

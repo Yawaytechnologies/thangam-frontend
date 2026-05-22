@@ -15,6 +15,7 @@ export interface CreateAdminData {
   email?: string;
   branchId: string;
   password: string;
+  status?: UserStatus;
 }
 
 export type UpdateAdminData = Partial<Omit<CreateAdminData, 'password'>>;
@@ -37,6 +38,9 @@ export const adminsApi = {
 
   updateStatus: (id: string, status: UserStatus): Promise<Admin> =>
     api.patch(`/admins/${id}/status`, { status }).then((r) => r.data.data),
+
+  delete: (id: string): Promise<void> =>
+    api.delete(`/admins/${id}`).then(() => undefined),
 
   uploadPhoto: (id: string, file: File): Promise<Admin> => {
     const form = new FormData();

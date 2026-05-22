@@ -2,6 +2,17 @@ import React from 'react';
 import { useAuthStore } from '../../stores/auth.store';
 import { useLogout } from '../../hooks/useAuth';
 
+const ROLE_LABELS: Record<string, string> = {
+  SUPER_ADMIN: 'Super Administrator',
+  ADMIN: 'Branch Admin',
+  DIRECTOR: 'Director',
+  EXECUTIVE_DIRECTOR: 'Executive Director',
+  DEPUTY_DIRECTOR: 'Deputy Director',
+  SENIOR_MANAGER: 'Senior Manager',
+  BUSINESS_MANAGER: 'Business Manager',
+  AGENT: 'Agent',
+};
+
 const SuperAdminProfilePage: React.FC = () => {
   const { user } = useAuthStore();
   const logout = useLogout();
@@ -26,7 +37,7 @@ const SuperAdminProfilePage: React.FC = () => {
             </div>
             <div className="mb-1">
               <p className="text-xl font-bold text-gray-900">{displayName}</p>
-              <p className="text-sm text-gray-500">Super Administrator</p>
+              <p className="text-sm text-gray-500">{ROLE_LABELS[user?.role ?? ''] ?? user?.role ?? 'Super Administrator'}</p>
             </div>
           </div>
 
@@ -34,7 +45,7 @@ const SuperAdminProfilePage: React.FC = () => {
             {[
               ['Email', user?.email ?? '—'],
               ['Phone', user?.phone ?? '—'],
-              ['Role', 'Super Admin'],
+              ['Role', ROLE_LABELS[user?.role ?? ''] ?? user?.role ?? '—'],
               ['Status', user?.status ?? '—'],
             ].map(([label, val]) => (
               <div key={label as string}>

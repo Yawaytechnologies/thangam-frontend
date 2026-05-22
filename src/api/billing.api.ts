@@ -8,16 +8,26 @@ export interface BillingParams {
   status?: BillingStatus;
   branchId?: string;
   bookingId?: string;
+  startDate?: string;
+  endDate?: string;
 }
 
 export interface CreateBillingData {
   bookingId: string;
   buyerName: string;
   buyerPhone: string;
+  buyerAddress?: string;
+  orderNumber?: string;
+  billingNumber?: string;
+  billingDate: string;
   paymentMethod: PaymentMethod;
   amountInNumbers: number;
-  amountInWords?: string;
-  billingDate: string;
+  totalReceived: number;
+  totalBalance?: number;
+  operationalNotes?: string;
+  settlementNotes?: string;
+  termsConditions?: string;
+  signatureUrl?: string;
 }
 
 export type UpdateBillingData = Partial<CreateBillingData>;
@@ -48,6 +58,9 @@ export const billingApi = {
 
   updateStatus: (id: string, status: BillingStatus): Promise<Billing> =>
     api.patch(`/billing/${id}/status`, { status }).then((r) => r.data.data),
+
+  delete: (id: string): Promise<void> =>
+    api.delete(`/billing/${id}`).then(() => undefined),
 
   downloadPdf: async (id: string): Promise<void> => {
     const response = await api.get(`/billing/${id}/pdf`, { responseType: 'blob' });

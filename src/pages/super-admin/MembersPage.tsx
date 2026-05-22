@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useMembers, useUpdateMemberStatus, useUpdateMember, useCreateMember } from '../../hooks/useMembers';
+import { useMembers, useUpdateMemberStatus, useUpdateMember, useCreateMember, useUploadMemberPhoto } from '../../hooks/useMembers';
 import { useBranches } from '../../hooks/useBranches';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Pagination } from '../../components/ui/Pagination';
@@ -58,10 +58,12 @@ function MemberOverviewModal({ member, open, onClose }: { member: Member | null;
 
 function EditMemberModal({ member, open, onClose }: { member: Member | null; open: boolean; onClose: () => void }) {
   const updateMutation = useUpdateMember();
+  const uploadMemberPhoto = useUploadMemberPhoto();
   const branchesQuery = useBranches();
   const branches = branchesQuery.data?.data ?? [];
 
   const [form, setForm] = useState<UpdateMemberData>({});
+  const [memberPhotoFile, setMemberPhotoFile] = useState<File | null>(null);
 
   React.useEffect(() => {
     if (member) {
@@ -79,16 +81,26 @@ function EditMemberModal({ member, open, onClose }: { member: Member | null; ope
 
   if (!member) return null;
 
+  function handleClose() {
+    setMemberPhotoFile(null);
+    onClose();
+  }
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     updateMutation.mutate(
       { id: member!.id, data: form },
-      { onSuccess: () => onClose() }
+      {
+        onSuccess: (updatedMember) => {
+          if (memberPhotoFile) uploadMemberPhoto.mutate({ id: updatedMember.id, file: memberPhotoFile });
+          handleClose();
+        },
+      }
     );
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Edit Member" size="lg">
+    <Modal open={open} onClose={handleClose} title="Edit Member" size="lg">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -157,8 +169,17 @@ function EditMemberModal({ member, open, onClose }: { member: Member | null; ope
             />
           </div>
         </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Profile Photo</label>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(e) => setMemberPhotoFile(e.target.files?.[0] ?? null)}
+            className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gold-50 file:text-gold-700 hover:file:bg-gold-100"
+          />
+        </div>
         <div className="flex justify-end gap-2 pt-2">
-          <button type="button" onClick={onClose} className="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
+          <button type="button" onClick={handleClose} className="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
             Cancel
           </button>
           <button
@@ -283,15 +304,20 @@ const MembersPage: React.FC = () => {
   const [search, setSearch] = useState('');
   const [role, setRole] = useState('');
   const [status, setStatus] = useState('');
+  const [branchFilter, setBranchFilter] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
   const [viewMember, setViewMember] = useState<Member | null>(null);
   const [editMember, setEditMember] = useState<Member | null>(null);
   const [deactivateMember, setDeactivateMember] = useState<Member | null>(null);
 
+  const branchesQuery = useBranches({ limit: 100 });
+  const branches = branchesQuery.data?.data ?? [];
+
   const { data, isLoading } = useMembers({
     page, limit: 10, search: search || undefined,
     role: (role as Role) || undefined,
     status: (status as UserStatus) || undefined,
+    branchId: branchFilter || undefined,
   });
 
   const members = data?.data ?? [];
@@ -334,6 +360,16 @@ const MembersPage: React.FC = () => {
           <option value="ACTIVE">Active</option>
           <option value="INACTIVE">Inactive</option>
           <option value="PENDING">Pending</option>
+        </select>
+        <select
+          value={branchFilter}
+          onChange={(e) => { setBranchFilter(e.target.value); setPage(1); }}
+          className="border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        >
+          <option value="">All Branches</option>
+          {branches.map((b) => (
+            <option key={b.id} value={b.id}>{b.name}</option>
+          ))}
         </select>
       </div>
 

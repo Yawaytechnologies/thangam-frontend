@@ -4,6 +4,7 @@ import {
   useBooking,
   useCreateBooking,
   useUpdateBooking,
+  useDeleteBooking,
 } from '../../hooks/useBookings';
 import { useProperties } from '../../hooks/useProperties';
 import { useBranches } from '../../hooks/useBranches';
@@ -227,12 +228,14 @@ interface BookingForm {
   codeNumber: string;
   directorName: string;
   // Section 4: Payment Details
+  paymentMethod: string;
   bankName: string;
   favourOf: string;
   chequeNumber: string;
   chequeDate: string;
   gpayReference: string;
   cashAmount: string;
+  paymentTotal: string; // editable total for non-CASH methods
   // Meta
   branchId: string;
 }
@@ -253,12 +256,14 @@ const emptyForm: BookingForm = {
   edDdSmBmName: '',
   codeNumber: '',
   directorName: '',
+  paymentMethod: 'CASH',
   bankName: '',
   favourOf: '',
   chequeNumber: '',
   chequeDate: '',
   gpayReference: '',
   cashAmount: '',
+  paymentTotal: '',
   branchId: '',
 };
 
@@ -282,7 +287,9 @@ function CreateBookingModal({ open, onClose }: CreateBookingModalProps) {
 
   const denomTotal = denomRows.reduce((sum, r) => sum + r.denomination * r.count, 0);
   const cashAmount = parseFloat(form.cashAmount) || 0;
-  const totalAmount = denomTotal + cashAmount;
+  const totalAmount = form.paymentMethod === 'CASH'
+    ? denomTotal + cashAmount
+    : parseFloat(form.paymentTotal) || 0;
 
   function setField(field: keyof BookingForm, value: string) {
     setForm((f) => ({ ...f, [field]: value }));
@@ -317,15 +324,41 @@ function CreateBookingModal({ open, onClose }: CreateBookingModalProps) {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    const hasPayment = totalAmount > 0;
+    const validDenoms = denomRows.filter((r) => r.count > 0).map((r) => ({
+      denomination: r.denomination,
+      count: r.count,
+      amount: r.denomination * r.count,
+    }));
     create.mutate(
       {
         propertyId: form.propertyId,
         applicantName: form.applicantName,
+        relation: form.relationship || undefined,
+        applicantAddress: form.address || undefined,
+        pinCode: form.pinCode || undefined,
         cellNumber: form.cellNumber,
+        dateOfBirth: form.dateOfBirth || undefined,
+        weddingDay: form.weddingDay || undefined,
         projectName: form.projectName,
         plotNumber: form.plotNumber,
+        squareFeet: form.squareFeet ? Number(form.squareFeet) : undefined,
         bookingDate: form.bookingDate,
+        edDdSmBmName: form.edDdSmBmName || undefined,
+        referenceCode: form.codeNumber || undefined,
+        directorName: form.directorName || undefined,
         branchId: form.branchId || undefined,
+        payments: hasPayment ? [{
+          paymentMethod: form.paymentMethod,
+          bankName: form.bankName || undefined,
+          favourOf: form.favourOf || undefined,
+          chequeNumber: form.chequeNumber || undefined,
+          chequeDate: form.chequeDate || undefined,
+          gpayReference: form.gpayReference || undefined,
+          cashAmount: form.paymentMethod === 'CASH' ? cashAmount : undefined,
+          totalAmount,
+        }] : undefined,
+        denominations: form.paymentMethod === 'CASH' && validDenoms.length > 0 ? validDenoms : undefined,
       },
       {
         onSuccess: () => {
@@ -562,85 +595,139 @@ function CreateBookingModal({ open, onClose }: CreateBookingModalProps) {
           </div>
           <div className="grid grid-cols-4 gap-4">
             <div>
-              <label className={labelClass}>Bank Name</label>
-              <input
-                type="text"
-                value={form.bankName}
-                onChange={(e) => setField('bankName', e.target.value)}
+              <label className={labelClass}>Payment Method *</label>
+              <select
+                required
+                value={form.paymentMethod}
+                onChange={(e) => setField('paymentMethod', e.target.value)}
                 className={inputClass}
-                placeholder="e.g. State Bank of India"
-              />
+              >
+                {['CASH', 'CHEQUE', 'BANK_TRANSFER', 'GPAY', 'UPI'].map((m) => (
+                  <option key={m} value={m}>{m.replace('_', ' ')}</option>
+                ))}
+              </select>
             </div>
-            <div>
-              <label className={labelClass}>Favour Of</label>
-              <input
-                type="text"
-                value={form.favourOf}
-                onChange={(e) => setField('favourOf', e.target.value)}
-                className={inputClass}
-                placeholder="Payee name"
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Cheque Number</label>
-              <input
-                type="text"
-                value={form.chequeNumber}
-                onChange={(e) => setField('chequeNumber', e.target.value)}
-                className={inputClass}
-                placeholder="e.g. 001234"
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Cheque Date</label>
-              <input
-                type="date"
-                value={form.chequeDate}
-                onChange={(e) => setField('chequeDate', e.target.value)}
-                className={inputClass}
-              />
-            </div>
-            <div className="col-span-2">
-              <label className={labelClass}>GPay Reference (UPI Transaction ID)</label>
-              <input
-                type="text"
-                value={form.gpayReference}
-                onChange={(e) => setField('gpayReference', e.target.value)}
-                className={inputClass}
-                placeholder="e.g. 12345678901234"
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Cash Amount</label>
-              <input
-                type="number"
-                min={0}
-                value={form.cashAmount}
-                onChange={(e) => setField('cashAmount', e.target.value)}
-                className={inputClass}
-                placeholder="0"
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Total Amount</label>
-              <input
-                readOnly
-                value={formatCurrency(totalAmount)}
-                className={`${inputClass} bg-gray-50 cursor-not-allowed font-medium text-gray-700`}
-              />
-            </div>
+
+            {(form.paymentMethod === 'CHEQUE' || form.paymentMethod === 'BANK_TRANSFER') && (
+              <>
+                <div>
+                  <label className={labelClass}>Bank Name *</label>
+                  <input
+                    type="text"
+                    required
+                    value={form.bankName}
+                    onChange={(e) => setField('bankName', e.target.value)}
+                    className={inputClass}
+                    placeholder="e.g. State Bank of India"
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Favour Of</label>
+                  <input
+                    type="text"
+                    value={form.favourOf}
+                    onChange={(e) => setField('favourOf', e.target.value)}
+                    className={inputClass}
+                    placeholder="Payee name"
+                  />
+                </div>
+              </>
+            )}
+
+            {form.paymentMethod === 'CHEQUE' && (
+              <>
+                <div>
+                  <label className={labelClass}>Cheque Number *</label>
+                  <input
+                    type="text"
+                    required
+                    pattern="[0-9]{6}"
+                    maxLength={6}
+                    value={form.chequeNumber}
+                    onChange={(e) => setField('chequeNumber', e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    className={inputClass}
+                    placeholder="6-digit number"
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Cheque Date *</label>
+                  <input
+                    type="date"
+                    required
+                    value={form.chequeDate}
+                    onChange={(e) => setField('chequeDate', e.target.value)}
+                    className={inputClass}
+                  />
+                </div>
+              </>
+            )}
+
+            {(form.paymentMethod === 'GPAY' || form.paymentMethod === 'UPI') && (
+              <div className="col-span-2">
+                <label className={labelClass}>Transaction Reference *</label>
+                <input
+                  type="text"
+                  required
+                  value={form.gpayReference}
+                  onChange={(e) => setField('gpayReference', e.target.value)}
+                  className={inputClass}
+                  placeholder="UPI / GPay Transaction ID"
+                />
+              </div>
+            )}
+
+            {form.paymentMethod === 'CASH' && (
+              <div>
+                <label className={labelClass}>Cash Amount *</label>
+                <input
+                  type="number"
+                  min={1}
+                  required
+                  value={form.cashAmount}
+                  onChange={(e) => setField('cashAmount', e.target.value)}
+                  className={inputClass}
+                  placeholder="0"
+                />
+              </div>
+            )}
+
+            {form.paymentMethod === 'CASH' ? (
+              <div>
+                <label className={labelClass}>Total Amount</label>
+                <input
+                  readOnly
+                  value={formatCurrency(totalAmount)}
+                  className={`${inputClass} bg-gray-50 cursor-not-allowed font-medium text-gray-700`}
+                />
+              </div>
+            ) : (
+              <div>
+                <label className={labelClass}>Total Amount (₹) *</label>
+                <input
+                  type="number"
+                  min={1}
+                  required
+                  value={form.paymentTotal}
+                  onChange={(e) => setField('paymentTotal', e.target.value)}
+                  className={inputClass}
+                  placeholder="Enter payment total"
+                />
+              </div>
+            )}
           </div>
         </div>
 
         <hr className="border-gray-100 my-5" />
 
-        {/* ── Section 5: Denomination Details ── */}
-        <DenominationTable
-          rows={denomRows}
-          onAdd={addDenomRow}
-          onRemove={removeDenomRow}
-          onChange={changeDenomRow}
-        />
+        {/* ── Section 5: Denomination Details (CASH only) ── */}
+        {form.paymentMethod === 'CASH' && (
+          <DenominationTable
+            rows={denomRows}
+            onAdd={addDenomRow}
+            onRemove={removeDenomRow}
+            onChange={changeDenomRow}
+          />
+        )}
 
         <hr className="border-gray-100 my-5" />
 
@@ -725,11 +812,19 @@ function EditBookingModal({ open, onClose, booking }: EditBookingModalProps) {
     projectName: booking.projectName,
     propertyId: booking.propertyId,
     plotNumber: booking.plotNumber,
-    squareFeet: booking.property?.squareFeet?.toString() ?? '',
+    squareFeet: booking.squareFeet?.toString() ?? '',
     bookingDate: booking.bookingDate.split('T')[0],
     applicantName: booking.applicantName,
+    relationship: booking.relation ?? '',
     cellNumber: booking.cellNumber,
-    branchId: booking.branch?.id ?? '',
+    address: booking.applicantAddress ?? '',
+    pinCode: booking.pinCode ?? '',
+    dateOfBirth: booking.dateOfBirth ? booking.dateOfBirth.split('T')[0] : '',
+    weddingDay: booking.weddingDay ? booking.weddingDay.split('T')[0] : '',
+    edDdSmBmName: booking.edDdSmBmName ?? '',
+    codeNumber: booking.referenceCode ?? '',
+    directorName: booking.directorName ?? '',
+    branchId: booking.branchId ?? '',
   });
 
   const [denomRows, setDenomRows] = useState<DenomRow[]>([]);
@@ -737,7 +832,9 @@ function EditBookingModal({ open, onClose, booking }: EditBookingModalProps) {
 
   const denomTotal = denomRows.reduce((sum, r) => sum + r.denomination * r.count, 0);
   const cashAmount = parseFloat(form.cashAmount) || 0;
-  const totalAmount = denomTotal + cashAmount;
+  const totalAmount = form.paymentMethod === 'CASH'
+    ? denomTotal + cashAmount
+    : parseFloat(form.paymentTotal) || 0;
 
   function setField(field: keyof BookingForm, value: string) {
     setForm((f) => ({ ...f, [field]: value }));
@@ -772,17 +869,43 @@ function EditBookingModal({ open, onClose, booking }: EditBookingModalProps) {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    const hasPayment = totalAmount > 0;
+    const validDenoms = denomRows.filter((r) => r.count > 0).map((r) => ({
+      denomination: r.denomination,
+      count: r.count,
+      amount: r.denomination * r.count,
+    }));
     update.mutate(
       {
         id: booking.id,
         data: {
           propertyId: form.propertyId || undefined,
           applicantName: form.applicantName || undefined,
+          relation: form.relationship || undefined,
+          applicantAddress: form.address || undefined,
+          pinCode: form.pinCode || undefined,
           cellNumber: form.cellNumber || undefined,
+          dateOfBirth: form.dateOfBirth || undefined,
+          weddingDay: form.weddingDay || undefined,
           projectName: form.projectName || undefined,
           plotNumber: form.plotNumber || undefined,
+          squareFeet: form.squareFeet ? Number(form.squareFeet) : undefined,
           bookingDate: form.bookingDate || undefined,
+          edDdSmBmName: form.edDdSmBmName || undefined,
+          referenceCode: form.codeNumber || undefined,
+          directorName: form.directorName || undefined,
           branchId: form.branchId || undefined,
+          payments: hasPayment ? [{
+            paymentMethod: form.paymentMethod,
+            bankName: form.bankName || undefined,
+            favourOf: form.favourOf || undefined,
+            chequeNumber: form.chequeNumber || undefined,
+            chequeDate: form.chequeDate || undefined,
+            gpayReference: form.gpayReference || undefined,
+            cashAmount: form.paymentMethod === 'CASH' ? cashAmount : undefined,
+            totalAmount,
+          }] : undefined,
+          denominations: form.paymentMethod === 'CASH' && validDenoms.length > 0 ? validDenoms : undefined,
         },
       },
       { onSuccess: onClose }
@@ -1014,85 +1137,139 @@ function EditBookingModal({ open, onClose, booking }: EditBookingModalProps) {
           </div>
           <div className="grid grid-cols-4 gap-4">
             <div>
-              <label className={labelClass}>Bank Name</label>
-              <input
-                type="text"
-                value={form.bankName}
-                onChange={(e) => setField('bankName', e.target.value)}
+              <label className={labelClass}>Payment Method *</label>
+              <select
+                required
+                value={form.paymentMethod}
+                onChange={(e) => setField('paymentMethod', e.target.value)}
                 className={inputClass}
-                placeholder="e.g. State Bank of India"
-              />
+              >
+                {['CASH', 'CHEQUE', 'BANK_TRANSFER', 'GPAY', 'UPI'].map((m) => (
+                  <option key={m} value={m}>{m.replace('_', ' ')}</option>
+                ))}
+              </select>
             </div>
-            <div>
-              <label className={labelClass}>Favour Of</label>
-              <input
-                type="text"
-                value={form.favourOf}
-                onChange={(e) => setField('favourOf', e.target.value)}
-                className={inputClass}
-                placeholder="Payee name"
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Cheque Number</label>
-              <input
-                type="text"
-                value={form.chequeNumber}
-                onChange={(e) => setField('chequeNumber', e.target.value)}
-                className={inputClass}
-                placeholder="e.g. 001234"
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Cheque Date</label>
-              <input
-                type="date"
-                value={form.chequeDate}
-                onChange={(e) => setField('chequeDate', e.target.value)}
-                className={inputClass}
-              />
-            </div>
-            <div className="col-span-2">
-              <label className={labelClass}>GPay Reference (UPI Transaction ID)</label>
-              <input
-                type="text"
-                value={form.gpayReference}
-                onChange={(e) => setField('gpayReference', e.target.value)}
-                className={inputClass}
-                placeholder="e.g. 12345678901234"
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Cash Amount</label>
-              <input
-                type="number"
-                min={0}
-                value={form.cashAmount}
-                onChange={(e) => setField('cashAmount', e.target.value)}
-                className={inputClass}
-                placeholder="0"
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Total Amount</label>
-              <input
-                readOnly
-                value={formatCurrency(totalAmount)}
-                className={`${inputClass} bg-gray-50 cursor-not-allowed font-medium text-gray-700`}
-              />
-            </div>
+
+            {(form.paymentMethod === 'CHEQUE' || form.paymentMethod === 'BANK_TRANSFER') && (
+              <>
+                <div>
+                  <label className={labelClass}>Bank Name *</label>
+                  <input
+                    type="text"
+                    required
+                    value={form.bankName}
+                    onChange={(e) => setField('bankName', e.target.value)}
+                    className={inputClass}
+                    placeholder="e.g. State Bank of India"
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Favour Of</label>
+                  <input
+                    type="text"
+                    value={form.favourOf}
+                    onChange={(e) => setField('favourOf', e.target.value)}
+                    className={inputClass}
+                    placeholder="Payee name"
+                  />
+                </div>
+              </>
+            )}
+
+            {form.paymentMethod === 'CHEQUE' && (
+              <>
+                <div>
+                  <label className={labelClass}>Cheque Number *</label>
+                  <input
+                    type="text"
+                    required
+                    pattern="[0-9]{6}"
+                    maxLength={6}
+                    value={form.chequeNumber}
+                    onChange={(e) => setField('chequeNumber', e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    className={inputClass}
+                    placeholder="6-digit number"
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Cheque Date *</label>
+                  <input
+                    type="date"
+                    required
+                    value={form.chequeDate}
+                    onChange={(e) => setField('chequeDate', e.target.value)}
+                    className={inputClass}
+                  />
+                </div>
+              </>
+            )}
+
+            {(form.paymentMethod === 'GPAY' || form.paymentMethod === 'UPI') && (
+              <div className="col-span-2">
+                <label className={labelClass}>Transaction Reference *</label>
+                <input
+                  type="text"
+                  required
+                  value={form.gpayReference}
+                  onChange={(e) => setField('gpayReference', e.target.value)}
+                  className={inputClass}
+                  placeholder="UPI / GPay Transaction ID"
+                />
+              </div>
+            )}
+
+            {form.paymentMethod === 'CASH' && (
+              <div>
+                <label className={labelClass}>Cash Amount *</label>
+                <input
+                  type="number"
+                  min={1}
+                  required
+                  value={form.cashAmount}
+                  onChange={(e) => setField('cashAmount', e.target.value)}
+                  className={inputClass}
+                  placeholder="0"
+                />
+              </div>
+            )}
+
+            {form.paymentMethod === 'CASH' ? (
+              <div>
+                <label className={labelClass}>Total Amount</label>
+                <input
+                  readOnly
+                  value={formatCurrency(totalAmount)}
+                  className={`${inputClass} bg-gray-50 cursor-not-allowed font-medium text-gray-700`}
+                />
+              </div>
+            ) : (
+              <div>
+                <label className={labelClass}>Total Amount (₹) *</label>
+                <input
+                  type="number"
+                  min={1}
+                  required
+                  value={form.paymentTotal}
+                  onChange={(e) => setField('paymentTotal', e.target.value)}
+                  className={inputClass}
+                  placeholder="Enter payment total"
+                />
+              </div>
+            )}
           </div>
         </div>
 
         <hr className="border-gray-100 my-5" />
 
-        {/* ── Section 5: Denomination Details ── */}
-        <DenominationTable
-          rows={denomRows}
-          onAdd={addDenomRow}
-          onRemove={removeDenomRow}
-          onChange={changeDenomRow}
-        />
+        {/* ── Section 5: Denomination Details (CASH only) ── */}
+        {form.paymentMethod === 'CASH' && (
+          <DenominationTable
+            rows={denomRows}
+            onAdd={addDenomRow}
+            onRemove={removeDenomRow}
+            onChange={changeDenomRow}
+          />
+        )}
 
         <hr className="border-gray-100 my-5" />
 
@@ -1318,8 +1495,11 @@ const SuperAdminBookingsPage: React.FC = () => {
     search: search || undefined,
     status: status || undefined,
     branchId: branchFilter || undefined,
+    startDate: dateFrom || undefined,
+    endDate: dateTo || undefined,
   });
 
+  const deleteBooking = useDeleteBooking();
   const bookings = data?.data ?? [];
 
   // Summary stats computed from current page data
@@ -1333,8 +1513,8 @@ const SuperAdminBookingsPage: React.FC = () => {
   const cancelled = bookings.filter((b) => b.status === 'CANCELLED').length;
 
   function handleDelete(b: Booking) {
-    if (window.confirm(`Delete booking "${b.bookingId}"? This action cannot be undone.`)) {
-      // no-op until delete hook is added
+    if (window.confirm(`Delete booking "${b.bookingId}"? This cannot be undone. Deletion is blocked if billing records exist.`)) {
+      deleteBooking.mutate(b.id);
     }
   }
 

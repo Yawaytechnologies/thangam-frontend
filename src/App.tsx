@@ -28,6 +28,7 @@ import AdminBookingsPage from './pages/admin/BookingsPage';
 import AdminBillingPage from './pages/admin/BillingPage';
 import AdminNotificationsPage from './pages/admin/NotificationsPage';
 import AdminProfilePage from './pages/admin/ProfilePage';
+import BranchMembersPage from './pages/admin/BranchMembersPage';
 import { ProtectedRoute } from './components/layout/ProtectedRoute';
 
 const queryClient = new QueryClient({
@@ -80,8 +81,9 @@ function AppRoutes() {
           <Route path="/admin/properties"    element={<AdminPropertiesPage />} />
           <Route path="/admin/bookings"      element={<AdminBookingsPage />} />
           <Route path="/admin/billing"       element={<AdminBillingPage />} />
-          <Route path="/admin/notifications" element={<AdminNotificationsPage />} />
-          <Route path="/admin/profile"       element={<AdminProfilePage />} />
+          <Route path="/admin/notifications"   element={<AdminNotificationsPage />} />
+          <Route path="/admin/profile"         element={<AdminProfilePage />} />
+          <Route path="/admin/branch-members"  element={<BranchMembersPage />} />
         </Route>
       </Route>
 

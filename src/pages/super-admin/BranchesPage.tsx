@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useBranches, useCreateBranch, useUpdateBranch } from '../../hooks/useBranches';
+import { useBranches, useCreateBranch, useUpdateBranch, useUpdateBranchStatus } from '../../hooks/useBranches';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Modal } from '../../components/ui/Modal';
 import type { CreateBranchData, UpdateBranchData } from '../../api/branches.api';
@@ -54,13 +54,6 @@ const UserIcon = () => (
   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
       d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-  </svg>
-);
-
-const UsersIcon = () => (
-  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-      d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
   </svg>
 );
 
@@ -123,18 +116,20 @@ function CreateBranchModal({ open, onClose }: CreateBranchModalProps) {
           />
         </div>
 
-        {/* Status + Branch Type */}
+        {/* Branch Type + Phone */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className={labelClass}>Status</label>
+            <label className={labelClass}>Branch Type</label>
             <select
               value={form.branchType ?? ''}
               onChange={(e) => field('branchType', e.target.value)}
               className={inputClass}
             >
               <option value="">Select type</option>
-              <option value="ACTIVE">Active</option>
-              <option value="INACTIVE">Inactive</option>
+              <option value="Main Branch">Main Branch</option>
+              <option value="Sub Branch">Sub Branch</option>
+              <option value="Regional Office">Regional Office</option>
+              <option value="City Office">City Office</option>
             </select>
           </div>
           <div>
@@ -278,8 +273,11 @@ function EditBranchModal({ open, onClose, branch }: EditBranchModalProps) {
     branchType: branch.branchType,
     phone: branch.phone,
     email: branch.email,
+    address: branch.address,
     city: branch.city,
+    district: branch.district,
     state: branch.state,
+    pincode: branch.pincode,
   });
 
   function handleSubmit(e: React.FormEvent) {
@@ -313,15 +311,17 @@ function EditBranchModal({ open, onClose, branch }: EditBranchModalProps) {
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className={labelClass}>Branch Type / Status</label>
+            <label className={labelClass}>Branch Type</label>
             <select
               value={form.branchType ?? ''}
               onChange={(e) => field('branchType', e.target.value)}
               className={inputClass}
             >
               <option value="">Select type</option>
-              <option value="ACTIVE">Active</option>
-              <option value="INACTIVE">Inactive</option>
+              <option value="Main Branch">Main Branch</option>
+              <option value="Sub Branch">Sub Branch</option>
+              <option value="Regional Office">Regional Office</option>
+              <option value="City Office">City Office</option>
             </select>
           </div>
           <div>
@@ -415,30 +415,6 @@ interface ViewBranchModalProps {
 }
 
 function ViewBranchModal({ open, onClose, branch }: ViewBranchModalProps) {
-  // Mock activity feed (branch has no imageUrl or members in the Branch type)
-  const activities = [
-    {
-      id: 1,
-      color: 'bg-green-100 text-green-600',
-      title: 'Branch Activated',
-      description: 'Branch status updated to active by Super Admin.',
-      time: '2 days ago',
-    },
-    {
-      id: 2,
-      color: 'bg-blue-100 text-blue-600',
-      title: 'Manager Assigned',
-      description: 'Regional manager assigned to this branch.',
-      time: '5 days ago',
-    },
-    {
-      id: 3,
-      color: 'bg-yellow-100 text-yellow-700',
-      title: 'Branch Created',
-      description: 'Branch was registered and initialised.',
-      time: new Date(branch.createdAt).toLocaleDateString('en-IN'),
-    },
-  ];
 
   return (
     <Modal open={open} onClose={onClose} title="Branch Details" size="xl">
@@ -482,58 +458,18 @@ function ViewBranchModal({ open, onClose, branch }: ViewBranchModalProps) {
           ))}
         </div>
 
-        {/* Regional Leadership + quick stats */}
+        {/* Additional details */}
         <div className="space-y-3">
-          <h4 className="text-sm font-semibold text-gray-800 border-b border-gray-100 pb-2">Regional Leadership</h4>
-          {/* Placeholder leadership chips since Admin data isn't on Branch */}
-          <div className="flex flex-wrap gap-3">
-            {['Regional Manager', 'Deputy Manager'].map((role, i) => (
-              <div key={role} className="flex flex-col items-center gap-1">
-                <div className="w-8 h-8 rounded-full bg-navy/10 flex items-center justify-center text-navy text-xs font-bold">
-                  {String.fromCharCode(65 + i)}
-                </div>
-                <span className="text-xs text-gray-600">{role}</span>
-              </div>
-            ))}
-          </div>
-
-          {/* Quick stats */}
-          <div className="mt-4 pt-3 border-t border-gray-100">
-            <h4 className="text-sm font-semibold text-gray-800 mb-3">Quick Stats</h4>
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                { icon: <UsersIcon />, label: 'Members', value: '—' },
-                { icon: <PhoneIcon />, label: 'Contact', value: branch.phone ?? '—' },
-              ].map(({ icon, label, value }) => (
-                <div key={label} className="bg-gray-50 rounded-lg p-3">
-                  <div className="flex items-center gap-1.5 text-gray-500 mb-1">
-                    {icon}
-                    <span className="text-xs uppercase tracking-wide">{label}</span>
-                  </div>
-                  <p className="text-sm font-semibold text-gray-800">{value}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Recent Activity Feed */}
-      <div>
-        <h4 className="text-sm font-semibold text-gray-800 mb-3">Recent Activity</h4>
-        <div className="space-y-3">
-          {activities.map((a) => (
-            <div key={a.id} className="flex items-start gap-3">
-              <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center ${a.color}`}>
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-gray-800">{a.title}</p>
-                <p className="text-xs text-gray-500">{a.description}</p>
-              </div>
-              <span className="text-xs text-gray-400 whitespace-nowrap">{a.time}</span>
+          <h4 className="text-sm font-semibold text-gray-800 border-b border-gray-100 pb-2">Location Details</h4>
+          {[
+            { label: 'Address', value: branch.address ?? '—' },
+            { label: 'District', value: branch.district ?? '—' },
+            { label: 'Pincode', value: branch.pincode ?? '—' },
+            { label: 'Branch Type', value: branch.branchType ?? '—' },
+          ].map(({ label, value }) => (
+            <div key={label} className="flex justify-between items-center">
+              <span className="text-xs text-gray-500 uppercase tracking-wide">{label}</span>
+              <span className="text-xs font-medium text-gray-800">{value}</span>
             </div>
           ))}
         </div>
@@ -544,15 +480,9 @@ function ViewBranchModal({ open, onClose, branch }: ViewBranchModalProps) {
         <button
           type="button"
           onClick={onClose}
-          className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 text-sm"
-        >
-          Close
-        </button>
-        <button
-          type="button"
           className="bg-gold text-navy font-semibold px-4 py-2 rounded-lg hover:opacity-90 text-sm"
         >
-          Open Full Workspace
+          Close
         </button>
       </div>
     </Modal>
@@ -596,7 +526,7 @@ function BranchCard({ branch, onView, onEdit, onDelete }: BranchCardProps) {
           </div>
           <div className="bg-gray-50 rounded-lg p-2">
             <p className="text-xs text-gray-400 uppercase tracking-wide mb-0.5">Members</p>
-            <p className="text-xs font-medium text-gray-700">—</p>
+            <p className="text-xs font-medium text-gray-700">{branch._count?.members ?? 0}</p>
           </div>
         </div>
       </div>
@@ -647,6 +577,7 @@ const filterTabs: { key: FilterTab; label: string }[] = [
 
 const BranchesPage: React.FC = () => {
   const { data: branchesPage, isLoading } = useBranches();
+  const updateBranchStatus = useUpdateBranchStatus();
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
   const [createOpen, setCreateOpen] = useState(false);
   const [viewBranch, setViewBranch] = useState<Branch | null>(null);
@@ -661,9 +592,12 @@ const BranchesPage: React.FC = () => {
   const activeCount = branches.filter((b) => b.status === 'ACTIVE').length;
 
   function handleDelete(b: Branch) {
-    // No useDeleteBranch hook exists — stub
-    if (window.confirm(`Delete branch "${b.name}"? This action cannot be undone.`)) {
-      // stub: no-op until API hook is added
+    if (b.status === 'INACTIVE') {
+      alert(`Branch "${b.name}" is already inactive.`);
+      return;
+    }
+    if (window.confirm(`Deactivate branch "${b.name}"? Members and admins will lose access.`)) {
+      updateBranchStatus.mutate({ id: b.id, status: 'INACTIVE' });
     }
   }
 

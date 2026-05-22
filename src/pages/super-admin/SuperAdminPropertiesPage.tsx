@@ -3,6 +3,8 @@ import {
   useProperties,
   useCreateProperty,
   useUpdateProperty,
+  useUpdatePropertyWorkflow,
+  useUploadPropertyImages,
 } from '../../hooks/useProperties';
 import { useBranches } from '../../hooks/useBranches';
 import { StatusBadge } from '../../components/ui/StatusBadge';
@@ -70,14 +72,6 @@ function PinIcon({ className = 'w-3 h-3' }: { className?: string }) {
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-    </svg>
-  );
-}
-
-function UploadIcon() {
-  return (
-    <svg className="w-8 h-8 text-gray-400 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
     </svg>
   );
 }
@@ -243,19 +237,27 @@ function PropertyCard({
 
 function CreatePropertyModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const create = useCreateProperty();
+  const uploadPropertyImages = useUploadPropertyImages();
   const [form, setForm] = useState<CreatePropertyData>({
     propertyName: '',
     projectName: '',
     plotNumber: '',
     propertyType: 'RESIDENTIAL',
   });
+  const [propertyImageFiles, setPropertyImageFiles] = useState<File[]>([]);
+
+  function handleClose() {
+    setForm({ propertyName: '', projectName: '', plotNumber: '', propertyType: 'RESIDENTIAL' });
+    setPropertyImageFiles([]);
+    onClose();
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     create.mutate(form, {
-      onSuccess: () => {
-        onClose();
-        setForm({ propertyName: '', projectName: '', plotNumber: '', propertyType: 'RESIDENTIAL' });
+      onSuccess: (newProperty) => {
+        if (propertyImageFiles.length > 0) uploadPropertyImages.mutate({ id: newProperty.id, files: propertyImageFiles });
+        handleClose();
       },
     });
   }
@@ -266,7 +268,7 @@ function CreatePropertyModal({ open, onClose }: { open: boolean; onClose: () => 
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={handleClose}
       title="Create New Property"
       subtitle="Add and manage property workflow details"
       size="xl"
@@ -380,11 +382,13 @@ function CreatePropertyModal({ open, onClose }: { open: boolean; onClose: () => 
             {/* Upload box */}
             <div>
               <label className={labelCls}>Upload Property Images</label>
-              <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center bg-gray-50 hover:border-gold/60 hover:bg-gold/5 transition-colors cursor-pointer">
-                <UploadIcon />
-                <p className="text-xs font-medium text-gray-600 mb-1">Click to upload or drag &amp; drop</p>
-                <p className="text-xs text-gray-400">Max size 10MB per image (PNG, JPG)</p>
-              </div>
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={(e) => setPropertyImageFiles(Array.from(e.target.files ?? []))}
+                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gold-50 file:text-gold-700 hover:file:bg-gold-100"
+              />
             </div>
 
             {/* Description */}
@@ -403,7 +407,7 @@ function CreatePropertyModal({ open, onClose }: { open: boolean; onClose: () => 
         <div className="flex justify-end gap-2 pt-5 mt-2 border-t border-gray-100">
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 text-sm"
           >
             Cancel
@@ -652,6 +656,8 @@ function EditPropertyModal({
   onClose: () => void;
 }) {
   const update = useUpdateProperty();
+  const updateWorkflow = useUpdatePropertyWorkflow();
+  const uploadPropertyImages = useUploadPropertyImages();
   const branchesQuery = useBranches();
   const branches = branchesQuery.data?.data ?? [];
 
@@ -668,25 +674,48 @@ function EditPropertyModal({
         }
       : {}
   );
+  const [workflowStatus, setWorkflowStatus] = useState<WorkflowStatus>(
+    property?.workflowStatus ?? 'AVAILABLE'
+  );
   const [toast, setToast] = useState(false);
+  const [editImageFiles, setEditImageFiles] = useState<File[]>([]);
 
   if (!property) return null;
 
+  function handleClose() {
+    setEditImageFiles([]);
+    onClose();
+  }
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    const workflowChanged = workflowStatus !== property!.workflowStatus;
+
     update.mutate(
       { id: property!.id, data: form },
       {
         onSuccess: () => {
-          setToast(true);
-          setTimeout(() => {
-            setToast(false);
-            onClose();
-          }, 1500);
+          if (editImageFiles.length > 0) uploadPropertyImages.mutate({ id: property!.id, files: editImageFiles });
+          if (workflowChanged) {
+            updateWorkflow.mutate(
+              { id: property!.id, data: { workflowStatus } },
+              {
+                onSuccess: () => {
+                  setToast(true);
+                  setTimeout(() => { setToast(false); handleClose(); }, 1500);
+                },
+              }
+            );
+          } else {
+            setToast(true);
+            setTimeout(() => { setToast(false); handleClose(); }, 1500);
+          }
         },
       },
     );
   }
+
+  const isPending = update.isPending || updateWorkflow.isPending;
 
   const inputCls = 'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white';
   const labelCls = 'block text-xs font-medium text-gray-600 mb-1';
@@ -809,13 +838,18 @@ function EditPropertyModal({
           </div>
         </div>
 
-        {/* Description */}
+        {/* Property Images */}
+        <div className="flex items-center gap-2 text-gold text-xs font-semibold uppercase tracking-wide mb-3">
+          <span>Property Images</span>
+        </div>
         <div className="mb-5">
-          <label className={labelCls}>Description</label>
-          <textarea
-            rows={3}
-            className={`${inputCls} resize-none`}
-            placeholder="Describe the property…"
+          <label className={labelCls}>Upload Property Images</label>
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={(e) => setEditImageFiles(Array.from(e.target.files ?? []))}
+            className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gold-50 file:text-gold-700 hover:file:bg-gold-100"
           />
         </div>
 
@@ -827,7 +861,11 @@ function EditPropertyModal({
         <div className="grid grid-cols-2 gap-4 mb-5">
           <div>
             <label className={labelCls}>Workflow Status</label>
-            <select className={inputCls} defaultValue={property.workflowStatus}>
+            <select
+              value={workflowStatus}
+              onChange={(e) => setWorkflowStatus(e.target.value as WorkflowStatus)}
+              className={inputCls}
+            >
               <option value="AVAILABLE">Available</option>
               <option value="BOOKING_INITIATED">Booking Initiated</option>
               <option value="TOKEN_RECEIVED">Token Received</option>
@@ -837,53 +875,23 @@ function EditPropertyModal({
               <option value="COMPLETED">Completed</option>
             </select>
           </div>
-
-          <div>
-            <label className={labelCls}>Advance Status</label>
-            <select className={inputCls} defaultValue="">
-              <option value="">Select status</option>
-              <option value="PENDING">Pending</option>
-              <option value="PARTIAL">Partial</option>
-              <option value="COMPLETE">Complete</option>
-            </select>
-          </div>
-
-          <div>
-            <label className={labelCls}>Settlement Status</label>
-            <select className={inputCls} defaultValue="">
-              <option value="">Select status</option>
-              <option value="PENDING">Pending</option>
-              <option value="PARTIAL">Partial</option>
-              <option value="COMPLETE">Complete</option>
-            </select>
-          </div>
-
-          <div>
-            <label className={labelCls}>Doc Status</label>
-            <select className={inputCls} defaultValue="">
-              <option value="">Select status</option>
-              <option value="PENDING">Pending</option>
-              <option value="IN_REVIEW">In Review</option>
-              <option value="VERIFIED">Verified</option>
-            </select>
-          </div>
         </div>
 
         {/* Footer */}
         <div className="flex justify-end gap-2 pt-4 border-t border-gray-100">
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 text-sm"
           >
             Cancel
           </button>
           <button
             type="submit"
-            disabled={update.isPending}
+            disabled={isPending}
             className="bg-gold text-navy font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 text-sm"
           >
-            {update.isPending ? 'Saving…' : 'Save Changes'}
+            {isPending ? 'Saving…' : 'Done'}
           </button>
         </div>
       </form>
@@ -1007,23 +1015,20 @@ const SuperAdminPropertiesPage: React.FC = () => {
     workflowStatus: workflowStatus || undefined,
   });
 
+  const kpiAdvance = useProperties({ workflowStatus: 'ADVANCE_PAYMENT', limit: 1 });
+  const kpiSold = useProperties({ workflowStatus: 'COMPLETED', limit: 1 });
+  const kpiDocQueue = useProperties({ workflowStatus: 'REGISTRATION_PENDING', limit: 1 });
+  const kpiDocQueue2 = useProperties({ workflowStatus: 'FINAL_SETTLEMENT_PENDING', limit: 1 });
+  const kpiAll = useProperties({ limit: 1 });
+
   const properties = data?.data ?? [];
 
-  // KPI computations
-  const activeCount = properties.filter(
-    (p) => p.workflowStatus !== 'COMPLETED',
-  ).length;
-  const advancePendingCount = properties.filter(
-    (p) => p.workflowStatus === 'ADVANCE_PAYMENT',
-  ).length;
-  const soldCount = properties.filter(
-    (p) => p.workflowStatus === 'COMPLETED',
-  ).length;
-  const docQueueCount = properties.filter(
-    (p) =>
-      p.workflowStatus === 'REGISTRATION_PENDING' ||
-      p.workflowStatus === 'FINAL_SETTLEMENT_PENDING',
-  ).length;
+  // KPI totals from dedicated count queries
+  const totalAll = kpiAll.data?.total ?? 0;
+  const soldCount = kpiSold.data?.total ?? 0;
+  const activeCount = totalAll - soldCount;
+  const advancePendingCount = kpiAdvance.data?.total ?? 0;
+  const docQueueCount = (kpiDocQueue.data?.total ?? 0) + (kpiDocQueue2.data?.total ?? 0);
 
   function handleView(p: Property) {
     setSelectedProperty(p);

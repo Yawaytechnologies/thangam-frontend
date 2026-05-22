@@ -4,12 +4,9 @@ import {
   useNotification,
   useMarkRead,
   useMarkAllRead,
-  useSendMessage,
 } from '../../hooks/useNotifications';
 import { useBranches } from '../../hooks/useBranches';
 import { Modal } from '../../components/ui/Modal';
-import { StatusBadge } from '../../components/ui/StatusBadge';
-import toast from 'react-hot-toast';
 import type { NotificationType, NotificationStatus, NotificationRecipient } from '../../types';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -67,15 +64,6 @@ function fullDateTime(iso: string): string {
     hour: '2-digit',
     minute: '2-digit',
   });
-}
-
-function getInitials(name: string): string {
-  return name
-    .split(' ')
-    .slice(0, 2)
-    .map((w) => w[0] ?? '')
-    .join('')
-    .toUpperCase();
 }
 
 // ─── Type Icons ───────────────────────────────────────────────────────────────
@@ -213,164 +201,24 @@ function NotificationDetailModal({ open, onClose, recipient, onMarkRead, isPendi
           </div>
         )}
 
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-100">
-          <button
-            type="button"
-            onClick={onClose}
-            className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 text-sm"
-          >
-            Close
-          </button>
-          {isUnread && (
-            <button
-              type="button"
-              onClick={onMarkRead}
-              disabled={isPending}
-              className="bg-gold text-navy font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 text-sm"
-            >
-              {isPending ? 'Resolving...' : 'Mark as Read & Resolve'}
-            </button>
-          )}
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-// ─── NotificationOverviewModal ────────────────────────────────────────────────
-
-interface OverviewModalProps {
-  open: boolean;
-  onClose: () => void;
-  recipient: NotificationRecipient;
-  onMarkRead: () => void;
-  isPending: boolean;
-}
-
-function NotificationOverviewModal({ open, onClose, recipient, onMarkRead, isPending }: OverviewModalProps) {
-  const n = recipient.notification;
-  const isUnread = recipient.status === 'UNREAD';
-  const [notesOpen, setNotesOpen] = useState(false);
-
-  if (!n) return null;
-
-  const priorityClass =
-    n.priority === 'HIGH'
-      ? 'bg-red-100 text-red-700'
-      : n.priority === 'MEDIUM'
-      ? 'bg-yellow-100 text-yellow-700'
-      : 'bg-green-100 text-green-700';
-
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title={n.title}
-      subtitle={fullDateTime(n.createdAt)}
-      size="2xl"
-    >
-      <div className="space-y-5">
-        {/* Badges row */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gold/10 text-gold uppercase tracking-wide">
-            {TYPE_LABELS[n.type]}
-          </span>
-          {n.priority && (
-            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${priorityClass}`}>
-              {n.priority}
-            </span>
-          )}
-          <span
-            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-              isUnread ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'
-            }`}
-          >
-            {isUnread ? 'Unread' : 'Read'}
-          </span>
-        </div>
-
-        {/* Two columns */}
-        <div className="grid grid-cols-2 gap-4">
-          {/* Related Activity */}
-          <div className="bg-gray-50 rounded-xl p-4 space-y-3">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Related Activity</p>
-            {[
-              ['Module', TYPE_LABELS[n.type]],
-              ['Activity', n.type.replace(/_/g, ' ')],
-              ['Status', isUnread ? 'Unread' : 'Read'],
-              ['Performed By', 'System'],
-              ['Branch', n.branchId ? `Branch ${n.branchId.slice(0, 8)}…` : '—'],
-            ].map(([label, value]) => (
-              <div key={label}>
-                <p className="text-xs text-gray-400">{label}</p>
-                <p className="text-sm font-medium text-gray-800">{value}</p>
-              </div>
-            ))}
-          </div>
-
-          {/* Record Details */}
-          <div className="bg-gray-50 rounded-xl p-4 space-y-3">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Record Details</p>
+        {/* Record IDs */}
+        {(n.bookingId || n.billingId) && (
+          <div className="bg-gray-50 rounded-xl p-4 space-y-2">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Linked Record</p>
             {n.bookingId && (
-              <div>
-                <p className="text-xs text-gray-400">Booking ID</p>
-                <p className="text-sm font-mono font-semibold text-gold">#{n.bookingId.slice(0, 12)}</p>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-400">Booking ID</span>
+                <span className="text-xs font-mono font-semibold text-gold">#{n.bookingId.slice(0, 12)}</span>
               </div>
             )}
             {n.billingId && (
-              <div>
-                <p className="text-xs text-gray-400">Billing ID</p>
-                <p className="text-sm font-mono font-semibold text-gold">#{n.billingId.slice(0, 12)}</p>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-400">Billing ID</span>
+                <span className="text-xs font-mono font-semibold text-gold">#{n.billingId.slice(0, 12)}</span>
               </div>
             )}
-            {n.propertyId && (
-              <div>
-                <p className="text-xs text-gray-400">Property</p>
-                <p className="text-sm font-medium text-gray-800">#{n.propertyId.slice(0, 8)}</p>
-              </div>
-            )}
-            <div>
-              <p className="text-xs text-gray-400">Status</p>
-              <StatusBadge status={isUnread ? 'UNREAD' : 'READ'} />
-            </div>
           </div>
-        </div>
-
-        {/* Personnel Involved */}
-        <div>
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Personnel Involved</p>
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-full bg-gold/10 text-gold text-xs font-bold flex items-center justify-center">
-              SA
-            </div>
-            <span className="text-sm text-gray-700">System / Super Admin</span>
-          </div>
-        </div>
-
-        {/* Operational Notes collapsible */}
-        <div className="border border-gray-200 rounded-xl overflow-hidden">
-          <button
-            type="button"
-            onClick={() => setNotesOpen((v) => !v)}
-            className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            <span>Operational Notes</span>
-            <svg
-              className={`w-4 h-4 text-gray-400 transition-transform ${notesOpen ? 'rotate-180' : ''}`}
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
-          {notesOpen && (
-            <div className="px-4 pb-3 text-sm text-gray-500 border-t border-gray-100">
-              No additional notes available.
-            </div>
-          )}
-        </div>
+        )}
 
         {/* Footer */}
         <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-100">
@@ -393,154 +241,6 @@ function NotificationOverviewModal({ open, onClose, recipient, onMarkRead, isPen
           )}
         </div>
       </div>
-    </Modal>
-  );
-}
-
-// ─── SendMessageModal ─────────────────────────────────────────────────────────
-
-interface SendMessageModalProps {
-  open: boolean;
-  onClose: () => void;
-  recipient: NotificationRecipient;
-}
-
-function SendMessageModal({ open, onClose, recipient }: SendMessageModalProps) {
-  const n = recipient.notification;
-  const sendMessage = useSendMessage();
-  const [msgType, setMsgType] = useState<import('../../types').MessageType>('GENERAL_MESSAGE');
-  const [subject, setSubject] = useState('');
-  const [body, setBody] = useState('');
-
-  function handleSend(e: React.FormEvent) {
-    e.preventDefault();
-    if (!n) return;
-    sendMessage.mutate(
-      {
-        notificationId: n.id,
-        recipientName: 'System Admin',
-        recipientRole: 'SUPER_ADMIN',
-        messageType: msgType,
-        subject,
-        body,
-        branchId: n.branchId,
-        relatedModule: TYPE_LABELS[n.type],
-        relatedEntityId: n.bookingId ?? n.billingId ?? n.propertyId,
-      },
-      {
-        onSuccess: () => {
-          toast.success('Message sent successfully.');
-          onClose();
-          setSubject('');
-          setBody('');
-        },
-      },
-    );
-  }
-
-  if (!n) return null;
-
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title="Send Message"
-      subtitle="Compose and send a message related to this notification."
-      size="lg"
-    >
-      <form onSubmit={handleSend} className="space-y-4">
-        {/* Recipient card */}
-        <div className="flex items-center gap-3 bg-gray-50 rounded-xl p-3">
-          <div className="w-10 h-10 rounded-full bg-gold/10 text-gold text-sm font-bold flex items-center justify-center flex-shrink-0">
-            {getInitials('System Admin')}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-gray-900">System Admin</p>
-            <p className="text-xs text-gray-500">Super Admin · Main Branch</p>
-          </div>
-        </div>
-
-        {/* Context line */}
-        <div className="flex items-center gap-2 text-xs text-gray-500 flex-wrap">
-          <span className="font-medium text-gold">{TYPE_LABELS[n.type]}</span>
-          {n.propertyId && (
-            <>
-              <span>·</span>
-              <span>Property #{n.propertyId.slice(0, 8)}</span>
-            </>
-          )}
-          {n.bookingId && (
-            <>
-              <span>·</span>
-              <span className="font-mono text-gold">#{n.bookingId.slice(0, 12)}</span>
-            </>
-          )}
-        </div>
-
-        {/* Message Type */}
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Message Type</label>
-          <select
-            value={msgType}
-            onChange={(e) => setMsgType(e.target.value as import('../../types').MessageType)}
-            className={`w-full ${inputClass}`}
-          >
-            <option value="GENERAL_MESSAGE">General Message</option>
-            <option value="BOOKING_FOLLOW_UP">Booking Follow Up</option>
-            <option value="BILLING_FOLLOW_UP">Billing Follow Up</option>
-            <option value="SETTLEMENT_REMINDER">Settlement Reminder</option>
-            <option value="PROPERTY_WORKFLOW_UPDATE">Property Workflow Update</option>
-            <option value="DOCUMENT_SUBMISSION_REMINDER">Document Submission Reminder</option>
-          </select>
-        </div>
-
-        {/* Subject */}
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Subject</label>
-          <input
-            type="text"
-            required
-            value={subject}
-            onChange={(e) => setSubject(e.target.value)}
-            className={`w-full ${inputClass}`}
-            placeholder="Enter message subject..."
-          />
-        </div>
-
-        {/* Message body */}
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Message</label>
-          <textarea
-            required
-            rows={4}
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            className={`w-full ${inputClass} resize-none`}
-            placeholder="Write your message here..."
-          />
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-100">
-          <button
-            type="button"
-            onClick={onClose}
-            className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 text-sm"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={sendMessage.isPending}
-            className="bg-gold text-navy font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 text-sm flex items-center gap-1.5"
-          >
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-            </svg>
-            {sendMessage.isPending ? 'Sending...' : 'Send Message'}
-          </button>
-        </div>
-      </form>
     </Modal>
   );
 }
@@ -552,19 +252,14 @@ const SuperAdminNotificationsPage: React.FC = () => {
   const [typeFilter, setTypeFilter] = useState<NotificationType | ''>('');
   const [branchFilter, setBranchFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState<NotificationStatus | ''>('');
-  const [dateFilter, setDateFilter] = useState('');
-
-  const [appliedType, setAppliedType] = useState<NotificationType | ''>('');
-  const [appliedStatus, setAppliedStatus] = useState<NotificationStatus | ''>('');
 
   const [detailRecipient, setDetailRecipient] = useState<NotificationRecipient | null>(null);
-  const [overviewRecipient, setOverviewRecipient] = useState<NotificationRecipient | null>(null);
-  const [sendMsgRecipient, setSendMsgRecipient] = useState<NotificationRecipient | null>(null);
 
   const { data, isLoading } = useNotifications({
     limit,
-    type: appliedType || undefined,
-    status: appliedStatus || undefined,
+    type: typeFilter || undefined,
+    status: statusFilter || undefined,
+    branchId: branchFilter || undefined,
   });
 
   const branchesQuery = useBranches({ limit: 100 });
@@ -576,26 +271,15 @@ const SuperAdminNotificationsPage: React.FC = () => {
   const allRecipients = data?.data ?? [];
   const total = data?.total ?? 0;
 
-  const filtered = branchFilter
-    ? allRecipients.filter((nr) => nr.notification?.branchId === branchFilter)
-    : allRecipients;
-
-  function handleApplyFilters() {
-    setAppliedType(typeFilter);
-    setAppliedStatus(statusFilter);
-  }
 
   function handleMarkRead(nr: NotificationRecipient) {
     markRead.mutate(nr.id, {
-      onSuccess: () => {
-        setDetailRecipient(null);
-        setOverviewRecipient(null);
-      },
+      onSuccess: () => setDetailRecipient(null),
     });
   }
 
   return (
-    <div className="p-6 pb-24">
+    <div className="p-6">
       {/* ── Page Header ── */}
       <div className="flex items-start justify-between mb-5">
         <div>
@@ -654,32 +338,15 @@ const SuperAdminNotificationsPage: React.FC = () => {
           <option value="UNREAD">Unread</option>
           <option value="READ">Read</option>
         </select>
-
-        {/* Date */}
-        <input
-          type="date"
-          value={dateFilter}
-          onChange={(e) => setDateFilter(e.target.value)}
-          className={inputClass}
-        />
-
-        {/* Apply */}
-        <button
-          type="button"
-          onClick={handleApplyFilters}
-          className="bg-gold text-navy font-semibold px-4 py-2 rounded-lg hover:opacity-90 text-sm flex-shrink-0"
-        >
-          Apply Filters
-        </button>
       </div>
 
       {/* ── Notification List ── */}
       {isLoading ? (
         <div className="text-center py-16 text-gray-400">Loading notifications...</div>
-      ) : filtered.length === 0 ? (
+      ) : allRecipients.length === 0 ? (
         <div className="text-center py-16 text-gray-400">No notifications found</div>
       ) : (
-        filtered.map((nr) => {
+        allRecipients.map((nr) => {
           const n = nr.notification;
           if (!n) return null;
           const isUnread = nr.status === 'UNREAD';
@@ -741,11 +408,7 @@ const SuperAdminNotificationsPage: React.FC = () => {
                   <div className="flex items-center gap-3">
                     <button
                       type="button"
-                      onClick={() => {
-                        setOverviewRecipient(null);
-                        setSendMsgRecipient(null);
-                        setDetailRecipient(nr);
-                      }}
+                      onClick={() => setDetailRecipient(nr)}
                       className="border border-gold text-gold px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-gold/5 transition-colors"
                     >
                       View Details
@@ -769,9 +432,9 @@ const SuperAdminNotificationsPage: React.FC = () => {
       )}
 
       {/* ── Footer ── */}
-      {!isLoading && filtered.length > 0 && (
+      {!isLoading && allRecipients.length > 0 && (
         <div className="flex flex-col items-center gap-3 mt-6">
-          {filtered.length < total && (
+          {allRecipients.length < total && (
             <button
               type="button"
               onClick={() => setLimit((l) => l + 20)}
@@ -781,27 +444,12 @@ const SuperAdminNotificationsPage: React.FC = () => {
             </button>
           )}
           <p className="text-xs text-gray-400">
-            Showing {filtered.length} of {total} global notifications
+            Showing {allRecipients.length} of {total} global notifications
           </p>
         </div>
       )}
 
-      {/* ── Floating broadcast button ── */}
-      <button
-        type="button"
-        onClick={() => {
-          if (filtered.length > 0) setSendMsgRecipient(filtered[0]);
-        }}
-        className="fixed bottom-6 right-6 z-40 w-12 h-12 bg-gold text-navy rounded-full shadow-lg hover:opacity-90 flex items-center justify-center transition-opacity"
-        aria-label="Send broadcast message"
-      >
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-            d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" />
-        </svg>
-      </button>
-
-      {/* ── Modals ── */}
+      {/* ── Detail Modal ── */}
       {detailRecipient && (
         <NotificationDetailModal
           open
@@ -809,24 +457,6 @@ const SuperAdminNotificationsPage: React.FC = () => {
           recipient={detailRecipient}
           onMarkRead={() => handleMarkRead(detailRecipient)}
           isPending={markRead.isPending}
-        />
-      )}
-
-      {overviewRecipient && (
-        <NotificationOverviewModal
-          open
-          onClose={() => setOverviewRecipient(null)}
-          recipient={overviewRecipient}
-          onMarkRead={() => handleMarkRead(overviewRecipient)}
-          isPending={markRead.isPending}
-        />
-      )}
-
-      {sendMsgRecipient && (
-        <SendMessageModal
-          open
-          onClose={() => setSendMsgRecipient(null)}
-          recipient={sendMsgRecipient}
         />
       )}
     </div>

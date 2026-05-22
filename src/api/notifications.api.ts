@@ -13,6 +13,9 @@ export interface NotificationParams {
   limit?: number;
   type?: NotificationType;
   status?: NotificationStatus;
+  branchId?: string;
+  startDate?: string;
+  endDate?: string;
 }
 
 export interface UnreadCountResponse {

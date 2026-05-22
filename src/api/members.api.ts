@@ -19,6 +19,31 @@ export interface CreateMemberData {
   reportsToId?: string;
   codeNumber?: string;
   password: string;
+  // Optional extended fields
+  gender?: string;
+  dateOfBirth?: string;
+  bloodGroup?: string;
+  qualification?: string;
+  experience?: string;
+  alternatePhone?: string;
+  address?: string;
+  city?: string;
+  district?: string;
+  state?: string;
+  pincode?: string;
+  panNumber?: string;
+  aadhaarNumber?: string;
+  voterIdNumber?: string;
+  drivingLicense?: string;
+  introName?: string;
+  nomineeName?: string;
+  nomineeRelation?: string;
+  nomineePhone?: string;
+  bankName?: string;
+  accountHolder?: string;
+  accountNumber?: string;
+  ifscCode?: string;
+  bankBranch?: string;
 }
 
 export type UpdateMemberData = Partial<Omit<CreateMemberData, 'password'>>;

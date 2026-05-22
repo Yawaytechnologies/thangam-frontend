@@ -8,16 +8,47 @@ export interface BookingParams {
   status?: BookingStatus;
   branchId?: string;
   propertyId?: string;
+  startDate?: string;
+  endDate?: string;
+}
+
+export interface BookingPaymentData {
+  bankName?: string;
+  favourOf?: string;
+  chequeNumber?: string;
+  chequeDate?: string;
+  gpayReference?: string;
+  cashAmount?: number;
+  totalAmount: number;
+  paymentMethod: string;
+}
+
+export interface BookingDenominationData {
+  denomination: number;
+  count: number;
+  amount: number;
 }
 
 export interface CreateBookingData {
   propertyId: string;
   applicantName: string;
+  relation?: string;
+  applicantAddress?: string;
+  pinCode?: string;
   cellNumber: string;
+  dateOfBirth?: string;
+  weddingDay?: string;
   projectName: string;
   plotNumber: string;
+  squareFeet?: number;
   bookingDate: string;
+  edDdSmBmName?: string;
+  referenceCode?: string;
+  directorName?: string;
+  signatureUrl?: string;
   branchId?: string;
+  payments?: BookingPaymentData[];
+  denominations?: BookingDenominationData[];
 }
 
 export type UpdateBookingData = Partial<CreateBookingData>;
@@ -48,6 +79,9 @@ export const bookingsApi = {
 
   updateStatus: (id: string, status: BookingStatus): Promise<Booking> =>
     api.patch(`/bookings/${id}/status`, { status }).then((r) => r.data.data),
+
+  delete: (id: string): Promise<void> =>
+    api.delete(`/bookings/${id}`).then(() => undefined),
 
   downloadPdf: async (id: string): Promise<void> => {
     const response = await api.get(`/bookings/${id}/pdf`, { responseType: 'blob' });
