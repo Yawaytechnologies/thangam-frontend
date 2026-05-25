@@ -3,6 +3,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/auth.store';
 import { useLogout } from '../../hooks/useAuth';
 import { useUnreadCount } from '../../hooks/useNotifications';
+import SthGoldLogo from '../../assets/STH-Gold-Finish-Logo.png';
 
 const navItems = [
   {
@@ -75,7 +76,9 @@ const AdminLayout: React.FC = () => {
   const user = useAuthStore((s) => s.user);
   const logout = useLogout();
   const navigate = useNavigate();
+
   const [sidebarOpen, setSidebarOpen] = useState(true);
+
   const { data: unreadData } = useUnreadCount();
   const unreadCount = unreadData?.count ?? 0;
 
@@ -95,17 +98,30 @@ const AdminLayout: React.FC = () => {
         } bg-white border-r border-gray-200 flex flex-col transition-all duration-200 flex-shrink-0`}
       >
         {/* Logo */}
-        <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-200 h-16">
-          <div className="w-8 h-8 bg-gold rounded-lg flex items-center justify-center flex-shrink-0">
-            <span className="text-navy font-bold text-sm">ST</span>
-          </div>
-          {sidebarOpen && (
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-gray-900 truncate">Sri Thangam</p>
-              <p className="text-xs text-gray-500 truncate">{branchName}</p>
-            </div>
-          )}
-        </div>
+<div
+  className={`flex items-center border-b border-gray-200 h-16 transition-all duration-200 ${
+    sidebarOpen ? 'gap-3 px-4 justify-start' : 'px-2 justify-center'
+  }`}
+>
+  <img
+    src={SthGoldLogo}
+    alt="Sri Thangam Housing"
+    className={`object-contain flex-shrink-0 transition-all duration-200 ${
+      sidebarOpen ? 'h-10 w-10' : 'h-9 w-9'
+    }`}
+  />
+
+  {sidebarOpen && (
+    <div className="min-w-0">
+      <p className="text-sm font-bold text-gray-900 leading-tight whitespace-nowrap">
+        Sri Thangam
+      </p>
+      <p className="text-xs font-semibold text-gold tracking-widest uppercase whitespace-nowrap">
+        Housing
+      </p>
+    </div>
+  )}
+</div>
 
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto py-4 px-2 space-y-0.5">
@@ -123,12 +139,14 @@ const AdminLayout: React.FC = () => {
             >
               <span className="flex-shrink-0 relative">
                 {item.icon}
+
                 {item.badge && unreadCount > 0 && (
                   <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-white text-xs flex items-center justify-center font-bold">
                     {unreadCount > 9 ? '9+' : unreadCount}
                   </span>
                 )}
               </span>
+
               {sidebarOpen && <span className="truncate">{item.label}</span>}
             </NavLink>
           ))}
@@ -145,20 +163,35 @@ const AdminLayout: React.FC = () => {
                 {adminName.charAt(0).toUpperCase()}
               </span>
             </div>
+
             {sidebarOpen && (
               <div className="min-w-0">
-                <p className="text-sm font-medium text-gray-900 truncate">{adminName}</p>
+                <p className="text-sm font-medium text-gray-900 truncate">
+                  {adminName}
+                </p>
                 <p className="text-xs text-gray-500">Admin</p>
               </div>
             )}
           </button>
+
           <button
             onClick={handleLogout}
             className="mt-1 flex items-center gap-3 w-full px-2 py-2 rounded-lg hover:bg-red-50 text-red-600 transition-colors text-sm"
           >
-            <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            <svg
+              className="w-5 h-5 flex-shrink-0"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+              />
             </svg>
+
             {sidebarOpen && <span>Logout</span>}
           </button>
         </div>
@@ -173,11 +206,23 @@ const AdminLayout: React.FC = () => {
             className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors"
             aria-label="Toggle sidebar"
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M4 6h16M4 12h16M4 18h16"
+              />
             </svg>
           </button>
+
           <div className="flex-1" />
+
           <span className="text-sm text-gray-500">{branchName}</span>
         </header>
 
