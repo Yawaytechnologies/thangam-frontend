@@ -17,10 +17,10 @@ export function useMember(id: string) {
   });
 }
 
-export function useTeam() {
+export function useTeam(params?: MemberParams) {
   return useQuery({
-    queryKey: ['members', 'team'],
-    queryFn: () => membersApi.getTeam(),
+    queryKey: ['members', 'team', params],
+    queryFn: () => membersApi.getTeam(params),
   });
 }
 
