@@ -440,7 +440,7 @@ function AddAdminModal({ open, onClose }: AddAdminModalProps) {
       open={open}
       onClose={handleClose}
       title="Add New Admin"
-      subtitle="Create a new administrative account and assign branch access."
+      
       size="lg"
     >
       <form onSubmit={handleSubmit} className="space-y-4">

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useBranches, useCreateBranch, useUpdateBranch, useUpdateBranchStatus } from '../../hooks/useBranches';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Modal } from '../../components/ui/Modal';
@@ -47,13 +47,6 @@ const PhoneIcon = () => (
   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
       d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 7V5z" />
-  </svg>
-);
-
-const UserIcon = () => (
-  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-      d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
   </svg>
 );
 
@@ -210,23 +203,6 @@ function CreateBranchModal({ open, onClose }: CreateBranchModalProps) {
           </div>
         </div>
 
-        {/* Manager Name (email field repurposed as manager label in display) */}
-        <div>
-          <label className={labelClass}>Manager Email</label>
-          <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-              <UserIcon />
-            </span>
-            <input
-              type="email"
-              placeholder="manager@thangam.com"
-              value={form.email ?? ''}
-              onChange={(e) => field('email', e.target.value)}
-              className={`${inputClass} pl-9`}
-            />
-          </div>
-        </div>
-
         {/* Image upload placeholder */}
         <div>
           <label className={labelClass}>Branch Image</label>
@@ -272,13 +248,14 @@ function EditBranchModal({ open, onClose, branch }: EditBranchModalProps) {
     name: branch.name,
     branchType: branch.branchType,
     phone: branch.phone,
-    email: branch.email,
     address: branch.address,
     city: branch.city,
     district: branch.district,
     state: branch.state,
     pincode: branch.pincode,
   });
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -375,17 +352,37 @@ function EditBranchModal({ open, onClose, branch }: EditBranchModalProps) {
         </div>
 
         <div>
-          <label className={labelClass}>Manager Email</label>
-          <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-              <UserIcon />
-            </span>
+          <label className={labelClass}>Branch Image</label>
+          <div
+            className="border-2 border-dashed border-gray-200 rounded-xl p-6 flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-gold transition-colors bg-gray-50"
+            onClick={() => imageInputRef.current?.click()}
+          >
             <input
-              type="email"
-              value={form.email ?? ''}
-              onChange={(e) => field('email', e.target.value)}
-              className={`${inputClass} pl-9`}
+              type="file"
+              accept="image/*"
+              ref={imageInputRef}
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) setImageFile(file);
+              }}
             />
+            <UploadIcon />
+            <p className="text-sm font-medium text-gray-600">
+              {imageFile ? 'Replace selected branch image' : 'Choose a new branch image'}
+            </p>
+            <p className="text-xs text-gray-400">PNG, JPG up to 10MB</p>
+            {imageFile && <p className="text-xs text-gray-500">{imageFile.name}</p>}
+            <button
+              type="button"
+              className="mt-2 text-sm text-gold font-semibold"
+              onClick={(e) => {
+                e.stopPropagation();
+                imageInputRef.current?.click();
+              }}
+            >
+              Select Image
+            </button>
           </div>
         </div>
 
@@ -423,7 +420,7 @@ function ViewBranchModal({ open, onClose, branch }: ViewBranchModalProps) {
         <div className="absolute inset-0 flex items-center justify-center">
           <BuildingIcon />
         </div>
-        <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
+        <div className="absolute inset-0 bg-linear-to-t from-black/70 to-transparent" />
         <div className="relative z-10 p-4 w-full flex items-end justify-between">
           <div>
             <h3 className="text-xl font-bold text-white">{branch.name}</h3>
