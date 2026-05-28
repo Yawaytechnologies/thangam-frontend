@@ -1232,10 +1232,14 @@ function EditBookingModal({ open, onClose, booking, onSaved }: EditBookingModalP
   useEffect(() => {
     if (!open) return;
 
-    const nextRows = getBookingDenominations(booking);
-    setForm(buildEditForm(booking));
-    setDenomRows(nextRows);
-    nextDenomId.current = nextRows.length + 1;
+    const timeout = window.setTimeout(() => {
+      const nextRows = getBookingDenominations(booking);
+      setForm(buildEditForm(booking));
+      setDenomRows(nextRows);
+      nextDenomId.current = nextRows.length + 1;
+    }, 0);
+
+    return () => window.clearTimeout(timeout);
   }, [booking, open]);
 
   const denomTotal = useMemo(

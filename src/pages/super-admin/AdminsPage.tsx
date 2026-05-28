@@ -262,14 +262,14 @@ function formatDate(iso: string): string {
 }
 
 function getAdminPhoto(admin: Admin): string {
-  const raw = admin as any;
+  const raw = admin as unknown as Record<string, unknown>;
 
   return (
-    raw.photo ||
-    raw.photoUrl ||
-    raw.profilePhoto ||
-    raw.profileImage ||
-    raw.avatar ||
+    (typeof raw.photo === 'string' && raw.photo) ||
+    (typeof raw.photoUrl === 'string' && raw.photoUrl) ||
+    (typeof raw.profilePhoto === 'string' && raw.profilePhoto) ||
+    (typeof raw.profileImage === 'string' && raw.profileImage) ||
+    (typeof raw.avatar === 'string' && raw.avatar) ||
     ''
   );
 }
@@ -436,13 +436,7 @@ function AddAdminModal({ open, onClose }: AddAdminModalProps) {
   }
 
   return (
-    <Modal
-      open={open}
-      onClose={handleClose}
-      title="Add New Admin"
-      
-      size="lg"
-    >
+    <Modal open={open} onClose={handleClose} title="Add New Admin" size="lg">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className={labelClass}>Branch Assignment *</label>
@@ -599,20 +593,37 @@ interface EditAdminModalProps {
   admin: Admin;
 }
 
+function getAdminForm(admin: Admin): UpdateAdminData & { status: UserStatus } {
+  return {
+    fullName: admin.fullName,
+    phone: admin.phone,
+    email: admin.email,
+    branchId: admin.branchId,
+    status: admin.status,
+  };
+}
+
 function EditAdminModal({ open, onClose, admin }: EditAdminModalProps) {
+  return (
+    <EditAdminModalContent
+      key={admin.id}
+      open={open}
+      onClose={onClose}
+      admin={admin}
+    />
+  );
+}
+
+function EditAdminModalContent({ open, onClose, admin }: EditAdminModalProps) {
   const update = useUpdateAdmin();
   const updateStatus = useUpdateAdminStatus();
   const uploadAdminPhoto = useUploadAdminPhoto();
   const branchesQuery = useBranches();
   const branches = branchesQuery.data?.data ?? [];
 
-  const [form, setForm] = useState<UpdateAdminData & { status: UserStatus }>({
-    fullName: admin.fullName,
-    phone: admin.phone,
-    email: admin.email,
-    branchId: admin.branchId,
-    status: admin.status,
-  });
+  const [form, setForm] = useState<UpdateAdminData & { status: UserStatus }>(
+    () => getAdminForm(admin)
+  );
 
   const [editPhotoFile, setEditPhotoFile] = useState<File | null>(null);
 

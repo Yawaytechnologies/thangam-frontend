@@ -123,25 +123,23 @@ const SuperAdminProfilePage: React.FC = () => {
   const logout = useLogout();
 
   const profile = useMemo(() => {
-    const userAny = user as any;
-    const member = userAny?.member;
-    const admin = userAny?.admin;
+    const member = user?.member;
+    const admin = user?.admin;
 
     const fullName =
       member?.fullName ??
       admin?.fullName ??
-      userAny?.email ??
-      userAny?.phone ??
+      user?.email ??
+      user?.phone ??
       'Super Admin';
 
-    const email = userAny?.email ?? member?.email ?? admin?.email ?? '';
-    const phone = userAny?.phone ?? member?.phone ?? admin?.phone ?? '';
-    const role = formatRole(userAny?.role);
-    const status = formatStatus(userAny?.status);
+    const email = user?.email ?? member?.email ?? admin?.email ?? '';
+    const phone = user?.phone ?? member?.phone ?? admin?.phone ?? '';
+    const role = formatRole(user?.role);
+    const status = formatStatus(user?.status);
     const branch =
       member?.branch?.name ??
       admin?.branch?.name ??
-      userAny?.branch?.name ??
       'Central Command';
 
     return {

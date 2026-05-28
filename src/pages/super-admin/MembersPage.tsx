@@ -22,6 +22,47 @@ const ROLES: Role[] = [
   'AGENT',
 ];
 
+type MemberExtraFields = {
+  photo?: unknown;
+  photoUrl?: unknown;
+  profilePhoto?: unknown;
+  profileImage?: unknown;
+  createdAt?: unknown;
+  created_at?: unknown;
+  branchName?: unknown;
+  reportsToName?: unknown;
+  networkSize?: unknown;
+  totalNetworkSize?: unknown;
+  totalDownline?: unknown;
+  downlineSummary?: unknown;
+  executiveDirectors?: unknown;
+  deputyDirectors?: unknown;
+  seniorManagers?: unknown;
+  businessManagers?: unknown;
+  agents?: unknown;
+};
+
+function getMemberExtraFields(member: Member): MemberExtraFields {
+  return member as unknown as MemberExtraFields;
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function getStringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function getDisplayValue(...values: unknown[]): string | number {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value;
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+  }
+
+  return '—';
+}
+
 function MemberAvatar({ name }: { name: string }) {
   const initials = name
     .split(' ')
@@ -299,56 +340,61 @@ function MemberOverviewModal({
 }) {
   if (!open || !member) return null;
 
-  const raw = member as any;
+  const extra = getMemberExtraFields(member);
+  const downlineSummary = isObjectRecord(extra.downlineSummary)
+    ? extra.downlineSummary
+    : {};
 
   const imageSource =
-    raw.photo ||
-    raw.photoUrl ||
-    raw.profilePhoto ||
-    raw.profileImage ||
+    getStringValue(extra.photo) ||
+    getStringValue(extra.photoUrl) ||
+    getStringValue(extra.profilePhoto) ||
+    getStringValue(extra.profileImage) ||
     '';
 
-  const joinedDate = formatDate(raw.createdAt || raw.created_at);
+  const joinedDate = formatDate(
+    getStringValue(extra.createdAt) || getStringValue(extra.created_at)
+  );
 
-  const branchName = member.branch?.name || raw.branchName || '—';
-  const reportsTo = member.reportsTo?.fullName || raw.reportsToName || '—';
+  const branchName =
+    member.branch?.name || getStringValue(extra.branchName) || '—';
 
-  const networkSize =
-    raw.networkSize ||
-    raw.totalNetworkSize ||
-    raw.totalDownline ||
-    '—';
+  const reportsTo =
+    member.reportsTo?.fullName || getStringValue(extra.reportsToName) || '—';
 
-  const downlineSummary = raw.downlineSummary || {};
+  const networkSize = getDisplayValue(
+    extra.networkSize,
+    extra.totalNetworkSize,
+    extra.totalDownline
+  );
 
-  const executiveDirectors =
-    downlineSummary.executiveDirectors ??
-    raw.executiveDirectors ??
-    '—';
+  const executiveDirectors = getDisplayValue(
+    downlineSummary.executiveDirectors,
+    extra.executiveDirectors
+  );
 
-  const deputyDirectors =
-    downlineSummary.deputyDirectors ??
-    raw.deputyDirectors ??
-    '—';
+  const deputyDirectors = getDisplayValue(
+    downlineSummary.deputyDirectors,
+    extra.deputyDirectors
+  );
 
-  const seniorManagers =
-    downlineSummary.seniorManagers ??
-    raw.seniorManagers ??
-    '—';
+  const seniorManagers = getDisplayValue(
+    downlineSummary.seniorManagers,
+    extra.seniorManagers
+  );
 
-  const businessManagers =
-    downlineSummary.businessManagers ??
-    raw.businessManagers ??
-    '—';
+  const businessManagers = getDisplayValue(
+    downlineSummary.businessManagers,
+    extra.businessManagers
+  );
 
-  const agents = downlineSummary.agents ?? raw.agents ?? '—';
+  const agents = getDisplayValue(downlineSummary.agents, extra.agents);
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/45 px-4 py-4 backdrop-blur-[3px]">
       <div className="absolute inset-0" onClick={onClose} />
 
       <div className="relative flex w-full max-w-[850px] max-h-[calc(100vh-32px)] flex-col overflow-hidden rounded-[18px] border border-[#ededed] bg-white shadow-[0_24px_70px_rgba(0,0,0,0.28)]">
-        {/* Header */}
         <div className="relative shrink-0 px-[34px] pb-5 pt-[22px]">
           <button
             type="button"
@@ -368,9 +414,7 @@ function MemberOverviewModal({
           </p>
         </div>
 
-        {/* Scrollable Body */}
         <div className="min-h-0 flex-1 overflow-y-auto px-[34px] pb-6">
-          {/* Profile Card */}
           <div className="flex min-h-[98px] items-center justify-between gap-5 rounded-[9px] border border-[#f0f0f2] bg-[#f7f7f9] px-4 py-4">
             <div className="flex min-w-0 items-center gap-4">
               <div className="relative shrink-0">
@@ -422,9 +466,7 @@ function MemberOverviewModal({
             </div>
           </div>
 
-          {/* Two Columns */}
           <div className="mt-5 grid grid-cols-1 gap-5 md:grid-cols-2">
-            {/* Contact */}
             <div>
               <SectionHeading icon={<FileIcon />} title="Contact Information" />
 
@@ -456,7 +498,6 @@ function MemberOverviewModal({
               </div>
             </div>
 
-            {/* Hierarchy */}
             <div>
               <SectionHeading
                 icon={<HierarchyIcon />}
@@ -519,7 +560,6 @@ function MemberOverviewModal({
             </div>
           </div>
 
-          {/* Recent Activity */}
           <div className="mt-5">
             <SectionHeading icon={<ClockIcon />} title="Recent Activity" />
 
@@ -527,7 +567,6 @@ function MemberOverviewModal({
           </div>
         </div>
 
-        {/* Footer */}
         <div className="shrink-0 flex items-center justify-end gap-4 border-t border-[#ececf0] bg-[#f8f8fb] px-[34px] py-3">
           <button
             type="button"
@@ -554,12 +593,42 @@ function MemberOverviewModal({
   );
 }
 
-function EditMemberModal({
+type EditMemberModalProps = {
+  member: Member | null;
+  open: boolean;
+  onClose: () => void;
+};
+
+function getMemberForm(member: Member): UpdateMemberData {
+  return {
+    fullName: member.fullName,
+    phone: member.phone,
+    email: member.email,
+    role: member.role,
+    branchId: member.branchId,
+    codeNumber: member.codeNumber,
+  };
+}
+
+function EditMemberModal({ member, open, onClose }: EditMemberModalProps) {
+  if (!member) return null;
+
+  return (
+    <EditMemberModalContent
+      key={member.id}
+      member={member}
+      open={open}
+      onClose={onClose}
+    />
+  );
+}
+
+function EditMemberModalContent({
   member,
   open,
   onClose,
 }: {
-  member: Member | null;
+  member: Member;
   open: boolean;
   onClose: () => void;
 }) {
@@ -568,25 +637,11 @@ function EditMemberModal({
   const branchesQuery = useBranches();
   const branches = branchesQuery.data?.data ?? [];
 
-  const [form, setForm] = useState<UpdateMemberData>({});
+  const [form, setForm] = useState<UpdateMemberData>(() =>
+    getMemberForm(member)
+  );
+
   const [memberPhotoFile, setMemberPhotoFile] = useState<File | null>(null);
-
-  React.useEffect(() => {
-    if (member) {
-      setForm({
-        fullName: member.fullName,
-        phone: member.phone,
-        email: member.email,
-        role: member.role,
-        branchId: member.branchId,
-        codeNumber: member.codeNumber,
-      });
-    }
-  }, [member]);
-
-  if (!member) return null;
-
-  const currentMember = member;
 
   function handleClose() {
     setMemberPhotoFile(null);
@@ -598,7 +653,7 @@ function EditMemberModal({
 
     updateMutation.mutate(
       {
-        id: currentMember.id,
+        id: member.id,
         data: form,
       },
       {
@@ -819,8 +874,8 @@ function DeactivateConfirmModal({
           {updateStatus.isPending
             ? 'Updating...'
             : isActive
-              ? 'Deactivate'
-              : 'Activate'}
+            ? 'Deactivate'
+            : 'Activate'}
         </button>
       </div>
     </Modal>
@@ -859,7 +914,6 @@ const MembersPage: React.FC = () => {
         <h1 className="text-2xl font-bold text-gray-900">Members</h1>
       </div>
 
-      {/* Filters */}
       <div className="flex flex-wrap gap-3 bg-white border border-gray-200 rounded-xl p-4">
         <SearchInput
           value={search}
@@ -920,7 +974,6 @@ const MembersPage: React.FC = () => {
         </select>
       </div>
 
-      {/* Table */}
       <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
@@ -929,21 +982,27 @@ const MembersPage: React.FC = () => {
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
                   Member
                 </th>
+
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
                   ID
                 </th>
+
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
                   Phone
                 </th>
+
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
                   Role
                 </th>
+
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
                   Branch
                 </th>
+
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
                   Status
                 </th>
+
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
                   Actions
                 </th>
