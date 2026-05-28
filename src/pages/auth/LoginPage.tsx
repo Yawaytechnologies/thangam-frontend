@@ -205,8 +205,12 @@ export default function LoginPage() {
               )}
             </button>
           </form>
-
-          <p className="text-center text-xs text-gray-400 mt-8">
+           <p className="text-center text-xs text-gray-400 mt-8">
+            
+             Restricted Access. Authorized Personnel Only.
+           
+          </p>
+          <p className="text-center text-xs text-gray-400 mt-4">
             <a href="#" className="hover:underline">
               Privacy Policy
             </a>

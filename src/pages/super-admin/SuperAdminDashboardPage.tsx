@@ -91,12 +91,12 @@ interface KpiCard {
 }
 
 const KPI_CONFIG: KpiCard[] = [
-  { label: 'Total Members',    valueKey: 'totalMembers',    icon: <IconUsers /> },
+  { label: 'Members Today',    valueKey: 'membersToday',    icon: <IconUsers /> },
+  { label: 'Joined This Week', valueKey: 'joinedThisWeek',  icon: <IconCalendar /> },
+  { label: 'Joined This Month',valueKey: 'joinedThisMonth', icon: <IconUsers /> },
+  { label: 'Total Directors',  valueKey: 'totalDirectors',  icon: <IconClipboard /> },
+  { label: 'Global',           valueKey: 'totalMembers',    icon: <IconBranch /> },
   { label: 'Active Members',   valueKey: 'activeMembers',   icon: <IconActivity /> },
-  { label: 'Total Branches',   valueKey: 'totalBranches',   icon: <IconBranch /> },
-  { label: 'Total Properties', valueKey: 'totalProperties', icon: <IconHouse /> },
-  { label: 'Total Bookings',   valueKey: 'totalBookings',   icon: <IconClipboard /> },
-  { label: 'Total Revenue',    valueKey: 'totalRevenue',    icon: <IconCalendar /> },
 ];
 
 // ─── Performer Card (display only) ───────────────────────────────────────────
@@ -134,7 +134,7 @@ function PerformerCard({ performer, froze }: {
 
       {/* Role badge */}
       <div className="mt-1 flex justify-center">
-        <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-medium">
+        <span className="text-xs bg-teal-50 text-teal-700 px-2 py-0.5 rounded-full font-medium">
           {performer.role.replace(/_/g, ' ')}
         </span>
       </div>
@@ -144,11 +144,31 @@ function PerformerCard({ performer, froze }: {
         <p className="text-xs text-gray-400 text-center truncate mt-1">{performer.member.branch.name}</p>
       )}
 
-      {/* Stats */}
-      <div className="mt-3 pt-2 border-t border-gray-100 flex justify-between text-xs text-gray-500">
-        <span>Tagged <span className="font-semibold text-gray-800">{performer.taggedCount}</span></span>
-        <span>Props <span className="font-semibold text-gray-800">{performer.propertiesCount}</span></span>
+      {/* Status */}
+      <div className="mt-3 pt-3 border-t border-gray-100">
+        <p className="text-xs text-gray-500 font-medium mb-1">Status</p>
+        <div className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-green-500" />
+          <span className="text-xs font-semibold text-green-700">Active</span>
+        </div>
       </div>
+
+      {/* Stats */}
+      <div className="mt-3 space-y-2 text-xs text-gray-600">
+        <div className="flex justify-between">
+          <span>Tagged Members</span>
+          <span className="font-semibold text-gray-900">{performer.taggedCount}</span>
+        </div>
+        <div className="flex justify-between">
+          <span>Properties Handled</span>
+          <span className="font-semibold text-gray-900">{performer.propertiesCount}</span>
+        </div>
+      </div>
+
+      {/* View Profile Button */}
+      <button className="w-full mt-4 text-center text-sm font-medium text-gold border border-dashed border-gold px-3 py-2 rounded-lg hover:bg-gold/5 transition-colors">
+        View Profile
+      </button>
     </div>
   );
 }

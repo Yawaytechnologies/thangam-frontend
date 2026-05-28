@@ -93,6 +93,7 @@ export interface Member {
   fullName: string;
   phone: string;
   email?: string;
+  photo?: string;
   role: Role;
   branchId: string;
   branch?: Branch;
