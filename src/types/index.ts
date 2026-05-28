@@ -115,6 +115,12 @@ export interface Property {
   city?: string;
   state?: string;
   createdAt: string;
+  // detail-view fields (returned by getOne)
+  bookingCount?: number;
+  latestBookingStatus?: string | null;
+  latestBooking?: Booking | null;
+  latestBilling?: unknown | null;
+  images?: { id: string; url: string; uploadedAt: string }[];
 }
 
 export interface BookingPayment {

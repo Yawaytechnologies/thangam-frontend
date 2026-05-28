@@ -55,8 +55,8 @@ export const membersApi = {
   getOne: (id: string): Promise<Member> =>
     api.get(`/members/${id}`).then((r) => r.data.data),
 
-  getTeam: (): Promise<Member[]> =>
-    api.get('/members/team').then((r) => r.data.data),
+  getTeam: (params?: MemberParams): Promise<PaginatedResponse<Member>> =>
+    api.get('/members/team', { params }).then((r) => r.data.data),
 
   getTeamMember: (id: string): Promise<Member> =>
     api.get(`/members/team/${id}`).then((r) => r.data.data),
@@ -72,7 +72,7 @@ export const membersApi = {
 
   uploadPhoto: (id: string, file: File): Promise<Member> => {
     const form = new FormData();
-    form.append('photo', file);
+    form.append('file', file);
     return api.post(`/members/${id}/photo`, form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     }).then((r) => r.data.data);

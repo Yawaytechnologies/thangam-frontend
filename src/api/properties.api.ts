@@ -16,8 +16,15 @@ export interface CreatePropertyData {
   plotNumber: string;
   propertyType: PropertyType;
   squareFeet?: number;
+  propertyCode?: string;
+  facing?: string;
+  approvalStatus?: string;
+  address?: string;
   city?: string;
+  district?: string;
   state?: string;
+  pincode?: string;
+  mapLocation?: string;
   branchId?: string;
 }
 
@@ -30,12 +37,18 @@ export interface WorkflowDocument {
   uploadedAt: string;
 }
 
-export interface PropertyWorkflow {
+export interface WorkflowHistoryEntry {
   id: string;
-  propertyId: string;
-  workflowStatus: WorkflowStatus;
-  updatedAt: string;
+  entityType: string;
+  entityId: string;
+  fromStatus: WorkflowStatus | null;
+  toStatus: WorkflowStatus;
+  remarks: string | null;
+  performedBy: string | null;
+  createdAt: string;
 }
+
+export type PropertyWorkflow = WorkflowHistoryEntry;
 
 export interface UpdateWorkflowData {
   workflowStatus: WorkflowStatus;
@@ -49,7 +62,7 @@ export const propertiesApi = {
   getOne: (id: string): Promise<Property> =>
     api.get(`/properties/${id}`).then((r) => r.data.data),
 
-  getWorkflow: (id: string): Promise<PropertyWorkflow> =>
+  getWorkflow: (id: string): Promise<WorkflowHistoryEntry[]> =>
     api.get(`/properties/${id}/workflow`).then((r) => r.data.data),
 
   getDocuments: (id: string): Promise<WorkflowDocument[]> =>

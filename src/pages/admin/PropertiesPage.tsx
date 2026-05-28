@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useProperties, usePropertyWorkflow } from '../../hooks/useProperties';
+import { useProperties } from '../../hooks/useProperties';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Pagination } from '../../components/ui/Pagination';
 import { SearchInput } from '../../components/ui/SearchInput';
@@ -83,8 +83,6 @@ const WorkflowStepper: React.FC<{ currentStatus: WorkflowStatus }> = ({ currentS
 };
 
 const PropertyDetailModal: React.FC<{ property: Property; onClose: () => void }> = ({ property, onClose }) => {
-  const { data: workflow } = usePropertyWorkflow(property.id);
-
   return (
     <Modal open onClose={onClose} title="Property Details" size="xl">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -110,7 +108,7 @@ const PropertyDetailModal: React.FC<{ property: Property; onClose: () => void }>
         </div>
         <div>
           <h3 className="text-sm font-semibold text-navy mb-4">Workflow Timeline</h3>
-          <WorkflowStepper currentStatus={workflow?.workflowStatus ?? property.workflowStatus} />
+          <WorkflowStepper currentStatus={property.workflowStatus} />
         </div>
       </div>
     </Modal>
