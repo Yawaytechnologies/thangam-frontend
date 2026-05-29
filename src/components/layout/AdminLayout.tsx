@@ -86,6 +86,7 @@ const AdminLayout: React.FC = () => {
   const user = useAuthStore((s) => s.user);
   const logout = useLogout();
   const navigate = useNavigate();
+
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
@@ -166,12 +167,14 @@ const AdminLayout: React.FC = () => {
             >
               <span className="flex-shrink-0 relative">
                 {item.icon}
+
                 {item.badge && unreadCount > 0 && (
                   <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-white text-xs flex items-center justify-center font-bold">
                     {unreadCount > 9 ? '9+' : unreadCount}
                   </span>
                 )}
               </span>
+
               {sidebarOpen && <span className="truncate">{item.label}</span>}
             </NavLink>
           ))}
@@ -185,9 +188,12 @@ const AdminLayout: React.FC = () => {
                 {adminName.charAt(0).toUpperCase()}
               </span>
             </div>
+
             {sidebarOpen && (
               <div className="min-w-0">
-                <p className="text-sm font-medium text-gray-900 truncate">{adminName}</p>
+                <p className="text-sm font-medium text-gray-900 truncate">
+                  {adminName}
+                </p>
                 <p className="text-xs text-gray-500">Admin</p>
               </div>
             )}
@@ -196,9 +202,20 @@ const AdminLayout: React.FC = () => {
             onClick={handleLogout}
             className="mt-1 flex items-center gap-3 w-full px-2 py-2 rounded-lg hover:bg-red-50 text-red-600 transition-colors text-sm outline-none focus-visible:ring-2 focus-visible:ring-red-300 focus-visible:ring-offset-1"
           >
-            <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            <svg
+              className="w-5 h-5 flex-shrink-0"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+              />
             </svg>
+
             {sidebarOpen && <span>Logout</span>}
           </button>
         </div>
@@ -213,10 +230,21 @@ const AdminLayout: React.FC = () => {
             className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 transition-colors"
             aria-label="Toggle sidebar"
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M4 6h16M4 12h16M4 18h16"
+              />
             </svg>
           </button>
+          <div className="flex-1" />
           <div className="relative w-full max-w-sm">
             <svg
               className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500"

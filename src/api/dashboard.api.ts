@@ -12,6 +12,10 @@ export interface SuperAdminStats {
   totalBookings: number;
   totalBillings: number;
   totalRevenue: number;
+  membersToday?: number;
+  joinedThisWeek?: number;
+  joinedThisMonth?: number;
+  totalDirectors?: number;
 }
 
 export interface AdminStats {

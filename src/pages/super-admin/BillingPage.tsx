@@ -1,208 +1,475 @@
-import React, { useState } from 'react';
-import {
-  useBillings,
-  useBilling,
-  useCreateBilling,
-  useUpdateBilling,
-  useUpdateBillingStatus,
-  useDeleteBilling,
-} from '../../hooks/useBilling';
-import { useBranches } from '../../hooks/useBranches';
-import { useBookings } from '../../hooks/useBookings';
-import { StatusBadge } from '../../components/ui/StatusBadge';
-import { Pagination } from '../../components/ui/Pagination';
-import { Modal } from '../../components/ui/Modal';
-import { billingApi } from '../../api/billing.api';
-import type { BillingStatus, PaymentMethod, Billing } from '../../types';
+import React, { useMemo, useState } from "react";
 
-// ─── Style constants ──────────────────────────────────────────────────────────
+type BillingStatus =
+  | "PENDING"
+  | "PARTIAL_PAYMENT"
+  | "PAID"
+  | "FINAL_SETTLEMENT"
+  | "COMPLETED";
 
-const inputClass =
-  'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white';
-const labelClass = 'block text-xs font-medium text-gray-600 mb-1';
-const sectionHeaderClass =
-  'flex items-center gap-2 text-gold text-xs font-semibold uppercase tracking-wide mb-3';
+type PaymentStatus = "PENDING" | "PAID" | "PARTIAL_PAID";
+type SettlementStatus = "PENDING" | "COMPLETED";
+type PaymentMethod = "BANK_TRANSFER" | "CHEQUE" | "CASH" | "UPI" | "GPAY";
 
-// ─── Options ─────────────────────────────────────────────────────────────────
-
-const STATUS_OPTIONS: BillingStatus[] = [
-  'PENDING',
-  'PARTIAL_PAYMENT',
-  'PAID',
-  'FINAL_SETTLEMENT',
-  'COMPLETED',
-];
-
-const PAYMENT_METHOD_OPTIONS: { value: PaymentMethod; label: string }[] = [
-  { value: 'BANK_TRANSFER', label: 'NEFT / Bank Transfer' },
-  { value: 'CHEQUE', label: 'Cheque' },
-  { value: 'CASH', label: 'Cash' },
-  { value: 'UPI', label: 'UPI' },
-  { value: 'GPAY', label: 'GPay' },
-];
-
-// ─── Icons ────────────────────────────────────────────────────────────────────
-
-const EyeIcon = () => (
-  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-      d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-  </svg>
-);
-
-const PencilIcon = () => (
-  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-      d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-  </svg>
-);
-
-const TrashIcon = () => (
-  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-  </svg>
-);
-
-const UploadIcon = () => (
-  <svg className="w-8 h-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-      d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-  </svg>
-);
-
-const DownloadIcon = () => (
-  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-  </svg>
-);
-
-const PrintIcon = () => (
-  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-      d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-  </svg>
-);
-
-const FileIcon = () => (
-  <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-  </svg>
-);
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
-}
-
-function formatCurrency(n: number): string {
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 0,
-  }).format(n);
-}
-
-function getInitials(name: string): string {
-  return name
-    .split(' ')
-    .slice(0, 2)
-    .map((w) => w[0] ?? '')
-    .join('')
-    .toUpperCase();
-}
-
-function paymentMethodLabel(method: PaymentMethod): string {
-  const found = PAYMENT_METHOD_OPTIONS.find((o) => o.value === method);
-  return found ? found.label : method.replace(/_/g, ' ');
-}
-
-function paymentMethodBadgeClass(method: PaymentMethod): string {
-  switch (method) {
-    case 'BANK_TRANSFER': return 'bg-blue-100 text-blue-800';
-    case 'CHEQUE': return 'bg-purple-100 text-purple-800';
-    case 'CASH': return 'bg-green-100 text-green-800';
-    case 'UPI': return 'bg-orange-100 text-orange-800';
-    case 'GPAY': return 'bg-indigo-100 text-indigo-800';
-    default: return 'bg-gray-100 text-gray-700';
-  }
-}
-
-// ─── BillingForm type ─────────────────────────────────────────────────────────
-
-interface BillingForm {
-  // Booking reference
-  bookingId: string;
-  branchId: string;
-  // Applicant
+interface BillingRecord {
+  id: number;
+  billingId: string;
+  receiptNumber: string;
   buyerName: string;
   buyerPhone: string;
   buyerEmail: string;
   buyerAddress: string;
-  // Property (read-only display, populated from booking)
+  city: string;
+  state: string;
+  pincode: string;
   projectName: string;
   plotNumber: string;
   plotArea: string;
-  // Payment
+  propertyType: string;
+  branchName: string;
   paymentMethod: PaymentMethod;
   bankName: string;
   referenceNumber: string;
-  amountInNumbers: string;
-  totalReceived: string;
+  amountReceived: string;
+  amountInWords: string;
   billingStatus: BillingStatus;
-  billingDate: string;
-  remarks: string;
-  // Additional
-  orderNumber: string;
-  billingNumber: string;
-  settlementNotes: string;
-  termsConditions: string;
+  paymentStatus: PaymentStatus;
+  settlementStatus: SettlementStatus;
+  transactionDate: string;
+  createdAt: string;
+  dueDate: string;
+  internalNotes: string;
+  documentName: string;
+  uploadedAt: string;
 }
 
-const emptyForm: BillingForm = {
-  bookingId: '',
-  branchId: '',
-  buyerName: '',
-  buyerPhone: '',
-  buyerEmail: '',
-  buyerAddress: '',
-  projectName: '',
-  plotNumber: '',
-  plotArea: '',
-  paymentMethod: 'BANK_TRANSFER',
-  bankName: '',
-  referenceNumber: '',
-  amountInNumbers: '',
-  totalReceived: '',
-  billingStatus: 'PENDING',
-  billingDate: '',
-  remarks: '',
-  orderNumber: '',
-  billingNumber: '',
-  settlementNotes: '',
-  termsConditions: '',
+const dummyBilling: BillingRecord = {
+  id: 1,
+  billingId: "BIL-1001",
+  receiptNumber: "RCPT-2023-456",
+  buyerName: "Arun Prasath",
+  buyerPhone: "+91 98765 43210",
+  buyerEmail: "arun@example.com",
+  buyerAddress: "123 Heritage Lane, OMR Road",
+  city: "Chennai",
+  state: "Tamil Nadu",
+  pincode: "600119",
+  projectName: "Sri Golden Meadows",
+  plotNumber: "42A",
+  plotArea: "1,200",
+  propertyType: "Residential Plot",
+  branchName: "Chennai Central Hub",
+  paymentMethod: "BANK_TRANSFER",
+  bankName: "HDFC Bank",
+  referenceNumber: "TXN987654321",
+  amountReceived: "450000",
+  amountInWords: "Four Lakh Fifty Thousand Rupees Only",
+  billingStatus: "PAID",
+  paymentStatus: "PAID",
+  settlementStatus: "COMPLETED",
+  transactionDate: "2023-10-24",
+  createdAt: "2023-10-24",
+  dueDate: "2023-11-15",
+  internalNotes: "Final payment received via wire transfer.",
+  documentName: "Receipt_42A.pdf",
+  uploadedAt: "2023-10-24",
 };
 
-// ─── UploadArea sub-component ─────────────────────────────────────────────────
+const STATUS_OPTIONS: BillingStatus[] = [
+  "PENDING",
+  "PARTIAL_PAYMENT",
+  "PAID",
+  "FINAL_SETTLEMENT",
+  "COMPLETED",
+];
 
-function UploadArea({ label }: { label: string }) {
+const PAYMENT_STATUS_OPTIONS: PaymentStatus[] = ["PENDING", "PAID", "PARTIAL_PAID"];
+const SETTLEMENT_STATUS_OPTIONS: SettlementStatus[] = ["PENDING", "COMPLETED"];
+
+const PAYMENT_METHOD_OPTIONS: { value: PaymentMethod; label: string }[] = [
+  { value: "BANK_TRANSFER", label: "NEFT / Bank Transfer" },
+  { value: "CHEQUE", label: "Cheque" },
+  { value: "CASH", label: "Cash" },
+  { value: "UPI", label: "UPI" },
+  { value: "GPAY", label: "GPay" },
+];
+
+const inputClass =
+  "h-9 w-full rounded-md border border-[#ded8ca] bg-[#fbfbfc] px-2.5 text-[12px] font-medium text-gray-700 outline-none transition focus:border-gold focus:bg-white focus:ring-2 focus:ring-gold/20";
+
+const textareaClass =
+  "w-full rounded-md border border-[#ded8ca] bg-[#fbfbfc] px-2.5 py-2 text-[12px] font-medium text-gray-700 outline-none transition focus:border-gold focus:bg-white focus:ring-2 focus:ring-gold/20";
+
+const labelClass = "mb-1 block text-[10px] font-bold text-gray-500";
+
+function formatCurrency(value: string | number) {
+  const number = typeof value === "number" ? value : Number(value || 0);
+
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(number);
+}
+
+function formatDate(value: string) {
+  if (!value) return "N/A";
+
+  return new Date(value).toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function readableStatus(value: string) {
+  return value
+    .replace(/_/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function paymentMethodLabel(value: PaymentMethod) {
+  return PAYMENT_METHOD_OPTIONS.find((item) => item.value === value)?.label ?? value;
+}
+
+function getInitials(name: string) {
+  return name
+    .split(" ")
+    .slice(0, 2)
+    .map((item) => item[0])
+    .join("")
+    .toUpperCase();
+}
+
+function statusBadgeClass(status: BillingStatus | PaymentStatus | SettlementStatus) {
+  switch (status) {
+    case "PAID":
+    case "COMPLETED":
+      return "bg-emerald-50 text-emerald-700 border-emerald-100";
+    case "PARTIAL_PAYMENT":
+    case "PARTIAL_PAID":
+      return "bg-red-50 text-red-600 border-red-100";
+    case "FINAL_SETTLEMENT":
+      return "bg-blue-50 text-blue-700 border-blue-100";
+    default:
+      return "bg-amber-50 text-amber-700 border-amber-100";
+  }
+}
+
+function paymentBadgeClass(method: PaymentMethod) {
+  switch (method) {
+    case "BANK_TRANSFER":
+      return "bg-gray-200 text-gray-700";
+    case "CHEQUE":
+      return "bg-purple-100 text-purple-700";
+    case "CASH":
+      return "bg-gray-200 text-gray-700";
+    case "UPI":
+      return "bg-orange-100 text-orange-700";
+    case "GPAY":
+      return "bg-blue-100 text-blue-700";
+    default:
+      return "bg-gray-100 text-gray-700";
+  }
+}
+
+function StatusBadge({
+  status,
+}: {
+  status: BillingStatus | PaymentStatus | SettlementStatus;
+}) {
   return (
-    <div className="border-2 border-dashed border-gray-200 rounded-xl p-6 flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-gold transition-colors">
-      <UploadIcon />
-      <p className="text-sm font-medium text-gray-600 text-center">{label}</p>
-      <p className="text-xs text-gray-400">Supported: PDF, JPG, PNG (Max 5MB)</p>
+    <span
+      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold ${statusBadgeClass(
+        status,
+      )}`}
+    >
+      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+      {readableStatus(status)}
+    </span>
+  );
+}
+
+function IconSearch() {
+  return (
+    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="m21 21-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z"
+      />
+    </svg>
+  );
+}
+
+function IconEye() {
+  return (
+    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M2.25 12s3.75-6.75 9.75-6.75S21.75 12 21.75 12 18 18.75 12 18.75 2.25 12 2.25 12Z"
+      />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
+      />
+    </svg>
+  );
+}
+
+function IconEdit() {
+  return (
+    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M16.862 4.487 19.5 7.125m-1.5-4.5a2.121 2.121 0 0 1 3 3L7.5 19.125 3 20.25l1.125-4.5L18 2.625Z"
+      />
+    </svg>
+  );
+}
+
+function IconTrash() {
+  return (
+    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M6 7.5h12M9 7.5V6a1.5 1.5 0 0 1 1.5-1.5h3A1.5 1.5 0 0 1 15 6v1.5m2.25 0-.75 12A1.5 1.5 0 0 1 15 21H9a1.5 1.5 0 0 1-1.5-1.5l-.75-12"
+      />
+    </svg>
+  );
+}
+
+function IconDownload() {
+  return (
+    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16" />
+    </svg>
+  );
+}
+
+function IconPrint() {
+  return (
+    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M6 9V3h12v6M6 17H4.5A1.5 1.5 0 0 1 3 15.5v-5A1.5 1.5 0 0 1 4.5 9h15a1.5 1.5 0 0 1 1.5 1.5v5a1.5 1.5 0 0 1-1.5 1.5H18m-12-3h12v7H6v-7Z"
+      />
+    </svg>
+  );
+}
+
+function IconUpload() {
+  return (
+    <svg className="h-8 w-8 text-gold" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.8}
+        d="M12 16V8m0 0-3 3m3-3 3 3M6 16.5A4.5 4.5 0 0 1 7.25 7.68 5.5 5.5 0 0 1 18.75 9 4 4 0 0 1 18 17H6Z"
+      />
+    </svg>
+  );
+}
+
+function IconFile() {
+  return (
+    <svg className="h-4 w-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M7.5 3.75h6L19.5 9.75v10.5H7.5V3.75Z"
+      />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.5 3.75v6h6M9.75 14.25h4.5M9.75 17.25h3" />
+    </svg>
+  );
+}
+
+function SectionTitle({ title, icon }: { title: string; icon: React.ReactNode }) {
+  return (
+    <div className="mb-4 flex items-center gap-2 text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#a38422]">
+      <span className="text-[#a38422]">{icon}</span>
+      {title}
+    </div>
+  );
+}
+
+function InputField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  type = "text",
+  className = "",
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  type?: string;
+  className?: string;
+}) {
+  return (
+    <div className={className}>
+      <label className={labelClass}>{label}</label>
+      <input
+        type={type}
+        value={value}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+        className={inputClass}
+      />
+    </div>
+  );
+}
+
+function SelectField<T extends string>({
+  label,
+  value,
+  onChange,
+  options,
+  className = "",
+}: {
+  label: string;
+  value: T;
+  onChange: (value: T) => void;
+  options: { value: T; label: string }[];
+  className?: string;
+}) {
+  return (
+    <div className={className}>
+      <label className={labelClass}>{label}</label>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value as T)}
+        className={inputClass}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function CloseButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="absolute right-4 top-4 grid h-8 w-8 place-items-center rounded-full border border-dashed border-blue-400 bg-white text-lg leading-none text-gray-600 transition hover:bg-gray-50"
+      aria-label="Close modal"
+    >
+      ×
+    </button>
+  );
+}
+
+function Modal({
+  open,
+  onClose,
+  title,
+  subtitle,
+  children,
+  width = "max-w-[720px]",
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  subtitle: string;
+  children: React.ReactNode;
+  width?: string;
+}) {
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3 backdrop-blur-[2px]">
+      <div
+        className={`relative flex max-h-[calc(100vh-24px)] w-full ${width} flex-col overflow-hidden rounded-lg bg-white shadow-2xl`}
+      >
+        <div className="shrink-0 border-b border-gray-100 bg-white px-5 py-4 pr-16 sm:px-6">
+          <h2 className="text-[21px] font-extrabold leading-tight text-gray-900">{title}</h2>
+          <p className="mt-0.5 text-[12px] font-medium text-gray-500">{subtitle}</p>
+          <CloseButton onClick={onClose} />
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function Toast({
+  variant,
+  title,
+  message,
+  onClose,
+}: {
+  variant: "dark" | "light";
+  title: string;
+  message: string;
+  onClose: () => void;
+}) {
+  if (variant === "dark") {
+    return (
+      <div className="absolute left-1/2 top-2 z-30 flex w-[90%] max-w-[390px] -translate-x-1/2 items-center gap-3 rounded-lg bg-[#171b1f] px-4 py-3 text-white shadow-2xl">
+        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-gold text-[10px] font-black text-white">
+          ✓
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[12px] font-extrabold">{title}</p>
+          <p className="text-[10px] font-medium text-white/75">{message}</p>
+        </div>
+        <button type="button" onClick={onClose} className="text-lg leading-none text-white/50 hover:text-white">
+          ×
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed bottom-8 right-4 z-[60] flex w-[calc(100%-32px)] max-w-[330px] items-center gap-3 rounded-lg border-l-4 border-emerald-700 bg-white px-4 py-3 shadow-2xl sm:right-10">
+      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-emerald-100 text-xs font-black text-emerald-700">
+        ✓
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[12px] font-bold text-gray-900">{title}</p>
+        <p className="text-[11px] font-medium text-gray-600">{message}</p>
+      </div>
+      <button type="button" onClick={onClose} className="text-lg leading-none text-gray-400 hover:text-gray-700">
+        ×
+      </button>
+    </div>
+  );
+}
+
+function UploadBox({ compact = false }: { compact?: boolean }) {
+  return (
+    <div
+      className={`flex flex-col items-center justify-center rounded-lg border border-dashed border-[#d7c9a3] bg-[#f8f8fa] px-4 text-center ${
+        compact ? "min-h-[118px] py-4" : "min-h-[165px] py-6"
+      }`}
+    >
+      <IconUpload />
+      <p className="mt-2 text-[12px] font-extrabold text-gray-700">Drag and drop file here</p>
+      <p className="mt-0.5 text-[11px] font-semibold text-gray-500">Supported: PDF, JPG, PNG (Max 5MB)</p>
       <button
         type="button"
-        className="mt-1 border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg text-xs hover:bg-gray-50 transition-colors"
+        className="mt-4 rounded-md border border-[#ded8ca] bg-white px-4 py-1.5 text-[11px] font-bold text-gray-700 shadow-sm hover:bg-gray-50"
       >
         Browse Files
       </button>
@@ -210,58 +477,59 @@ function UploadArea({ label }: { label: string }) {
   );
 }
 
-// ─── AddBillingModal ──────────────────────────────────────────────────────────
+function ExistingDocumentCard({ billing }: { billing: BillingRecord }) {
+  return (
+    <div className="flex min-h-[118px] flex-col justify-between rounded-lg bg-[#e7e7ea] p-4">
+      <div className="flex items-start gap-3">
+        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-red-100">
+          <IconFile />
+        </span>
+        <div className="min-w-0">
+          <p className="truncate text-[12px] font-extrabold text-gray-800">{billing.documentName}</p>
+          <p className="mt-0.5 text-[10px] font-bold text-gray-500">Uploaded on {formatDate(billing.uploadedAt)}</p>
+        </div>
+      </div>
 
-interface AddBillingModalProps {
-  open: boolean;
-  onClose: () => void;
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          className="rounded-md bg-white px-3 py-1.5 text-[11px] font-bold text-gray-700 shadow-sm hover:bg-gray-50"
+        >
+          View
+        </button>
+        <button
+          type="button"
+          className="rounded-md bg-white px-3 py-1.5 text-[11px] font-bold text-gray-700 shadow-sm hover:bg-gray-50"
+        >
+          Remove
+        </button>
+      </div>
+    </div>
+  );
 }
 
-function AddBillingModal({ open, onClose }: AddBillingModalProps) {
-  const create = useCreateBilling();
-  const branchesQuery = useBranches({ limit: 100 });
-  const branches = branchesQuery.data?.data ?? [];
+function AddBillingModal({
+  open,
+  onClose,
+  onSave,
+  seed,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSave: (billing: BillingRecord) => void;
+  seed: BillingRecord;
+}) {
+  const [form, setForm] = useState<BillingRecord>(seed);
+  const [toast, setToast] = useState(false);
 
-  const [form, setForm] = useState<BillingForm>(emptyForm);
-  const bookingsQuery = useBookings({ branchId: form.branchId || undefined, limit: 200 });
-  const bookings = (bookingsQuery.data?.data ?? []).filter(
-    (b) => b.status !== 'CANCELLED' && b.status !== 'COMPLETED',
-  );
-
-  function setField(field: keyof BillingForm, value: string) {
-    setForm((f) => ({ ...f, [field]: value }));
+  function update<K extends keyof BillingRecord>(key: K, value: BillingRecord[K]) {
+    setForm((current) => ({ ...current, [key]: value }));
   }
 
-  // Auto-calculate balance
-  const balanceAmt = Math.max(0, (parseFloat(form.amountInNumbers) || 0) - (parseFloat(form.totalReceived) || 0));
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!form.bookingId || !form.buyerName || !form.buyerPhone || !form.amountInNumbers || !form.totalReceived || !form.billingDate) return;
-    create.mutate(
-      {
-        bookingId: form.bookingId,
-        buyerName: form.buyerName,
-        buyerPhone: form.buyerPhone,
-        buyerAddress: form.buyerAddress || undefined,
-        orderNumber: form.orderNumber || undefined,
-        billingNumber: form.billingNumber || undefined,
-        billingDate: form.billingDate,
-        paymentMethod: form.paymentMethod,
-        amountInNumbers: parseFloat(form.amountInNumbers) || 0,
-        totalReceived: parseFloat(form.totalReceived) || 0,
-        totalBalance: balanceAmt,
-        operationalNotes: form.remarks || undefined,
-        settlementNotes: form.settlementNotes || undefined,
-        termsConditions: form.termsConditions || undefined,
-      },
-      {
-        onSuccess: () => {
-          onClose();
-          setForm(emptyForm);
-        },
-      }
-    );
+  function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    onSave({ ...form, id: 1, billingId: form.billingId || "BIL-1001" });
+    setToast(true);
   }
 
   return (
@@ -270,161 +538,137 @@ function AddBillingModal({ open, onClose }: AddBillingModalProps) {
       onClose={onClose}
       title="Add Billing Record"
       subtitle="Capture new payment and settlement details for property bookings."
-      size="2xl"
+      width="max-w-[720px]"
     >
+      {toast && (
+        <Toast
+          variant="light"
+          title="Success"
+          message="Billing record created successfully"
+          onClose={() => setToast(false)}
+        />
+      )}
+
       <form onSubmit={handleSubmit}>
-        {/* ── Section 1: Booking Reference ── */}
-        <div>
-          <div className={sectionHeaderClass}>
-            <span>1.</span>
-            <span>Booking Reference</span>
-          </div>
-          <div className="grid grid-cols-2 gap-4 mb-3">
-            <div>
-              <label className={labelClass}>Branch</label>
-              <select
-                value={form.branchId}
-                onChange={(e) => { setField('branchId', e.target.value); setField('bookingId', ''); }}
-                className={inputClass}
-              >
-                <option value="">All Branches</option>
-                {branches.map((b) => (
-                  <option key={b.id} value={b.id}>{b.name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className={labelClass}>Select Booking *</label>
-              <select
-                value={form.bookingId}
-                onChange={(e) => {
-                  const id = e.target.value;
-                  const found = bookings.find((x) => x.id === id);
-                  setForm((f) => ({
-                    ...f,
-                    bookingId: id,
-                    ...(found ? {
-                      buyerName: found.applicantName,
-                      buyerPhone: found.cellNumber,
-                      projectName: found.projectName,
-                      plotNumber: found.plotNumber,
-                    } : {}),
-                  }));
-                }}
-                required
-                className={inputClass}
-              >
-                <option value="">— Select a booking —</option>
-                {bookings.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.bookingId} — {b.applicantName} ({b.projectName} / {b.plotNumber})
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-          {form.bookingId && (
-            <div className="bg-gray-50 rounded-lg p-3 grid grid-cols-3 gap-3 text-sm">
-              <div><span className="text-xs text-gray-400">Project</span><p className="font-medium text-gray-800">{form.projectName || '—'}</p></div>
-              <div><span className="text-xs text-gray-400">Plot</span><p className="font-medium text-gray-800">{form.plotNumber || '—'}</p></div>
-              <div>
-                <div className="grid grid-cols-2 gap-2 mt-0">
-                  <div><span className="text-xs text-gray-400">Order No.</span><input type="text" value={form.orderNumber} onChange={(e) => setField('orderNumber', e.target.value)} placeholder="ORD-001" className={inputClass} /></div>
-                  <div><span className="text-xs text-gray-400">Billing No.</span><input type="text" value={form.billingNumber} onChange={(e) => setField('billingNumber', e.target.value)} placeholder="BILL-001" className={inputClass} /></div>
-                </div>
+        <div className="space-y-7 p-5 sm:p-6">
+          <section>
+            <SectionTitle
+              title="Applicant Details"
+              icon={
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 8a7 7 0 0 1 14 0" />
+                </svg>
+              }
+            />
+
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <InputField label="Full Name" value={form.buyerName} onChange={(value) => update("buyerName", value)} placeholder="e.g. Rahul Sharma" />
+              <InputField label="Phone Number" value={form.buyerPhone} onChange={(value) => update("buyerPhone", value)} placeholder="+91 98765 43210" />
+              <InputField label="Email Address" value={form.buyerEmail} onChange={(value) => update("buyerEmail", value)} placeholder="rahul@example.com" />
+              <div className="md:col-span-3">
+                <label className={labelClass}>Address</label>
+                <textarea
+                  rows={3}
+                  value={form.buyerAddress}
+                  onChange={(event) => update("buyerAddress", event.target.value)}
+                  placeholder="Enter complete correspondence address"
+                  className={textareaClass}
+                />
               </div>
             </div>
-          )}
+          </section>
+
+          <div className="border-t border-gray-100" />
+
+          <section>
+            <SectionTitle
+              title="Property Details"
+              icon={
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 21h18M6 21V9l6-4 6 4v12M9 21v-6h6v6" />
+                </svg>
+              }
+            />
+
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+              <InputField label="Select Project" value={form.projectName} onChange={(value) => update("projectName", value)} />
+              <InputField label="Plot / Unit Number" value={form.plotNumber} onChange={(value) => update("plotNumber", value)} />
+              <InputField label="Plot Area (Sq.Ft)" value={form.plotArea} onChange={(value) => update("plotArea", value)} />
+              <InputField label="Branch" value={form.branchName} onChange={(value) => update("branchName", value)} />
+            </div>
+          </section>
+
+          <div className="border-t border-gray-100" />
+
+          <section>
+            <SectionTitle
+              title="Payment Details"
+              icon={
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8h18M5 8v10h14V8M7 14h5" />
+                </svg>
+              }
+            />
+
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+              <SelectField
+                label="Payment Method"
+                value={form.paymentMethod}
+                onChange={(value) => update("paymentMethod", value)}
+                options={PAYMENT_METHOD_OPTIONS}
+              />
+              <InputField label="Bank Name" value={form.bankName} onChange={(value) => update("bankName", value)} />
+              <InputField label="Reference Number" value={form.referenceNumber} onChange={(value) => update("referenceNumber", value)} />
+              <InputField label="Amount Received" value={form.amountReceived} onChange={(value) => update("amountReceived", value)} />
+
+              <SelectField
+                label="Billing Status"
+                value={form.billingStatus}
+                onChange={(value) => update("billingStatus", value)}
+                options={STATUS_OPTIONS.map((item) => ({ value: item, label: readableStatus(item) }))}
+                className="md:col-span-2"
+              />
+
+              <InputField
+                label="Transaction Date"
+                type="date"
+                value={form.transactionDate}
+                onChange={(value) => update("transactionDate", value)}
+                className="md:col-span-2"
+              />
+            </div>
+
+            <div className="mt-4">
+              <label className={labelClass}>Payment Receipt / Proof</label>
+              <UploadBox />
+            </div>
+
+            <div className="mt-4">
+              <label className={labelClass}>Remarks / Internal Notes</label>
+              <textarea
+                rows={3}
+                value={form.internalNotes}
+                onChange={(event) => update("internalNotes", event.target.value)}
+                placeholder="Enter any specific transaction notes or special instructions..."
+                className={textareaClass}
+              />
+            </div>
+          </section>
         </div>
 
-        <hr className="border-gray-100 my-4" />
-
-        {/* ── Section 2: Applicant Details ── */}
-        <div>
-          <div className={sectionHeaderClass}>
-            <span>2.</span>
-            <span>Applicant Details</span>
-          </div>
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className={labelClass}>Full Name *</label>
-              <input type="text" required value={form.buyerName} onChange={(e) => setField('buyerName', e.target.value)} className={inputClass} placeholder="e.g. Rajesh Kumar" />
-            </div>
-            <div>
-              <label className={labelClass}>Phone Number *</label>
-              <input type="tel" required value={form.buyerPhone} onChange={(e) => setField('buyerPhone', e.target.value.replace(/\D/g, '').slice(0, 10))} pattern="[6-9][0-9]{9}" maxLength={10} className={inputClass} placeholder="10-digit mobile" />
-            </div>
-            <div>
-              <label className={labelClass}>Email Address</label>
-              <input type="email" value={form.buyerEmail} onChange={(e) => setField('buyerEmail', e.target.value)} className={inputClass} placeholder="buyer@example.com" />
-            </div>
-            <div className="col-span-3">
-              <label className={labelClass}>Address</label>
-              <textarea rows={2} value={form.buyerAddress} onChange={(e) => setField('buyerAddress', e.target.value)} className={`${inputClass} resize-none`} placeholder="Full residential / office address" />
-            </div>
-          </div>
-        </div>
-
-        <hr className="border-gray-100 my-4" />
-
-        {/* ── Section 3: Payment Details ── */}
-        <div>
-          <div className={sectionHeaderClass}>
-            <span>3.</span>
-            <span>Payment Details</span>
-          </div>
-
-          <div className="grid grid-cols-4 gap-4 mb-4">
-            <div>
-              <label className={labelClass}>Payment Method *</label>
-              <select value={form.paymentMethod} onChange={(e) => setField('paymentMethod', e.target.value as PaymentMethod)} className={inputClass}>
-                {PAYMENT_METHOD_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className={labelClass}>Transaction Date *</label>
-              <input type="date" required value={form.billingDate} onChange={(e) => setField('billingDate', e.target.value)} className={inputClass} />
-            </div>
-            <div>
-              <label className={labelClass}>Total Amount (₹) *</label>
-              <input type="number" required min={0} value={form.amountInNumbers} onChange={(e) => setField('amountInNumbers', e.target.value)} className={inputClass} placeholder="0" />
-            </div>
-            <div>
-              <label className={labelClass}>Total Received (₹) *</label>
-              <input type="number" required min={0} value={form.totalReceived} onChange={(e) => setField('totalReceived', e.target.value)} className={inputClass} placeholder="0" />
-            </div>
-          </div>
-
-          <div className="bg-gray-50 rounded-lg px-4 py-2 flex justify-between items-center mb-4">
-            <span className="text-xs text-gray-500 font-medium">Balance Amount</span>
-            <span className={`text-sm font-bold ${balanceAmt > 0 ? 'text-red-600' : 'text-green-600'}`}>
-              ₹{balanceAmt.toLocaleString('en-IN')}
-            </span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className={labelClass}>Remarks / Operational Notes</label>
-              <textarea rows={3} value={form.remarks} onChange={(e) => setField('remarks', e.target.value)} className={`${inputClass} resize-none`} placeholder="Internal operational notes..." />
-            </div>
-            <div>
-              <label className={labelClass}>Settlement Notes</label>
-              <textarea rows={3} value={form.settlementNotes} onChange={(e) => setField('settlementNotes', e.target.value)} className={`${inputClass} resize-none`} placeholder="Settlement remarks..." />
-            </div>
-            <div className="col-span-2">
-              <label className={labelClass}>Terms &amp; Conditions</label>
-              <textarea rows={2} value={form.termsConditions} onChange={(e) => setField('termsConditions', e.target.value)} className={`${inputClass} resize-none`} placeholder="e.g. Payment is non-refundable." />
-            </div>
-          </div>
-        </div>
-
-        {/* ── Footer ── */}
-        <div className="flex items-center justify-end gap-3 pt-5 mt-4 border-t border-gray-100">
-          <button type="button" onClick={onClose} className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 text-sm">
+        <div className="sticky bottom-0 z-10 flex items-center justify-between gap-3 border-t border-gray-100 bg-[#f8f8fa] px-5 py-3 sm:px-6">
+          <button
+            type="button"
+            onClick={onClose}
+            className="min-w-[130px] rounded-md border border-dashed border-blue-400 bg-white px-4 py-2.5 text-[12px] font-bold text-gray-700 hover:bg-gray-50"
+          >
             Cancel
           </button>
-          <button type="submit" disabled={create.isPending} className="bg-gold text-navy font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 text-sm">
-            {create.isPending ? 'Saving...' : 'Save Billing Record'}
+          <button
+            type="submit"
+            className="min-w-[150px] rounded-md bg-gold px-4 py-2.5 text-[12px] font-extrabold text-white shadow-md shadow-gold/20 hover:opacity-90"
+          >
+            Save Billing
           </button>
         </div>
       </form>
@@ -432,85 +676,28 @@ function AddBillingModal({ open, onClose }: AddBillingModalProps) {
   );
 }
 
-// ─── EditBillingModal ─────────────────────────────────────────────────────────
-
-interface EditBillingModalProps {
+function EditBillingModal({
+  open,
+  onClose,
+  billing,
+  onSave,
+}: {
   open: boolean;
   onClose: () => void;
-  billing: Billing;
-}
+  billing: BillingRecord;
+  onSave: (billing: BillingRecord) => void;
+}) {
+  const [form, setForm] = useState<BillingRecord>(billing);
+  const [toast, setToast] = useState(false);
 
-function EditBillingModal({ open, onClose, billing }: EditBillingModalProps) {
-  const update = useUpdateBilling();
-  const updateStatus = useUpdateBillingStatus();
-  const branchesQuery = useBranches({ limit: 100 });
-  const branches = branchesQuery.data?.data ?? [];
-
-  const [form, setForm] = useState<BillingForm>({
-    ...emptyForm,
-    bookingId: billing.bookingId,
-    buyerName: billing.buyerName,
-    buyerPhone: billing.buyerPhone,
-    buyerAddress: billing.buyerAddress ?? '',
-    paymentMethod: billing.paymentMethod,
-    amountInNumbers: billing.amountInNumbers.toString(),
-    totalReceived: billing.totalReceived.toString(),
-    billingStatus: billing.status,
-    billingDate: billing.billingDate.split('T')[0],
-    projectName: billing.booking?.projectName ?? '',
-    plotNumber: billing.booking?.plotNumber ?? '',
-    branchId: billing.branchId ?? billing.booking?.branch?.id ?? '',
-    orderNumber: billing.orderNumber ?? '',
-    billingNumber: billing.billingNumber ?? '',
-    remarks: billing.operationalNotes ?? '',
-    settlementNotes: billing.settlementNotes ?? '',
-    termsConditions: billing.termsConditions ?? '',
-  });
-
-  function setField(field: keyof BillingForm, value: string) {
-    setForm((f) => ({ ...f, [field]: value }));
+  function update<K extends keyof BillingRecord>(key: K, value: BillingRecord[K]) {
+    setForm((current) => ({ ...current, [key]: value }));
   }
 
-  const isOverdue = false;
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const amtNum = parseFloat(form.amountInNumbers) || 0;
-    const received = parseFloat(form.totalReceived) || 0;
-    const balance = amtNum - received;
-
-    update.mutate(
-      {
-        id: billing.id,
-        data: {
-          buyerName: form.buyerName || undefined,
-          buyerPhone: form.buyerPhone || undefined,
-          buyerAddress: form.buyerAddress || undefined,
-          orderNumber: form.orderNumber || undefined,
-          billingNumber: form.billingNumber || undefined,
-          paymentMethod: form.paymentMethod || undefined,
-          amountInNumbers: amtNum || undefined,
-          totalReceived: received || undefined,
-          totalBalance: balance,
-          billingDate: form.billingDate || undefined,
-          operationalNotes: form.remarks || undefined,
-          settlementNotes: form.settlementNotes || undefined,
-          termsConditions: form.termsConditions || undefined,
-        },
-      },
-      {
-        onSuccess: () => {
-          if (form.billingStatus !== billing.status) {
-            updateStatus.mutate(
-              { id: billing.id, status: form.billingStatus },
-              { onSuccess: onClose }
-            );
-          } else {
-            onClose();
-          }
-        },
-      }
-    );
+  function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    onSave(form);
+    setToast(true);
   }
 
   return (
@@ -519,296 +706,178 @@ function EditBillingModal({ open, onClose, billing }: EditBillingModalProps) {
       onClose={onClose}
       title="Edit Billing"
       subtitle="Update payment, settlement, and documentation details."
-      size="2xl"
+      width="max-w-[720px]"
     >
+      {toast && (
+        <Toast
+          variant="dark"
+          title="Billing record updated successfully"
+          message="The system has synchronized all financial logs."
+          onClose={() => setToast(false)}
+        />
+      )}
+
       <form onSubmit={handleSubmit}>
-        {/* ── Section 1: Applicant Details ── */}
-        <div>
-          <div className={sectionHeaderClass}>
-            <span>1.</span>
-            <span>Applicant Details</span>
-          </div>
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className={labelClass}>Full Name</label>
-              <input
-                type="text"
-                value={form.buyerName}
-                onChange={(e) => setField('buyerName', e.target.value)}
-                className={inputClass}
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Phone Number</label>
-              <input
-                type="tel"
-                value={form.buyerPhone}
-                onChange={(e) => setField('buyerPhone', e.target.value)}
-                className={inputClass}
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Email Address</label>
-              <input
-                type="email"
-                value={form.buyerEmail}
-                onChange={(e) => setField('buyerEmail', e.target.value)}
-                className={inputClass}
-              />
-            </div>
-            <div className="col-span-3">
-              <label className={labelClass}>Address</label>
-              <textarea
-                rows={2}
-                value={form.buyerAddress}
-                onChange={(e) => setField('buyerAddress', e.target.value)}
-                className={`${inputClass} resize-none`}
-              />
-            </div>
-          </div>
-        </div>
+        <div className="space-y-7 p-5 sm:p-6">
+          <section>
+            <SectionTitle
+              title="Applicant Details"
+              icon={
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 8a7 7 0 0 1 14 0" />
+                </svg>
+              }
+            />
 
-        <hr className="border-gray-100 my-4" />
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <InputField label="Name" value={form.buyerName} onChange={(value) => update("buyerName", value)} />
+              <InputField label="Phone" value={form.buyerPhone} onChange={(value) => update("buyerPhone", value)} />
+              <InputField label="Address" value={form.buyerAddress} onChange={(value) => update("buyerAddress", value)} />
+              <InputField label="City" value={form.city} onChange={(value) => update("city", value)} />
+              <InputField label="State" value={form.state} onChange={(value) => update("state", value)} />
+              <InputField label="Pincode" value={form.pincode} onChange={(value) => update("pincode", value)} />
+            </div>
+          </section>
 
-        {/* ── Section 2: Property Details ── */}
-        <div>
-          <div className={sectionHeaderClass}>
-            <span>2.</span>
-            <span>Property Details</span>
-          </div>
-          <div className="grid grid-cols-4 gap-4">
-            <div>
-              <label className={labelClass}>Project Name</label>
-              <input
-                type="text"
-                value={form.projectName}
-                onChange={(e) => setField('projectName', e.target.value)}
-                className={inputClass}
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Plot / Unit Number</label>
-              <input
-                type="text"
-                value={form.plotNumber}
-                onChange={(e) => setField('plotNumber', e.target.value)}
-                className={inputClass}
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Plot Area (Sq.Ft)</label>
-              <input
-                type="number"
-                min={0}
-                value={form.plotArea}
-                onChange={(e) => setField('plotArea', e.target.value)}
-                className={inputClass}
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Branch</label>
-              <select
-                value={form.branchId}
-                onChange={(e) => setField('branchId', e.target.value)}
-                className={inputClass}
-              >
-                <option value="">Select branch</option>
-                {branches.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </div>
+          <section>
+            <SectionTitle
+              title="Property Details"
+              icon={
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 21h18M6 21V9l6-4 6 4v12M9 21v-6h6v6" />
+                </svg>
+              }
+            />
 
-        <hr className="border-gray-100 my-4" />
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <InputField label="Project" value={form.projectName} onChange={(value) => update("projectName", value)} />
+              <InputField label="Plot" value={form.plotNumber} onChange={(value) => update("plotNumber", value)} />
+              <InputField label="Sq.Ft" value={form.plotArea} onChange={(value) => update("plotArea", value)} />
+              <InputField label="Type" value={form.propertyType} onChange={(value) => update("propertyType", value)} />
+              <InputField label="Branch" value={form.branchName} onChange={(value) => update("branchName", value)} className="md:col-span-2" />
+            </div>
+          </section>
 
-        {/* ── Section 3: Payment Details ── */}
-        <div>
-          <div className={sectionHeaderClass}>
-            <span>3.</span>
-            <span>Payment Details</span>
-          </div>
-          <div className="grid grid-cols-4 gap-4 mb-4">
-            <div>
-              <label className={labelClass}>Payment Method</label>
-              <select
-                value={form.paymentMethod}
-                onChange={(e) => setField('paymentMethod', e.target.value as PaymentMethod)}
-                className={inputClass}
-              >
-                {PAYMENT_METHOD_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className={labelClass}>Bank Name</label>
-              <input
-                type="text"
-                value={form.bankName}
-                onChange={(e) => setField('bankName', e.target.value)}
-                className={inputClass}
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Reference Number</label>
-              <input
-                type="text"
-                value={form.referenceNumber}
-                onChange={(e) => setField('referenceNumber', e.target.value)}
-                className={inputClass}
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Amount Received (₹)</label>
-              <input
-                type="number"
-                min={0}
-                value={form.amountInNumbers}
-                onChange={(e) => setField('amountInNumbers', e.target.value)}
-                className={inputClass}
-              />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className={labelClass}>Transaction Date</label>
-              <input
-                type="date"
-                value={form.billingDate}
-                onChange={(e) => setField('billingDate', e.target.value)}
-                className={inputClass}
-              />
-            </div>
-          </div>
-        </div>
+          <section>
+            <SectionTitle
+              title="Payment Details"
+              icon={
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8h18M5 8v10h14V8M7 14h5" />
+                </svg>
+              }
+            />
 
-        <hr className="border-gray-100 my-4" />
+            <div className="rounded-lg bg-[#f2f2f4] p-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <SelectField
+                  label="Method"
+                  value={form.paymentMethod}
+                  onChange={(value) => update("paymentMethod", value)}
+                  options={PAYMENT_METHOD_OPTIONS}
+                />
+                <InputField label="Bank" value={form.bankName} onChange={(value) => update("bankName", value)} />
+                <InputField label="Ref Number" value={form.referenceNumber} onChange={(value) => update("referenceNumber", value)} />
+                <InputField label="Amount" value={form.amountReceived} onChange={(value) => update("amountReceived", value)} />
+                <InputField
+                  label="Amount in Words"
+                  value={form.amountInWords}
+                  onChange={(value) => update("amountInWords", value)}
+                  className="md:col-span-2"
+                />
+              </div>
+            </div>
+          </section>
 
-        {/* ── Section 4: Status Update ── */}
-        <div>
-          <div className={sectionHeaderClass}>
-            <span>4.</span>
-            <span>Status Update</span>
-          </div>
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className={labelClass}>Billing Status</label>
-              <select
+          <section>
+            <SectionTitle
+              title="Status Update"
+              icon={
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6l4 2m5-2a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                </svg>
+              }
+            />
+
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <SelectField
+                label="Billing Status"
                 value={form.billingStatus}
-                onChange={(e) => setField('billingStatus', e.target.value as BillingStatus)}
-                className={inputClass}
-              >
-                {STATUS_OPTIONS.map((s) => (
-                  <option key={s} value={s}>
-                    {s.replace(/_/g, ' ')}
-                  </option>
-                ))}
-              </select>
+                onChange={(value) => update("billingStatus", value)}
+                options={STATUS_OPTIONS.map((item) => ({ value: item, label: readableStatus(item) }))}
+              />
+              <SelectField
+                label="Payment Status"
+                value={form.paymentStatus}
+                onChange={(value) => update("paymentStatus", value)}
+                options={PAYMENT_STATUS_OPTIONS.map((item) => ({ value: item, label: readableStatus(item) }))}
+              />
+              <SelectField
+                label="Settlement Status"
+                value={form.settlementStatus}
+                onChange={(value) => update("settlementStatus", value)}
+                options={SETTLEMENT_STATUS_OPTIONS.map((item) => ({ value: item, label: readableStatus(item) }))}
+              />
             </div>
-          </div>
-        </div>
+          </section>
 
-        <hr className="border-gray-100 my-4" />
+          <section>
+            <SectionTitle
+              title="Document Upload"
+              icon={
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 3h7l5 5v13H7V3Zm7 0v5h5" />
+                </svg>
+              }
+            />
 
-        {/* ── Section 5: Document Upload ── */}
-        <div>
-          <div className={sectionHeaderClass}>
-            <span>5.</span>
-            <span>Document Upload</span>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            {/* Upload */}
-            <UploadArea label="Replace Receipt or Upload Proof" />
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <UploadBox compact />
+              <ExistingDocumentCard billing={form} />
+            </div>
+          </section>
 
-            {/* Existing doc card */}
-            <div className="border border-gray-200 rounded-xl p-4 flex flex-col gap-3">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                Current Document
-              </p>
-              <div className="flex items-start gap-3 bg-gray-50 rounded-lg p-3">
-                <FileIcon />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-800 truncate">
-                    billing-receipt.pdf
-                  </p>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    Uploaded on {formatDate(billing.createdAt)}
-                  </p>
+          <section>
+            <SectionTitle
+              title="Additional Information"
+              icon={
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3M4 11h16M5 5h14v16H5V5Z" />
+                </svg>
+              }
+            />
+
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_190px]">
+              <div>
+                <label className={labelClass}>Internal Notes</label>
+                <textarea
+                  rows={3}
+                  value={form.internalNotes}
+                  onChange={(event) => update("internalNotes", event.target.value)}
+                  placeholder="Enter any specific observations or internal comments regarding this settlement..."
+                  className={textareaClass}
+                />
+              </div>
+
+              <div>
+                <InputField label="Due Date" type="date" value={form.dueDate} onChange={(value) => update("dueDate", value)} />
+                <div className="mt-2 rounded-md border border-red-100 bg-red-50 px-3 py-2 text-[10px] font-bold text-red-500">
+                  Next follow-up scheduled for settlement.
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  className="border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg text-xs hover:bg-gray-50 transition-colors"
-                >
-                  View
-                </button>
-                <button
-                  type="button"
-                  className="text-red-500 text-xs font-medium hover:text-red-700 transition-colors"
-                >
-                  Remove
-                </button>
-              </div>
             </div>
-          </div>
+          </section>
         </div>
 
-        <hr className="border-gray-100 my-4" />
-
-        {/* ── Section 6: Additional Information ── */}
-        <div>
-          <div className={sectionHeaderClass}>
-            <span>6.</span>
-            <span>Additional Information</span>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className={labelClass}>Internal Notes</label>
-              <textarea
-                rows={3}
-                value={form.remarks}
-                onChange={(e) => setField('remarks', e.target.value)}
-                className={`${inputClass} resize-none`}
-                placeholder="Add internal notes..."
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Due Date</label>
-              <input
-                type="date"
-                className={inputClass}
-              />
-              {isOverdue && (
-                <p className="mt-1.5 text-xs text-red-600 font-medium">
-                  Payment overdue — follow up immediately.
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* ── Footer ── */}
-        <div className="flex items-center justify-end gap-3 pt-5 mt-4 border-t border-gray-100">
-          <button
-            type="button"
-            onClick={onClose}
-            className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 text-sm"
-          >
+        <div className="sticky bottom-0 z-10 flex items-center justify-end gap-3 border-t border-gray-100 bg-[#f8f8fa] px-5 py-3 sm:px-6">
+          <button type="button" onClick={onClose} className="px-5 py-2.5 text-[12px] font-extrabold text-gray-700">
             Cancel
           </button>
           <button
             type="submit"
-            disabled={update.isPending}
-            className="bg-gold text-navy font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 text-sm"
+            className="min-w-[160px] rounded-md bg-gold px-5 py-2.5 text-[12px] font-extrabold text-white shadow-md shadow-gold/20 hover:opacity-90"
           >
-            {update.isPending ? 'Saving...' : 'Save Changes'}
+            Save Changes
           </button>
         </div>
       </form>
@@ -816,678 +885,679 @@ function EditBillingModal({ open, onClose, billing }: EditBillingModalProps) {
   );
 }
 
-// ─── ViewBillingModal ─────────────────────────────────────────────────────────
-
-interface ViewBillingModalProps {
+function ViewBillingModal({
+  open,
+  onClose,
+  billing,
+  onEdit,
+}: {
   open: boolean;
   onClose: () => void;
-  billing: Billing;
-  onEdit: (b: Billing) => void;
-}
-
-function ViewBillingModal({ open, onClose, billing, onEdit }: ViewBillingModalProps) {
-  const { data: detail } = useBilling(billing.id);
-  const b = detail ?? billing;
-
-  const [dlPdf, setDlPdf] = useState(false);
-  const [dlEst, setDlEst] = useState(false);
-
-  async function handlePdf() {
-    setDlPdf(true);
-    try {
-      await billingApi.downloadPdf(b.id);
-    } finally {
-      setDlPdf(false);
-    }
-  }
-
-  async function handleEstimate() {
-    setDlEst(true);
-    try {
-      await billingApi.downloadEstimate(b.id);
-    } finally {
-      setDlEst(false);
-    }
-  }
-
-  async function handlePrint() {
-    window.print();
-  }
-
-  const isFullyPaid =
-    b.status === 'PAID' || b.status === 'COMPLETED' || b.status === 'FINAL_SETTLEMENT';
-
+  billing: BillingRecord;
+  onEdit: () => void;
+}) {
   return (
     <Modal
       open={open}
       onClose={onClose}
       title="Billing Details"
       subtitle="View applicant, property, payment, and settlement information."
-      size="2xl"
+      width="max-w-[790px]"
     >
-      <div className="space-y-5">
-        {/* ── Header row ── */}
-        <div className="flex items-start justify-between">
-          <div>
-            <p className="text-gold font-bold text-lg font-mono">#{b.billingId}</p>
-            <p className="text-xs text-gray-400 mt-0.5">
-              Created on {formatDate(b.createdAt)}
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <StatusBadge status={b.status} />
+      <div className="space-y-5 p-5 pb-0 sm:p-6 sm:pb-0">
+        <div className="rounded-lg bg-[#f7f7f9] px-4 py-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-wide text-gray-500">Billing ID</p>
+              <p className="mt-0.5 text-[18px] font-black text-[#8f6e07]">#{billing.billingId}</p>
+            </div>
+
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-wide text-gray-500">Receipt Number</p>
+              <p className="mt-1.5 text-[12px] font-extrabold text-gray-800">{billing.receiptNumber}</p>
+            </div>
+
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-wide text-gray-500">Created Date</p>
+              <p className="mt-1.5 text-[12px] font-extrabold text-gray-800">{formatDate(billing.createdAt)}</p>
+            </div>
+
+            <div className="flex items-center md:justify-end">
+              <StatusBadge status={billing.billingStatus} />
+            </div>
           </div>
         </div>
 
-        {/* ── Two-col: Applicant | Property ── */}
-        <div className="grid grid-cols-2 gap-4">
-          <div className="bg-gray-50 rounded-xl p-4 space-y-3">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-              Applicant Details
-            </p>
-            {[
-              ['Buyer Name', b.buyerName],
-              ['Phone', b.buyerPhone],
-            ].map(([label, value]) => (
-              <div key={label as string}>
-                <p className="text-xs text-gray-400">{label}</p>
-                <p className="text-sm font-medium text-gray-800">{value}</p>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="rounded-lg bg-white p-4 shadow-sm ring-1 ring-gray-100">
+            <h3 className="mb-4 flex items-center gap-2 border-b border-gray-100 pb-3 text-[17px] font-black text-gray-800">
+              <span className="text-gold">♙</span> Applicant Details
+            </h3>
+
+            <div className="space-y-2.5">
+              {[
+                ["Name", billing.buyerName],
+                ["Phone", billing.buyerPhone],
+                ["Address", `${billing.buyerAddress}, ${billing.city}`],
+                ["Location", `${billing.state}, ${billing.pincode}`],
+              ].map(([label, value]) => (
+                <div key={label} className="grid grid-cols-[78px_1fr] gap-3 text-[12px]">
+                  <p className="font-extrabold text-gray-500">{label}</p>
+                  <p className="font-bold text-gray-800">{value}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-white p-4 shadow-sm ring-1 ring-gray-100">
+            <h3 className="mb-4 flex items-center gap-2 border-b border-gray-100 pb-3 text-[17px] font-black text-gray-800">
+              <span className="text-gold">⌂</span> Property Details
+            </h3>
+
+            <div className="space-y-2.5">
+              {[
+                ["Project", billing.projectName],
+                ["Plot No.", billing.plotNumber],
+                ["Sq. Feet", `${billing.plotArea} sq.ft`],
+                ["Branch", billing.branchName],
+              ].map(([label, value]) => (
+                <div key={label} className="grid grid-cols-[78px_1fr] gap-3 text-[12px]">
+                  <p className="font-extrabold text-gray-500">{label}</p>
+                  <p className="font-bold text-gray-800">{value}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-lg bg-white p-4 shadow-sm ring-1 ring-gray-100">
+          <h3 className="mb-4 flex items-center gap-2 border-b border-gray-100 pb-3 text-[17px] font-black text-gray-800">
+            <span className="text-gold">▣</span> Payment Details
+          </h3>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_250px]">
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+              {[
+                ["Method", paymentMethodLabel(billing.paymentMethod)],
+                ["Bank Name", billing.bankName],
+                ["Ref. Number", billing.referenceNumber],
+              ].map(([label, value]) => (
+                <div key={label} className="grid grid-cols-[105px_1fr] gap-3 text-[12px]">
+                  <p className="font-extrabold text-gray-500">{label}</p>
+                  <p className="font-black text-gray-800">{value}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="rounded-lg bg-[#ededf0] p-3">
+              <p className="text-[11px] font-black text-gray-600">Amount Received</p>
+              <p className="mt-0.5 text-[24px] font-black leading-tight text-[#8f6e07]">
+                {formatCurrency(billing.amountReceived)}
+              </p>
+              <p className="mt-0.5 text-[9px] font-bold italic text-gray-500">"{billing.amountInWords}"</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_220px]">
+          <div className="rounded-lg bg-white p-4 shadow-sm ring-1 ring-gray-100">
+            <h3 className="mb-4 flex items-center gap-2 border-b border-gray-100 pb-3 text-[17px] font-black text-gray-800">
+              <span className="text-gold">▣</span> Settlement Status
+            </h3>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <p className="text-[11px] font-black text-gray-500">Balance Status</p>
+                <p className="mt-0.5 text-[13px] font-black text-emerald-600">Fully Paid</p>
               </div>
-            ))}
-          </div>
 
-          <div className="bg-gray-50 rounded-xl p-4 space-y-3">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-              Property Details
-            </p>
-            {[
-              ['Project', b.booking?.projectName ?? '—'],
-              ['Plot', b.booking?.plotNumber ?? '—'],
-              ['Branch', b.booking?.branch?.name ?? '—'],
-            ].map(([label, value]) => (
-              <div key={label as string}>
-                <p className="text-xs text-gray-400">{label}</p>
-                <p className="text-sm font-medium text-gray-800">{value}</p>
+              <div>
+                <p className="text-[11px] font-black text-gray-500">Settlement</p>
+                <p className="mt-0.5 text-[13px] font-black text-gray-800">{readableStatus(billing.settlementStatus)}</p>
               </div>
-            ))}
-          </div>
-        </div>
+            </div>
 
-        {/* ── Payment Details ── */}
-        <div className="border border-gray-200 rounded-xl p-4 space-y-3">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-            Payment Details
-          </p>
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <p className="text-xs text-gray-400">Payment Method</p>
-              <span
-                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium mt-1 ${paymentMethodBadgeClass(b.paymentMethod)}`}
-              >
-                {paymentMethodLabel(b.paymentMethod)}
-              </span>
+            <div className="mt-5 border-l-4 border-[#d1b553] bg-[#f1f1f3] px-3 py-2">
+              <p className="text-[9px] font-black uppercase text-gray-500">Office Notes</p>
+              <p className="mt-0.5 text-[12px] font-semibold text-gray-700">{billing.internalNotes}</p>
             </div>
+          </div>
+
+          <div className="grid place-items-center rounded-lg bg-white p-4 text-center shadow-sm ring-1 ring-gray-100">
             <div>
-              <p className="text-xs text-gray-400">Billing Date</p>
-              <p className="text-sm font-medium text-gray-800">{formatDate(b.billingDate)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-400">Total Received</p>
-              <p className="text-sm font-medium text-green-700">
-                {formatCurrency(b.totalReceived)}
+              <div className="mx-auto mb-2 grid h-9 w-9 place-items-center text-2xl text-[#c8b06c]">▣</div>
+              <p className="text-[11px] font-black uppercase text-gray-500">Next Due Date</p>
+              <p className="mt-1 text-[22px] font-black text-gray-800">
+                {billing.settlementStatus === "COMPLETED" ? "N/A" : formatDate(billing.dueDate)}
               </p>
             </div>
           </div>
+        </div>
 
-          {/* Amount highlight */}
-          <div className="bg-gray-50 rounded-lg px-4 py-3 flex items-center justify-between">
-            <div>
-              <p className="text-xs text-gray-400">Amount (₹)</p>
-              <p className="text-2xl font-bold text-gold mt-0.5">
-                {formatCurrency(b.amountInNumbers)}
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="text-xs text-gray-400">Balance</p>
-              <p
-                className={`text-lg font-bold mt-0.5 ${
-                  b.totalBalance > 0 ? 'text-red-600' : 'text-green-600'
-                }`}
-              >
-                {formatCurrency(b.totalBalance)}
-              </p>
-            </div>
+        <div className="overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-gray-100">
+          <div className="flex items-center justify-between bg-[#e9e9eb] px-4 py-2.5">
+            <p className="text-[11px] font-black uppercase tracking-wide text-gray-600">Documents & Proofs</p>
+            <span className="rounded bg-white px-3 py-1 text-[10px] font-bold text-gray-500">3 Files Attached</span>
           </div>
 
-          <p className="text-xs text-gray-500 italic">{b.amountInWords}</p>
-        </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[520px] text-left">
+              <thead className="bg-[#f7f7f9]">
+                <tr>
+                  <th className="px-4 py-3 text-[11px] font-black uppercase text-gray-500">Document Name</th>
+                  <th className="px-4 py-3 text-[11px] font-black uppercase text-gray-500">Status</th>
+                  <th className="px-4 py-3 text-right text-[11px] font-black uppercase text-gray-500">Actions</th>
+                </tr>
+              </thead>
 
-        {/* ── Settlement Status ── */}
-        <div className="border border-gray-200 rounded-xl p-4 space-y-3">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-            Settlement Status
-          </p>
-          <div className="flex items-center gap-3">
-            <span
-              className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${
-                isFullyPaid
-                  ? 'bg-green-100 text-green-800'
-                  : 'bg-yellow-100 text-yellow-800'
-              }`}
-            >
-              {isFullyPaid ? 'Fully Paid' : 'Pending'}
-            </span>
-            <span className="text-xs text-gray-500">
-              {isFullyPaid ? 'All dues settled' : 'Awaiting payment'}
-            </span>
+              <tbody className="divide-y divide-gray-100">
+                {["Receipt Document", "Payment Proof", "Estimate Copy"].map((document) => (
+                  <tr key={document}>
+                    <td className="px-4 py-3 text-[12px] font-bold text-gray-700">{document}</td>
+                    <td className="px-4 py-3">
+                      <span className="text-[11px] font-bold text-emerald-600">● Uploaded</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex justify-end gap-3 text-[#9c7d18]">
+                        <button type="button" className="hover:text-gray-900">
+                          <IconEye />
+                        </button>
+                        <button type="button" className="hover:text-gray-900">
+                          <IconDownload />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
+      </div>
 
-        {/* ── Documents ── */}
-        <div className="border border-gray-200 rounded-xl overflow-hidden">
-          <div className="bg-gray-50 px-4 py-2.5 border-b border-gray-200">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-              Documents &amp; Proofs
-            </p>
-          </div>
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-100">
-              <tr>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                  Document Name
-                </th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                  Status
-                </th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              <tr>
-                <td className="px-4 py-3 text-sm text-gray-700">
-                  Billing Receipt
-                </td>
-                <td className="px-4 py-3">
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                    Generated
-                  </span>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void handlePdf()}
-                      disabled={dlPdf}
-                      className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors disabled:opacity-50"
-                      aria-label="View receipt"
-                    >
-                      <EyeIcon />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handlePdf()}
-                      disabled={dlPdf}
-                      className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors disabled:opacity-50"
-                      aria-label="Download receipt"
-                    >
-                      <DownloadIcon />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-              <tr>
-                <td className="px-4 py-3 text-sm text-gray-700">
-                  Estimate PDF
-                </td>
-                <td className="px-4 py-3">
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                    Available
-                  </span>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void handleEstimate()}
-                      disabled={dlEst}
-                      className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors disabled:opacity-50"
-                      aria-label="View estimate"
-                    >
-                      <EyeIcon />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleEstimate()}
-                      disabled={dlEst}
-                      className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors disabled:opacity-50"
-                      aria-label="Download estimate"
-                    >
-                      <DownloadIcon />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+      <div className="sticky bottom-0 z-10 mt-6 flex flex-wrap items-center justify-end gap-2 border-t border-gray-100 bg-white px-5 py-3 sm:px-6">
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-md border border-dashed border-blue-400 bg-white px-5 py-2 text-[12px] font-bold text-gray-700 hover:bg-gray-50"
+        >
+          Close
+        </button>
 
-        {/* ── Footer ── */}
-        <div className="flex items-center justify-end gap-3 pt-2 border-t border-gray-100">
-          <button
-            type="button"
-            onClick={onClose}
-            className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 text-sm"
-          >
-            Close
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              onClose();
-              onEdit(billing);
-            }}
-            className="border border-gold text-gold px-4 py-2 rounded-lg hover:bg-gold/5 text-sm font-medium"
-          >
-            Edit Billing
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleEstimate()}
-            disabled={dlEst}
-            className="border border-gold text-gold px-4 py-2 rounded-lg hover:bg-gold/5 text-sm font-medium flex items-center gap-2 disabled:opacity-50"
-          >
-            <DownloadIcon />
-            {dlEst ? 'Downloading...' : 'Download Estimate'}
-          </button>
-          <button
-            type="button"
-            onClick={() => void handlePrint()}
-            className="bg-gold text-navy font-semibold px-4 py-2 rounded-lg hover:opacity-90 text-sm flex items-center gap-2"
-          >
-            <PrintIcon />
-            Print Estimate
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={onEdit}
+          className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-blue-400 bg-white px-5 py-2 text-[12px] font-bold text-[#8f6e07] hover:bg-gray-50"
+        >
+          <IconEdit />
+          Edit Billing
+        </button>
+
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 rounded-md bg-gold px-5 py-2 text-[12px] font-extrabold text-white shadow-md shadow-gold/20 hover:opacity-90"
+        >
+          <IconDownload />
+          Download Estimate
+        </button>
+
+        <button
+          type="button"
+          onClick={() => window.print()}
+          className="inline-flex items-center gap-1.5 rounded-md bg-gold px-5 py-2 text-[12px] font-extrabold text-white shadow-md shadow-gold/20 hover:opacity-90"
+        >
+          <IconPrint />
+          Print Estimate
+        </button>
       </div>
     </Modal>
   );
 }
 
-// ─── BillingPage ──────────────────────────────────────────────────────────────
+function KpiCard({
+  title,
+  value,
+  tone,
+  icon,
+}: {
+  title: string;
+  value: string | number;
+  tone: "gold" | "green" | "red" | "dark";
+  icon: React.ReactNode;
+}) {
+  const valueClass =
+    tone === "green"
+      ? "text-emerald-700"
+      : tone === "red"
+        ? "text-red-600"
+        : tone === "gold"
+          ? "text-[#8f6e07]"
+          : "text-gray-900";
 
-const SuperAdminBillingPage: React.FC = () => {
-  const [page, setPage] = useState(1);
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState<BillingStatus | ''>('');
-  const [branchFilter, setBranchFilter] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
-
-  const [addOpen, setAddOpen] = useState(false);
-  const [viewBilling, setViewBilling] = useState<Billing | null>(null);
-  const [editBilling, setEditBilling] = useState<Billing | null>(null);
-
-  const branchesQuery = useBranches({ limit: 100 });
-  const branches = branchesQuery.data?.data ?? [];
-
-  const { data, isLoading } = useBillings({
-    page,
-    limit: 20,
-    search: search || undefined,
-    status: status || undefined,
-    branchId: branchFilter || undefined,
-    startDate: dateFrom || undefined,
-    endDate: dateTo || undefined,
-  });
-
-  const deleteBilling = useDeleteBilling();
-  const billings = data?.data ?? [];
-  const totalRecords = data?.total ?? 0;
-
-  // KPI stats computed from current page data
-  const paid = billings.filter(
-    (b) => b.status === 'PAID' || b.status === 'COMPLETED'
-  ).length;
-  const pending = billings.filter(
-    (b) => b.status === 'PENDING' || b.status === 'PARTIAL_PAYMENT'
-  ).length;
-  const pendingVerification = billings.filter(
-    (b) => b.status === 'FINAL_SETTLEMENT'
-  ).length;
-
-  function handleDelete(b: Billing) {
-    if (window.confirm(`Delete billing record "${b.billingId}"? This cannot be undone.`)) {
-      deleteBilling.mutate(b.id);
-    }
-  }
+  const iconClass =
+    tone === "green"
+      ? "bg-emerald-50 text-emerald-700"
+      : tone === "red"
+        ? "bg-red-50 text-red-500"
+        : tone === "gold"
+          ? "bg-gold/10 text-gold"
+          : "bg-gray-100 text-gray-700";
 
   return (
-    <div className="p-6">
-      {/* ── Page Header ── */}
-      <div className="flex items-start justify-between mb-5">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Billing Hub</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Manage property payment records, settlement tracking, and financial documentation.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setAddOpen(true)}
-          className="bg-gold text-navy font-semibold px-4 py-2 rounded-lg hover:opacity-90 text-sm flex-shrink-0"
-        >
-          + Add Billing
-        </button>
+    <div className="flex min-h-[76px] items-center justify-between rounded-lg border border-gray-200 bg-white px-4 py-3 shadow-sm">
+      <div>
+        <p className="text-[10px] font-black uppercase text-gray-500">{title}</p>
+        <p className={`mt-1 text-[23px] font-black leading-none ${valueClass}`}>{value}</p>
       </div>
 
-      {/* ── Filter Row ── */}
-      <div className="flex items-center gap-3 mb-5 flex-wrap">
-        {/* Search */}
-        <div className="relative flex-1 min-w-52 max-w-xs">
-          <svg
-            className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+      <span className={`grid h-8 w-8 place-items-center rounded-md ${iconClass}`}>{icon}</span>
+    </div>
+  );
+}
+
+const SuperAdminBillingPage: React.FC = () => {
+  const [billing, setBilling] = useState<BillingRecord>(dummyBilling);
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState<BillingStatus | "">("");
+  const [branch, setBranch] = useState("");
+  const [date, setDate] = useState("");
+
+  const [addOpen, setAddOpen] = useState(false);
+  const [viewOpen, setViewOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+
+  const visibleBillings = useMemo(() => {
+    const row = billing;
+
+    const matchesSearch =
+      !search ||
+      row.billingId.toLowerCase().includes(search.toLowerCase()) ||
+      row.buyerName.toLowerCase().includes(search.toLowerCase()) ||
+      row.projectName.toLowerCase().includes(search.toLowerCase());
+
+    const matchesStatus = !status || row.billingStatus === status;
+    const matchesBranch = !branch || row.branchName === branch;
+    const matchesDate = !date || row.createdAt === date;
+
+    return matchesSearch && matchesStatus && matchesBranch && matchesDate ? [row] : [];
+  }, [billing, branch, date, search, status]);
+
+  const paidRecords = billing.billingStatus === "PAID" || billing.billingStatus === "COMPLETED" ? 1 : 0;
+  const balancePending = billing.billingStatus === "PENDING" || billing.billingStatus === "PARTIAL_PAYMENT" ? 1 : 0;
+  const pendingVerification = billing.billingStatus === "FINAL_SETTLEMENT" ? 1 : 0;
+
+  return (
+    <div className="min-h-screen bg-[#f7f7f9] px-3 py-4 text-[12px] sm:px-5 lg:px-6">
+      <div className="mx-auto max-w-[1180px]">
+        <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h1 className="text-[24px] font-black leading-tight text-gray-900">
+              Billing
+            </h1>
+            <p className="mt-0.5 text-[13px] font-medium text-gray-600">
+              Manage billing records, payment status, and estimate copies.
+            </p>
+          </div>
+
+          <div className="inline-flex w-fit items-center gap-2 rounded-full bg-white px-4 py-2 text-[10px] font-black uppercase tracking-[0.12em] text-gray-500 shadow-sm">
+            Admin
+            <span className="text-gray-300">›</span>
+            <span className="text-[#9c7d18]">Billing</span>
+          </div>
+        </div>
+
+        <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <KpiCard
+            title="Total Billing Records"
+            value={1}
+            tone="dark"
+            icon={
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 3h10v18H7V3Zm3 5h4M10 12h4M10 16h4" />
+              </svg>
+            }
+          />
+
+          <KpiCard
+            title="Paid Records"
+            value={paidRecords}
+            tone="green"
+            icon={
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m5 13 4 4L19 7" />
+              </svg>
+            }
+          />
+
+          <KpiCard
+            title="Balance Pending"
+            value={balancePending}
+            tone="red"
+            icon={
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v4m0 4h.01M10.3 3.86 1.82 18a2 2 0 0 0 1.72 3h16.92a2 2 0 0 0 1.72-3L13.7 3.86a2 2 0 0 0-3.4 0Z" />
+              </svg>
+            }
+          />
+
+          <KpiCard
+            title="Pending Verification"
+            value={pendingVerification}
+            tone="gold"
+            icon={
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3 5 6v5c0 5 3.5 8.5 7 10 3.5-1.5 7-5 7-10V6l-7-3Z" />
+              </svg>
+            }
+          />
+        </div>
+
+        <div className="mb-5 rounded-lg border border-gray-200 bg-white p-3 shadow-sm">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-[70px_1fr_1fr_1fr_145px]">
+            <div className="grid h-10 place-items-center rounded-md border border-gray-200 bg-[#fbfbfc] text-gray-600">
+              <IconSearch />
+            </div>
+
+            <select
+              value={status}
+              onChange={(event) => setStatus(event.target.value as BillingStatus | "")}
+              className="h-10 rounded-md border border-gray-200 bg-[#fbfbfc] px-3 text-[12px] font-bold text-gray-700 outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+            >
+              <option value="">All Status</option>
+              {STATUS_OPTIONS.map((item) => (
+                <option key={item} value={item}>
+                  {readableStatus(item)}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={branch}
+              onChange={(event) => setBranch(event.target.value)}
+              className="h-10 rounded-md border border-gray-200 bg-[#fbfbfc] px-3 text-[12px] font-bold text-gray-700 outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+            >
+              <option value="">All Branches</option>
+              <option value="Chennai Central Hub">Chennai Central Hub</option>
+            </select>
+
+            <input
+              type="date"
+              value={date}
+              onChange={(event) => setDate(event.target.value)}
+              className="h-10 rounded-md border border-gray-200 bg-[#fbfbfc] px-3 text-[12px] font-bold text-gray-700 outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
             />
-          </svg>
-          <input
-            type="text"
-            placeholder="Search buyer name, billing ID..."
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
-            className="w-full border border-gray-200 rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white"
-          />
+
+            <button
+              type="button"
+              onClick={() => setAddOpen(true)}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-dashed border-blue-400 bg-gold px-4 text-[12px] font-black leading-tight text-white shadow-sm hover:opacity-90"
+            >
+              <span className="grid h-4 w-4 place-items-center rounded-full border border-white text-[10px]">
+                +
+              </span>
+              Add Billing
+            </button>
+          </div>
+
+          <div className="mt-3">
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search by billing id, applicant name, or project..."
+              className="h-10 w-full rounded-md border border-gray-200 bg-[#fbfbfc] px-3 text-[12px] font-semibold text-gray-700 outline-none focus:border-gold focus:ring-2 focus:ring-gold/20"
+            />
+          </div>
         </div>
 
-        {/* Status */}
-        <select
-          value={status}
-          onChange={(e) => {
-            setStatus(e.target.value as BillingStatus | '');
-            setPage(1);
-          }}
-          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white text-gray-700"
-        >
-          <option value="">All Status</option>
-          {STATUS_OPTIONS.map((s) => (
-            <option key={s} value={s}>
-              {s.replace(/_/g, ' ')}
-            </option>
-          ))}
-        </select>
-
-        {/* Branch */}
-        <select
-          value={branchFilter}
-          onChange={(e) => {
-            setBranchFilter(e.target.value);
-            setPage(1);
-          }}
-          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white text-gray-700"
-        >
-          <option value="">All Branches</option>
-          {branches.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.name}
-            </option>
-          ))}
-        </select>
-
-        {/* Date range */}
-        <div className="flex items-center gap-1.5">
-          <input
-            type="date"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white text-gray-700"
-          />
-          <span className="text-gray-400 text-sm">–</span>
-          <input
-            type="date"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white text-gray-700"
-          />
-        </div>
-      </div>
-
-      {/* ── KPI Cards ── */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
-        {/* Total Billing Records */}
-        <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
-          <p className="text-xs text-gray-500 uppercase tracking-wide font-medium mb-1">
-            Total Billing Records
-          </p>
-          <p className="text-2xl font-bold text-gray-900">{totalRecords}</p>
-          <p className="text-xs text-gray-400 mt-0.5">All time records</p>
-        </div>
-
-        {/* Paid Records */}
-        <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
-          <p className="text-xs text-gray-500 uppercase tracking-wide font-medium mb-1">
-            Paid Records
-          </p>
-          <p className="text-2xl font-bold text-green-600">{paid}</p>
-          <p className="text-xs text-gray-400 mt-0.5">Fully Settled</p>
-        </div>
-
-        {/* Balance Pending */}
-        <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
-          <p className="text-xs text-gray-500 uppercase tracking-wide font-medium mb-1">
-            Balance Pending
-          </p>
-          <p className="text-2xl font-bold text-yellow-600">{pending}</p>
-          <p className="text-xs text-gray-400 mt-0.5">Awaiting Payment</p>
-        </div>
-
-        {/* Pending Verification */}
-        <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
-          <p className="text-xs text-gray-500 uppercase tracking-wide font-medium mb-1">
-            Pending Verification
-          </p>
-          <p className="text-2xl font-bold text-red-500">{pendingVerification}</p>
-          <p className="text-xs text-red-400 mt-0.5 flex items-center gap-1">
-            <span>!</span>
-            <span>Requires Review</span>
-          </p>
-        </div>
-      </div>
-
-      {/* ── Billing Table ── */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        {/* Table header */}
-        <div className="bg-gray-50 border-b border-gray-200">
-          <table className="w-full text-xs">
-            <thead>
-              <tr>
-                <th className="text-left px-5 py-3 font-semibold text-gray-500 uppercase tracking-wide">
-                  Billing ID
-                </th>
-                <th className="text-left px-5 py-3 font-semibold text-gray-500 uppercase tracking-wide">
-                  Applicant
-                </th>
-                <th className="text-left px-5 py-3 font-semibold text-gray-500 uppercase tracking-wide">
-                  Project
-                </th>
-                <th className="text-left px-5 py-3 font-semibold text-gray-500 uppercase tracking-wide">
-                  Plot / Sq.Ft
-                </th>
-                <th className="text-left px-5 py-3 font-semibold text-gray-500 uppercase tracking-wide">
-                  Method
-                </th>
-                <th className="text-left px-5 py-3 font-semibold text-gray-500 uppercase tracking-wide">
-                  Amount
-                </th>
-                <th className="text-left px-5 py-3 font-semibold text-gray-500 uppercase tracking-wide">
-                  Status
-                </th>
-                <th className="text-left px-5 py-3 font-semibold text-gray-500 uppercase tracking-wide">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-          </table>
-        </div>
-
-        {/* Table body */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <tbody className="divide-y divide-gray-100">
-              {isLoading ? (
+        <div className="hidden overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm md:block">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[900px] table-fixed text-left">
+              <thead className="bg-[#eeeeef]">
                 <tr>
-                  <td colSpan={8} className="px-5 py-12 text-center text-gray-400">
-                    Loading billing records...
-                  </td>
+                  <th className="w-[100px] px-4 py-3 text-[11px] font-black uppercase tracking-wide text-gray-600">
+                    Billing ID
+                  </th>
+                  <th className="w-[170px] px-4 py-3 text-[11px] font-black uppercase tracking-wide text-gray-600">
+                    Applicant
+                  </th>
+                  <th className="w-[140px] px-4 py-3 text-[11px] font-black uppercase tracking-wide text-gray-600">
+                    Project
+                  </th>
+                  <th className="w-[110px] px-4 py-3 text-[11px] font-black uppercase tracking-wide text-gray-600">
+                    Plot / Sq.Ft
+                  </th>
+                  <th className="w-[105px] px-4 py-3 text-[11px] font-black uppercase tracking-wide text-gray-600">
+                    Method
+                  </th>
+                  <th className="w-[120px] px-4 py-3 text-[11px] font-black uppercase tracking-wide text-gray-600">
+                    Amount
+                  </th>
+                  <th className="w-[115px] px-4 py-3 text-[11px] font-black uppercase tracking-wide text-gray-600">
+                    Status
+                  </th>
+                  <th className="w-[100px] px-4 py-3 text-right text-[11px] font-black uppercase tracking-wide text-gray-600">
+                    Actions
+                  </th>
                 </tr>
-              ) : billings.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="px-5 py-12 text-center text-gray-400">
-                    No billing records found
-                  </td>
-                </tr>
-              ) : (
-                billings.map((b) => (
-                  <tr key={b.id} className="hover:bg-gray-50/50 transition-colors">
-                    {/* Billing ID */}
-                    <td className="px-5 py-4">
-                      <span className="font-mono text-sm text-gold font-semibold">
-                        #{b.billingId}
-                      </span>
-                    </td>
+              </thead>
 
-                    {/* Applicant */}
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-full bg-gold/10 text-gold flex items-center justify-center text-xs font-bold flex-shrink-0">
-                          {getInitials(b.buyerName)}
-                        </div>
-                        <div>
-                          <p className="font-medium text-sm text-gray-900">{b.buyerName}</p>
-                          <p className="text-xs text-gray-500">{b.buyerPhone}</p>
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* Project */}
-                    <td className="px-5 py-4">
-                      <p className="text-sm font-medium text-gray-700">
-                        {b.booking?.projectName ?? '—'}
-                      </p>
-                    </td>
-
-                    {/* Plot / Sq.Ft */}
-                    <td className="px-5 py-4">
-                      <p className="text-xs text-gray-500">
-                        {b.booking?.plotNumber
-                          ? `Plot: ${b.booking.plotNumber}`
-                          : '—'}
-                        {b.booking?.property?.squareFeet
-                          ? ` | ${b.booking.property.squareFeet} sq.ft`
-                          : ''}
-                      </p>
-                    </td>
-
-                    {/* Method */}
-                    <td className="px-5 py-4">
-                      <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${paymentMethodBadgeClass(b.paymentMethod)}`}
-                      >
-                        {paymentMethodLabel(b.paymentMethod)}
-                      </span>
-                    </td>
-
-                    {/* Amount */}
-                    <td className="px-5 py-4">
-                      <p className="text-sm font-semibold text-gray-900">
-                        {formatCurrency(b.amountInNumbers)}
-                      </p>
-                    </td>
-
-                    {/* Status */}
-                    <td className="px-5 py-4">
-                      <StatusBadge status={b.status} />
-                    </td>
-
-                    {/* Actions */}
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => setViewBilling(b)}
-                          className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors"
-                          aria-label="View billing"
-                        >
-                          <EyeIcon />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setEditBilling(b)}
-                          className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors"
-                          aria-label="Edit billing"
-                        >
-                          <PencilIcon />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(b)}
-                          className="p-1.5 rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-600 transition-colors"
-                          aria-label="Delete billing"
-                        >
-                          <TrashIcon />
-                        </button>
-                      </div>
+              <tbody>
+                {visibleBillings.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="px-4 py-12 text-center text-[12px] font-bold text-gray-400">
+                      No billing records found.
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : (
+                  visibleBillings.map((item) => (
+                    <tr key={item.id} className="border-t border-gray-100 transition hover:bg-[#fafafa]">
+                      <td className="px-4 py-4 align-top">
+                        <p className="text-[12px] font-black leading-snug text-[#9c7d18]">
+                          #{item.billingId}
+                        </p>
+                      </td>
+
+                      <td className="px-4 py-4 align-top">
+                        <div className="flex items-center gap-2.5">
+                          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-gold/10 text-[10px] font-black text-[#9c7d18]">
+                            {getInitials(item.buyerName)}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="truncate text-[12px] font-extrabold leading-snug text-gray-800">
+                              {item.buyerName}
+                            </p>
+                            <p className="mt-0.5 truncate text-[10px] font-semibold text-gray-500">
+                              {item.buyerPhone}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="px-4 py-4 align-top">
+                        <p className="line-clamp-2 text-[12px] font-bold leading-snug text-gray-700">
+                          {item.projectName}
+                        </p>
+                      </td>
+
+                      <td className="px-4 py-4 align-top">
+                        <p className="text-[12px] font-bold leading-snug text-gray-700">
+                          Plot {item.plotNumber}
+                          <br />
+                          <span className="text-[10px] text-gray-500">
+                            {item.plotArea} Sq.Ft
+                          </span>
+                        </p>
+                      </td>
+
+                      <td className="px-4 py-4 align-top">
+                        <span className={`inline-flex rounded px-2 py-1 text-[10px] font-black ${paymentBadgeClass(item.paymentMethod)}`}>
+                          {item.paymentMethod === "BANK_TRANSFER"
+                            ? "NEFT / Bank"
+                            : paymentMethodLabel(item.paymentMethod)}
+                        </span>
+                      </td>
+
+                      <td className="px-4 py-4 align-top">
+                        <p className="text-[13px] font-black text-gray-900">
+                          {formatCurrency(item.amountReceived)}
+                        </p>
+                      </td>
+
+                      <td className="px-4 py-4 align-top">
+                        <StatusBadge status={item.billingStatus} />
+                      </td>
+
+                      <td className="px-4 py-4 align-top">
+                        <div className="flex justify-end gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setViewOpen(true)}
+                            className="grid h-7 w-7 place-items-center rounded-md text-[#9c7d18] hover:bg-gold/10"
+                            aria-label="View"
+                          >
+                            <IconEye />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setEditOpen(true)}
+                            className="grid h-7 w-7 place-items-center rounded-md text-gray-500 hover:bg-gray-100"
+                            aria-label="Edit"
+                          >
+                            <IconEdit />
+                          </button>
+
+                          <button
+                            type="button"
+                            className="grid h-7 w-7 place-items-center rounded-md text-gray-400 hover:bg-red-50 hover:text-red-600"
+                            aria-label="Delete"
+                          >
+                            <IconTrash />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3">
+            <p className="text-[11px] font-bold text-gray-500">
+              Showing 1  record
+            </p>
+
+            <div className="flex items-center gap-2">
+              <button className="rounded-md border border-gray-200 px-3 py-1.5 text-[11px] font-bold text-gray-400">
+                Previous
+              </button>
+              <button className="rounded-md bg-gold px-3 py-1.5 text-[11px] font-black text-white">
+                1
+              </button>
+              <button className="rounded-md border border-gray-200 px-3 py-1.5 text-[11px] font-bold text-gray-400">
+                Next
+              </button>
+            </div>
+          </div>
         </div>
 
-        {data && (
-          <Pagination
-            page={page}
-            total={data.total}
-            limit={data.limit}
-            onPageChange={setPage}
-          />
-        )}
+        <div className="space-y-3 md:hidden">
+          {visibleBillings.length === 0 ? (
+            <div className="rounded-lg border border-gray-200 bg-white p-6 text-center text-[12px] font-bold text-gray-400">
+              No billing records found.
+            </div>
+          ) : (
+            visibleBillings.map((item) => (
+              <div key={item.id} className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[12px] font-black text-[#9c7d18]">
+                      #{item.billingId}
+                    </p>
+                    <p className="mt-1 text-[14px] font-black text-gray-900">
+                      {item.buyerName}
+                    </p>
+                    <p className="text-[11px] font-bold text-gray-500">
+                      {item.buyerPhone}
+                    </p>
+                  </div>
+
+                  <StatusBadge status={item.billingStatus} />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 text-[12px]">
+                  <div>
+                    <p className="font-black text-gray-500">Project</p>
+                    <p className="mt-1 font-bold text-gray-800">{item.projectName}</p>
+                  </div>
+
+                  <div>
+                    <p className="font-black text-gray-500">Amount</p>
+                    <p className="mt-1 font-black text-gray-900">
+                      {formatCurrency(item.amountReceived)}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="font-black text-gray-500">Plot</p>
+                    <p className="mt-1 font-bold text-gray-800">
+                      {item.plotNumber} / {item.plotArea} Sq.Ft
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="font-black text-gray-500">Method</p>
+                    <p className="mt-1 font-bold text-gray-800">
+                      {paymentMethodLabel(item.paymentMethod)}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex justify-end gap-2">
+                  <button
+                    onClick={() => setViewOpen(true)}
+                    className="rounded-md bg-gold px-4 py-2 text-[11px] font-black text-white"
+                  >
+                    View
+                  </button>
+                  <button
+                    onClick={() => setEditOpen(true)}
+                    className="rounded-md border border-gray-200 px-4 py-2 text-[11px] font-black text-gray-700"
+                  >
+                    Edit
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
       </div>
 
-      {/* ── Modals ── */}
-      <AddBillingModal open={addOpen} onClose={() => setAddOpen(false)} />
+      <AddBillingModal
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        seed={billing}
+        onSave={(updatedBilling) => setBilling(updatedBilling)}
+      />
 
-      {viewBilling && (
-        <ViewBillingModal
-          open
-          onClose={() => setViewBilling(null)}
-          billing={viewBilling}
-          onEdit={(b) => {
-            setViewBilling(null);
-            setEditBilling(b);
-          }}
-        />
-      )}
+      <ViewBillingModal
+        open={viewOpen}
+        onClose={() => setViewOpen(false)}
+        billing={billing}
+        onEdit={() => {
+          setViewOpen(false);
+          setEditOpen(true);
+        }}
+      />
 
-      {editBilling && (
-        <EditBillingModal
-          open
-          onClose={() => setEditBilling(null)}
-          billing={editBilling}
-        />
-      )}
+      <EditBillingModal
+        key={billing.id + billing.amountReceived + billing.billingStatus}
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        billing={billing}
+        onSave={(updatedBilling) => setBilling(updatedBilling)}
+      />
     </div>
   );
 };
