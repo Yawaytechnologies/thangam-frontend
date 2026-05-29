@@ -47,6 +47,7 @@ export interface CreateBookingData {
   directorName?: string;
   signatureUrl?: string;
   branchId?: string;
+  status?: BookingStatus;
   payments?: BookingPaymentData[];
   denominations?: BookingDenominationData[];
 }

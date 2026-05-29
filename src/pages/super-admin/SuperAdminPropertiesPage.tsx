@@ -293,29 +293,6 @@ function CreatePropertyModal({ open, onClose }: { open: boolean; onClose: () => 
               />
             </div>
 
-            <div>
-              <label className={labelCls}>Project Name *</label>
-              <input
-                type="text"
-                required
-                value={form.projectName}
-                onChange={(e) => setForm((f) => ({ ...f, projectName: e.target.value }))}
-                className={inputCls}
-                placeholder="e.g. Sri Thangam Phase 1"
-              />
-            </div>
-
-            <div>
-              <label className={labelCls}>Plot Number *</label>
-              <input
-                type="text"
-                required
-                value={form.plotNumber}
-                onChange={(e) => setForm((f) => ({ ...f, plotNumber: e.target.value }))}
-                className={inputCls}
-                placeholder="e.g. P-101"
-              />
-            </div>
 
             <div>
               <label className={labelCls}>Property Type *</label>
@@ -358,19 +335,6 @@ function CreatePropertyModal({ open, onClose }: { open: boolean; onClose: () => 
               />
             </div>
 
-            <div>
-              <label className={labelCls}>Square Feet</label>
-              <input
-                type="number"
-                min={0}
-                value={form.squareFeet ?? ''}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, squareFeet: e.target.value ? Number(e.target.value) : undefined }))
-                }
-                className={inputCls}
-                placeholder="e.g. 1200"
-              />
-            </div>
           </div>
 
           {/* Right column */}
@@ -765,25 +729,6 @@ function EditPropertyModal({
             </select>
           </div>
 
-          <div>
-            <label className={labelCls}>Project Name</label>
-            <input
-              type="text"
-              value={form.projectName ?? ''}
-              onChange={(e) => setForm((f) => ({ ...f, projectName: e.target.value }))}
-              className={inputCls}
-            />
-          </div>
-
-          <div>
-            <label className={labelCls}>Plot Number</label>
-            <input
-              type="text"
-              value={form.plotNumber ?? ''}
-              onChange={(e) => setForm((f) => ({ ...f, plotNumber: e.target.value }))}
-              className={inputCls}
-            />
-          </div>
 
           <div>
             <label className={labelCls}>City</label>
@@ -810,18 +755,6 @@ function EditPropertyModal({
             />
           </div>
 
-          <div>
-            <label className={labelCls}>Square Feet</label>
-            <input
-              type="number"
-              min={0}
-              value={form.squareFeet ?? ''}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, squareFeet: e.target.value ? Number(e.target.value) : undefined }))
-              }
-              className={inputCls}
-            />
-          </div>
 
           <div>
             <label className={labelCls}>Branch</label>

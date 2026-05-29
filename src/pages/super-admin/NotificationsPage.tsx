@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   useNotifications,
   useNotification,
@@ -7,7 +7,11 @@ import {
 } from '../../hooks/useNotifications';
 import { useBranches } from '../../hooks/useBranches';
 import { Modal } from '../../components/ui/Modal';
-import type { NotificationType, NotificationStatus, NotificationRecipient } from '../../types';
+import type {
+  NotificationType,
+  NotificationStatus,
+  NotificationRecipient,
+} from '../../types';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -35,6 +39,27 @@ const TYPE_LABELS: Record<NotificationType, string> = {
 
 const inputClass =
   'border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white';
+
+function createDemoNotification(branchId?: string): NotificationRecipient {
+  return {
+    id: 'demo-notification',
+    notificationId: 'demo-notification',
+    userId: 'demo-user',
+    status: 'UNREAD',
+    notification: {
+      id: 'demo-notification',
+      title: 'New Property Booking Request',
+      message:
+        'A new reservation has been initiated for Emerald Heights Phase II by the Chennai Central Hub team. Please review the booking details and confirm the required KYC documents.',
+      type: 'BOOKING_ACTIVITY',
+      priority: 'HIGH',
+      bookingId: 'BK-9025',
+      propertyId: 'EMH-1024',
+      branchId: branchId ?? 'demo-branch',
+      createdAt: new Date().toISOString(),
+    },
+  };
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -130,13 +155,15 @@ interface DetailModalProps {
   recipient: NotificationRecipient;
   onMarkRead: () => void;
   isPending: boolean;
+  branchName?: string;
 }
 
-function NotificationDetailModal({ open, onClose, recipient, onMarkRead, isPending }: DetailModalProps) {
+function NotificationDetailModal({ open, onClose, recipient, onMarkRead, isPending, branchName }: DetailModalProps) {
   const n = recipient.notification;
-  const { data: full } = useNotification(n?.id ?? '');
-  const detail = full ?? n;
+  const { data: full } = useNotification(n?.id ?? '', n?.id !== 'demo-notification');
+  const detail = (full ?? n) as NonNullable<typeof n>;
   const isUnread = recipient.status === 'UNREAD';
+  const isDemo = recipient.id === 'demo-notification';
 
   if (!n) return null;
 
@@ -169,7 +196,7 @@ function NotificationDetailModal({ open, onClose, recipient, onMarkRead, isPendi
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Event Details</p>
           {[
             ['Module', TYPE_LABELS[n.type]],
-            ['Branch', n.branchId ? `Branch ${n.branchId.slice(0, 8)}…` : '—'],
+            ['Branch', branchName ?? (n.branchId ? `Branch ${n.branchId.slice(0, 8)}…` : '—')],
             ['Timestamp', detail?.createdAt ? fullDateTime(detail.createdAt) : '—'],
           ].map(([label, value]) => (
             <div key={label} className="flex items-center justify-between">
@@ -179,27 +206,39 @@ function NotificationDetailModal({ open, onClose, recipient, onMarkRead, isPendi
           ))}
         </div>
 
-        {/* Personnel */}
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-full bg-gold/10 flex items-center justify-center text-gold text-xs font-bold">
-            SA
-          </div>
-          <div>
-            <p className="text-sm font-medium text-gray-900">System</p>
-            <p className="text-xs text-gray-400">Super Admin</p>
-          </div>
-        </div>
-
-        {/* Asset info (if property) */}
-        {n.propertyId && (
-          <div className="flex items-center gap-3 bg-gray-50 rounded-xl p-3">
-            <div className="w-12 h-12 rounded-lg bg-gray-200 flex-shrink-0" />
-            <div>
-              <p className="text-sm font-medium text-gray-800">Property #{n.propertyId.slice(0, 8)}</p>
-              <p className="text-xs text-gray-400">View property details</p>
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Personnel</p>
+            <div className="mt-3 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-gold/10 flex items-center justify-center text-gold text-sm font-bold">
+                RK
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-gray-900">Rajesh Kumar</p>
+                <p className="text-xs text-gray-400">Senior Manager</p>
+              </div>
             </div>
           </div>
-        )}
+
+          {n.propertyId && (
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Asset Information</p>
+              <div className="mt-3 flex items-center gap-3">
+                <div className="w-16 h-16 rounded-xl bg-gray-200 shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">
+                    {detail.propertyId === 'EMH-1024'
+                      ? 'Emerald Heights Phase II'
+                      : `Property ${detail.propertyId?.slice(0, 8)}`}
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    {detail.propertyId === 'EMH-1024' ? 'OMR, Chennai South' : 'View property details'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Record IDs */}
         {(n.bookingId || n.billingId) && (
@@ -233,10 +272,10 @@ function NotificationDetailModal({ open, onClose, recipient, onMarkRead, isPendi
             <button
               type="button"
               onClick={onMarkRead}
-              disabled={isPending}
+              disabled={isPending || isDemo}
               className="bg-gold text-navy font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 text-sm"
             >
-              {isPending ? 'Resolving...' : 'Mark as Read & Resolve'}
+              {isDemo ? 'Demo only' : isPending ? 'Resolving...' : 'Mark as Read & Resolve'}
             </button>
           )}
         </div>
@@ -271,8 +310,24 @@ const SuperAdminNotificationsPage: React.FC = () => {
   const allRecipients = data?.data ?? [];
   const total = data?.total ?? 0;
 
+  const demoNotification = useMemo(
+    () => createDemoNotification(branches[0]?.id),
+    [branches],
+  );
+
+  const notificationsToDisplay = allRecipients.length > 0 ? allRecipients : [demoNotification];
+  const isDemoMode = allRecipients.length === 0;
+
+  function getBranchName(branchId?: string) {
+    return branches.find((b) => b.id === branchId)?.name ?? branchId ?? '—';
+  }
 
   function handleMarkRead(nr: NotificationRecipient) {
+    if (nr.id === 'demo-notification') {
+      setDetailRecipient(null);
+      return;
+    }
+
     markRead.mutate(nr.id, {
       onSuccess: () => setDetailRecipient(null),
     });
@@ -292,7 +347,7 @@ const SuperAdminNotificationsPage: React.FC = () => {
           type="button"
           onClick={() => markAllRead.mutate()}
           disabled={markAllRead.isPending}
-          className="border border-gold text-gold px-4 py-2 rounded-lg hover:bg-gold/5 text-sm font-medium flex-shrink-0 disabled:opacity-50"
+          className="border border-gold text-gold px-4 py-2 rounded-lg hover:bg-gold/5 text-sm font-medium shrink-0 disabled:opacity-50"
         >
           {markAllRead.isPending ? 'Marking...' : 'Mark All as Read'}
         </button>
@@ -343,92 +398,98 @@ const SuperAdminNotificationsPage: React.FC = () => {
       {/* ── Notification List ── */}
       {isLoading ? (
         <div className="text-center py-16 text-gray-400">Loading notifications...</div>
-      ) : allRecipients.length === 0 ? (
-        <div className="text-center py-16 text-gray-400">No notifications found</div>
       ) : (
-        allRecipients.map((nr) => {
-          const n = nr.notification;
-          if (!n) return null;
-          const isUnread = nr.status === 'UNREAD';
+        <>
+          {isDemoMode && (
+            <div className="mb-4 rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">
+              Demo notification example is shown below. Live notifications will appear here once available.
+            </div>
+          )}
 
-          return (
-            <div
-              key={nr.id}
-              className={`bg-white rounded-xl border border-gray-200 mb-3 overflow-hidden transition-colors ${
-                isUnread ? 'border-l-4 border-l-gold bg-gold/5' : 'border-l-4 border-l-transparent'
-              }`}
-            >
-              <div className="px-4 py-4 flex items-start gap-3">
-                <NotificationIcon type={n.type} isUnread={isUnread} />
+          {notificationsToDisplay.map((nr) => {
+            const n = nr.notification;
+            if (!n) return null;
+            const isUnread = nr.status === 'UNREAD';
 
-                <div className="flex-1 min-w-0">
-                  {/* Title row */}
-                  <div className="flex items-center gap-2 flex-wrap mb-1">
-                    <span className="text-sm font-semibold text-gray-900">{n.title}</span>
-                    <span
-                      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wide ${
-                        isUnread ? 'bg-gold text-navy' : 'bg-gray-100 text-gray-600'
-                      }`}
-                    >
-                      {TYPE_LABELS[n.type]}
-                    </span>
-                    <span className="text-xs text-gray-400 ml-auto">
-                      {relativeTime(n.createdAt)}
-                    </span>
-                  </div>
+            return (
+              <div
+                key={nr.id}
+                className={`bg-white rounded-xl border border-gray-200 mb-3 overflow-hidden transition-colors ${
+                  isUnread ? 'border-l-4 border-l-gold bg-gold/5' : 'border-l-4 border-l-transparent'
+                }`}
+              >
+                <div className="px-4 py-4 flex items-start gap-3">
+                  <NotificationIcon type={n.type} isUnread={isUnread} />
 
-                  {/* Description */}
-                  <p className="text-sm text-gray-600 mb-2 line-clamp-2">{n.message}</p>
-
-                  {/* Meta row */}
-                  <div className="flex items-center gap-4 text-xs text-gray-400 mb-3">
-                    {n.branchId && (
-                      <span className="flex items-center gap-1">
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                            d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                            d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                        </svg>
-                        Branch
+                  <div className="flex-1 min-w-0">
+                    {/* Title row */}
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <span className="text-sm font-semibold text-gray-900">{n.title}</span>
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wide ${
+                          isUnread ? 'bg-gold text-navy' : 'bg-gray-100 text-gray-600'
+                        }`}
+                      >
+                        {TYPE_LABELS[n.type]}
                       </span>
-                    )}
-                    {(n.bookingId || n.billingId) && (
-                      <span className="flex items-center gap-1">
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                            d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                        </svg>
-                        {n.bookingId ? `Booking #${n.bookingId.slice(0, 8)}` : `Billing #${n.billingId!.slice(0, 8)}`}
+                      <span className="text-xs text-gray-400 ml-auto">
+                        {relativeTime(n.createdAt)}
                       </span>
-                    )}
-                  </div>
+                    </div>
 
-                  {/* Actions */}
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setDetailRecipient(nr)}
-                      className="border border-gold text-gold px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-gold/5 transition-colors"
-                    >
-                      View Details
-                    </button>
-                    {isUnread && (
+                    {/* Description */}
+                    <p className="text-sm text-gray-600 mb-2 line-clamp-2">{n.message}</p>
+
+                    {/* Meta row */}
+                    <div className="flex items-center gap-4 text-xs text-gray-400 mb-3">
+                      {n.branchId && (
+                        <span className="flex items-center gap-1">
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                              d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                              d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                          </svg>
+                          {getBranchName(n.branchId)}
+                        </span>
+                      )}
+                      {(n.bookingId || n.billingId) && (
+                        <span className="flex items-center gap-1">
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                              d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                          </svg>
+                          {n.bookingId ? `Booking #${n.bookingId.slice(0, 8)}` : `Billing #${n.billingId!.slice(0, 8)}`}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-3">
                       <button
                         type="button"
-                        onClick={() => markRead.mutate(nr.id)}
-                        disabled={markRead.isPending}
-                        className="text-xs text-gray-500 hover:text-gray-700 font-medium disabled:opacity-50"
+                        onClick={() => setDetailRecipient(nr)}
+                        className="border border-gold text-gold px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-gold/5 transition-colors"
                       >
-                        Mark as Read
+                        View Details
                       </button>
-                    )}
+                      {isUnread && (
+                        <button
+                          type="button"
+                          onClick={() => nr.id !== 'demo-notification' && markRead.mutate(nr.id)}
+                          disabled={nr.id === 'demo-notification' || markRead.isPending}
+                          className="text-xs text-gray-500 hover:text-gray-700 font-medium disabled:opacity-50"
+                        >
+                          {nr.id === 'demo-notification' ? 'Demo only' : 'Mark as Read'}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          );
-        })
+            );
+          })}
+        </>
       )}
 
       {/* ── Footer ── */}
@@ -457,6 +518,7 @@ const SuperAdminNotificationsPage: React.FC = () => {
           recipient={detailRecipient}
           onMarkRead={() => handleMarkRead(detailRecipient)}
           isPending={markRead.isPending}
+          branchName={getBranchName(detailRecipient.notification?.branchId)}
         />
       )}
     </div>

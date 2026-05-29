@@ -22,11 +22,11 @@ export function useUnreadCount() {
   });
 }
 
-export function useNotification(id: string) {
+export function useNotification(id: string, enabled = true) {
   return useQuery({
     queryKey: ['notifications', id],
     queryFn: () => notificationsApi.getOne(id),
-    enabled: !!id,
+    enabled: !!id && enabled,
   });
 }
 
