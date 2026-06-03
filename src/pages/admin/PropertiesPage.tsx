@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useProperties } from '../../hooks/useProperties';
 import { Pagination } from '../../components/ui/Pagination';
+import { resolveFileUrl } from '../../lib/file-url';
 import type { Property, PropertyType, WorkflowStatus } from '../../types';
 
 type PropertyDisplayStatus = 'Active' | 'Sold' | 'Under Verification';
@@ -38,12 +39,6 @@ const workflowLabels: Record<WorkflowStatus, string> = {
   FINAL_SETTLEMENT_PENDING: 'Final Settlement Pending',
   COMPLETED: 'Settlement Completed',
 };
-
-const propertyImages = [
-  'linear-gradient(90deg, rgba(15,20,25,.35), rgba(15,20,25,.02)), url("https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=1200&q=80")',
-  'linear-gradient(90deg, rgba(15,20,25,.28), rgba(15,20,25,.03)), url("https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1200&q=80")',
-  'linear-gradient(90deg, rgba(15,20,25,.28), rgba(15,20,25,.03)), url("https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=1200&q=80")',
-];
 
 const fallbackProperties: Property[] = [
   {
@@ -84,8 +79,26 @@ const fallbackProperties: Property[] = [
   },
 ];
 
-function propertyImage(index: number) {
-  return propertyImages[index % propertyImages.length];
+function stringField(value: unknown) {
+  return typeof value === 'string' ? value : '';
+}
+
+function firstPropertyImageUrl(property: Property) {
+  const extra = property as Property & Record<string, unknown>;
+  const image = property.images?.[0] as ({ url?: string } & Record<string, unknown>) | undefined;
+
+  return resolveFileUrl(
+    image?.url ||
+      stringField(image?.imageUrl) ||
+      stringField(image?.image_url) ||
+      stringField(image?.documentUrl) ||
+      stringField(extra.propertyImageUrl) ||
+      stringField(extra.property_image_url) ||
+      stringField(extra.imageUrl) ||
+      stringField(extra.image_url) ||
+      stringField(extra.thumbnail) ||
+      stringField(extra.thumbnailUrl),
+  );
 }
 
 function locationFor(property: Property) {
@@ -144,14 +157,14 @@ function Pill({ children, tone }: { children: React.ReactNode; tone: 'green' | '
 
 function PropertyCard({
   property,
-  index,
   onDetails,
 }: {
   property: Property;
-  index: number;
   onDetails: () => void;
 }) {
   const kind = statusKind(property.workflowStatus);
+  const [imageFailed, setImageFailed] = useState(false);
+  const imageUrl = imageFailed ? '' : firstPropertyImageUrl(property);
   const advanceDone = ['ADVANCE_PAYMENT', 'REGISTRATION_PENDING', 'FINAL_SETTLEMENT_PENDING', 'COMPLETED'].includes(
     property.workflowStatus,
   );
@@ -159,10 +172,16 @@ function PropertyCard({
 
   return (
     <article className="overflow-hidden border border-gray-200 bg-white shadow-sm">
-      <div
-        className="relative h-40 bg-cover bg-center"
-        style={{ backgroundImage: property.images?.[0]?.url ? `url("${property.images[0].url}")` : propertyImage(index) }}
-      >
+      <div className="relative h-40 overflow-hidden bg-gradient-to-br from-teal-900 via-gray-800 to-gold/70">
+        {imageUrl && (
+          <img
+            src={imageUrl}
+            alt={displayName(property)}
+            onError={() => setImageFailed(true)}
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+        )}
+        <div className="absolute inset-0 bg-black/10" />
         <div className="absolute left-4 top-4 flex gap-2">
           <Pill tone={kind === 'active' ? 'green' : kind === 'danger' ? 'red' : 'gold'}>
             {displayStatus(property)}
@@ -241,15 +260,23 @@ function LifecycleStep({
 function PropertyDetailModal({ property, onClose }: { property: Property; onClose: () => void }) {
   const finalPending = property.workflowStatus === 'FINAL_SETTLEMENT_PENDING';
   const completed = property.workflowStatus === 'COMPLETED';
+  const [imageFailed, setImageFailed] = useState(false);
+  const imageUrl = imageFailed ? '' : firstPropertyImageUrl(property);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[1px]">
       <div className="max-h-[90vh] w-full max-w-6xl overflow-hidden rounded-md bg-white shadow-2xl">
         <div className="max-h-[90vh] overflow-y-auto">
-          <div
-            className="relative h-64 bg-cover bg-center"
-            style={{ backgroundImage: property.images?.[0]?.url ? `linear-gradient(90deg, rgba(0,0,0,.55), rgba(0,0,0,.08)), url("${property.images[0].url}")` : propertyImage(0) }}
-          >
+          <div className="relative h-64 overflow-hidden bg-gradient-to-br from-teal-900 via-gray-800 to-gold/70">
+            {imageUrl && (
+              <img
+                src={imageUrl}
+                alt={displayName(property)}
+                onError={() => setImageFailed(true)}
+                className="absolute inset-0 h-full w-full object-cover"
+              />
+            )}
+            <div className="absolute inset-0 bg-gradient-to-r from-black/60 to-black/10" />
             <button
               type="button"
               onClick={onClose}
@@ -267,14 +294,14 @@ function PropertyDetailModal({ property, onClose }: { property: Property; onClos
                   {locationFor(property)}
                 </p>
               </div>
-              <div className="grid grid-cols-2 gap-2 rounded-sm bg-white/15 p-4 text-white backdrop-blur">
-                <div>
-                  <p className="text-[10px] font-bold uppercase opacity-75">Status</p>
-                  <p className="text-sm font-bold">{completed ? 'Final Settlement' : workflowLabels[property.workflowStatus]}</p>
+              <div className="grid w-full max-w-md grid-cols-1 gap-2 sm:grid-cols-2">
+                <div className="rounded-sm border border-white/80 bg-white px-4 py-3 text-gray-900 shadow-lg">
+                  <p className="text-[10px] font-black uppercase tracking-wide text-teal-700">Status</p>
+                  <p className="mt-1 text-base font-black uppercase">{completed ? 'Final Settlement' : workflowLabels[property.workflowStatus]}</p>
                 </div>
-                <div>
-                  <p className="text-[10px] font-bold uppercase opacity-75">ID</p>
-                  <p className="text-sm font-bold">#{property.propertyId}</p>
+                <div className="rounded-sm border border-gold bg-white px-4 py-3 text-gray-900 shadow-lg">
+                  <p className="text-[10px] font-black uppercase tracking-wide text-gold">Property ID</p>
+                  <p className="mt-1 break-all font-mono text-base font-black">#{property.propertyId}</p>
                 </div>
               </div>
             </div>
@@ -532,11 +559,10 @@ const AdminPropertiesPage: React.FC = () => {
         <div className="border border-gray-200 bg-white p-12 text-center text-gray-500">No properties found</div>
       ) : (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          {filteredProperties.map((property, index) => (
+          {filteredProperties.map((property) => (
             <PropertyCard
               key={property.id}
               property={property}
-              index={index}
               onDetails={() => setSelectedProperty(property)}
             />
           ))}

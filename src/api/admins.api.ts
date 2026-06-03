@@ -45,8 +45,6 @@ export const adminsApi = {
   uploadPhoto: (id: string, file: File): Promise<Admin> => {
     const form = new FormData();
     form.append('photo', file);
-    return api.post(`/admins/${id}/photo`, form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    }).then((r) => r.data.data);
+    return api.post(`/admins/${id}/photo`, form).then((r) => r.data.data);
   },
 };

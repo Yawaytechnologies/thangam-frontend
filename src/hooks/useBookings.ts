@@ -62,3 +62,16 @@ export function useUpdateBookingStatus() {
     },
   });
 }
+
+export function useUploadBookingSignature() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, file }: { id: string; file: File }) =>
+      bookingsApi.uploadSignature(id, file),
+    onSuccess: (_data, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['bookings', id] });
+      queryClient.invalidateQueries({ queryKey: ['bookings'] });
+    },
+  });
+}
