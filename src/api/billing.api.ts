@@ -60,7 +60,7 @@ export const billingApi = {
     form.append('entityType', 'billing');
     form.append('entityId', id);
     form.append('documentType', 'BILLING_DOCUMENT');
-    return api.post('/documents/upload', form).then((r) => r.data.data);
+    return api.post('/documents/upload', form, { skipAuthRedirect: true }).then((r) => r.data.data);
   },
 
   delete: (id: string): Promise<void> =>

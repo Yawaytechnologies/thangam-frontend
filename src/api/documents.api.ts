@@ -54,7 +54,7 @@ export const documentsApi = {
     form.append('entityType', entityType);
     form.append('entityId', entityId);
     form.append('documentType', documentType);
-    return api.post('/documents/upload', form).then((r) => r.data.data);
+    return api.post('/documents/upload', form, { skipAuthRedirect: true }).then((r) => r.data.data);
   },
 
   getUrl: (id: string): Promise<DocumentUrlResponse> =>

@@ -77,7 +77,7 @@ export const bookingsApi = {
     form.append('entityType', 'booking');
     form.append('entityId', id);
     form.append('documentType', 'BOOKING_DOCUMENT');
-    return api.post('/documents/upload', form).then((r) => r.data.data);
+    return api.post('/documents/upload', form, { skipAuthRedirect: true }).then((r) => r.data.data);
   },
 
   delete: (id: string): Promise<void> =>
