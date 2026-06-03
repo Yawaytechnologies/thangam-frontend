@@ -80,8 +80,6 @@ export const propertiesApi = {
   uploadImages: (id: string, files: File[]): Promise<Property> => {
     const form = new FormData();
     files.forEach((f) => form.append('images', f));
-    return api.post(`/properties/${id}/images`, form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    }).then((r) => r.data.data);
+    return api.post(`/properties/${id}/images`, form).then((r) => r.data.data);
   },
 };

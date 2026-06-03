@@ -8,6 +8,24 @@ export type DocumentEntityType =
   | 'admin'
   | 'branch';
 
+export type DocumentType =
+  | 'PROFILE_PHOTO'
+  | 'AADHAAR'
+  | 'PAN'
+  | 'VOTER_ID'
+  | 'DRIVING_LICENSE'
+  | 'ADDRESS_PROOF'
+  | 'BANK_PASSBOOK'
+  | 'PROPERTY_IMAGE'
+  | 'LAYOUT_DOCUMENT'
+  | 'APPROVAL_DOCUMENT'
+  | 'BOOKING_DOCUMENT'
+  | 'BILLING_DOCUMENT'
+  | 'PAYMENT_RECEIPT'
+  | 'SETTLEMENT_DOCUMENT'
+  | 'ESTIMATE_COPY'
+  | 'BROCHURE';
+
 export interface Document {
   id: string;
   entityType: DocumentEntityType;
@@ -28,7 +46,7 @@ export const documentsApi = {
   upload: (
     entityType: DocumentEntityType,
     entityId: string,
-    documentType: string,
+    documentType: DocumentType,
     file: File,
   ): Promise<Document> => {
     const form = new FormData();
@@ -36,11 +54,7 @@ export const documentsApi = {
     form.append('entityType', entityType);
     form.append('entityId', entityId);
     form.append('documentType', documentType);
-    return api
-      .post('/documents/upload', form, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
-      .then((r) => r.data.data);
+    return api.post('/documents/upload', form).then((r) => r.data.data);
   },
 
   getUrl: (id: string): Promise<DocumentUrlResponse> =>

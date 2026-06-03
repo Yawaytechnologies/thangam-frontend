@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   documentsApi,
+  type DocumentType,
   type DocumentEntityType,
 } from '../api/documents.api';
 
@@ -33,7 +34,7 @@ export function useUploadDocument() {
     }: {
       entityType: DocumentEntityType;
       entityId: string;
-      documentType: string;
+      documentType: DocumentType;
       file: File;
     }) => documentsApi.upload(entityType, entityId, documentType, file),
     onSuccess: (_data, variables) => {
