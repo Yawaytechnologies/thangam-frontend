@@ -1,327 +1,243 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
-import {
-  useAdminStats,
-  useAdminMemberActivity,
-  useAdminBookingActivity,
-  useAdminBillingActivity,
-} from '../../hooks/useDashboard';
-import { useLatestNotifications } from '../../hooks/useNotifications';
-import { StatusBadge } from '../../components/ui/StatusBadge';
-import type { AdminMemberActivity, AdminBookingActivity, AdminBillingActivity } from '../../api/dashboard.api';
-import type { NotificationRecipient } from '../../types';
+import { AlertCircle, CalendarDays, CalendarRange, UserCheck, UserPlus, Users } from 'lucide-react';
+import { useMembers } from '../../hooks/useMembers';
+import type { Member, Role } from '../../types';
 
-interface KpiCardProps {
-  label: string;
+interface StatCardProps {
+  title: string;
   value: string | number;
+  accentClass: string;
   icon: React.ReactNode;
-  color: string;
 }
 
-const KpiCard: React.FC<KpiCardProps> = ({ label, value, icon, color }) => (
-  <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-    <div className="flex items-center justify-between mb-3">
-      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{label}</p>
-      <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${color}`}>
+interface PerformerGroup {
+  title: string;
+  roles: Role[];
+  colorClass: string;
+}
+
+const performerGroups: PerformerGroup[] = [
+  {
+    title: 'Directors and Executive Directors',
+    roles: ['DIRECTOR', 'EXECUTIVE_DIRECTOR'],
+    colorClass: 'text-amber-700',
+  },
+  {
+    title: 'Deputy Directors',
+    roles: ['DEPUTY_DIRECTOR'],
+    colorClass: 'text-blue-700',
+  },
+  {
+    title: 'Senior Managers',
+    roles: ['SENIOR_MANAGER'],
+    colorClass: 'text-orange-700',
+  },
+];
+
+const roleLabels: Record<Role, string> = {
+  SUPER_ADMIN: 'Super Admin',
+  ADMIN: 'Admin',
+  DIRECTOR: 'Director',
+  EXECUTIVE_DIRECTOR: 'Executive Director',
+  DEPUTY_DIRECTOR: 'Deputy Director',
+  SENIOR_MANAGER: 'Senior Manager',
+  BUSINESS_MANAGER: 'Business Manager',
+  AGENT: 'Agent',
+};
+
+const StatCard: React.FC<StatCardProps> = ({ title, value, accentClass, icon }) => (
+  <div className={`rounded-lg border border-gray-200 bg-white p-4 shadow-sm ${accentClass}`}>
+    <div className="flex items-start justify-between gap-3">
+      <p className="text-xs font-bold uppercase tracking-wide text-gray-700">{title}</p>
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-gold">
         {icon}
       </div>
     </div>
-    <p className="text-2xl font-bold text-gray-900">{value}</p>
+    <p className="mt-3 text-2xl font-bold text-gray-900">{value}</p>
   </div>
 );
 
-const SectionHeader: React.FC<{ title: string; linkTo?: string; linkLabel?: string }> = ({
-  title,
-  linkTo,
-  linkLabel,
-}) => (
-  <div className="flex items-center justify-between mb-4">
-    <h2 className="text-base font-semibold text-gray-900">{title}</h2>
-    {linkTo && (
-      <Link to={linkTo} className="text-sm text-blue-600 hover:text-blue-700 font-medium">
-        {linkLabel ?? 'View all'}
-      </Link>
-    )}
+const Avatar: React.FC<{ name: string }> = ({ name }) => (
+  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-gray-800 to-gray-500 text-sm font-bold text-white shadow-sm">
+    {name
+      .split(' ')
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part.charAt(0).toUpperCase())
+      .join('') || 'M'}
   </div>
 );
 
-const TableWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-    <div className="overflow-x-auto">{children}</div>
-  </div>
-);
-
-const AdminDashboardPage: React.FC = () => {
-  const { data: stats, isLoading: statsLoading } = useAdminStats();
-  const { data: memberActivity, isLoading: memberLoading } = useAdminMemberActivity();
-  const { data: bookingActivity, isLoading: bookingLoading } = useAdminBookingActivity();
-  const { data: billingActivity, isLoading: billingLoading } = useAdminBillingActivity();
-  const { data: latestNotifications, isLoading: notifLoading } = useLatestNotifications();
-
-  const kpis: KpiCardProps[] = [
-    {
-      label: 'Total Members',
-      value: statsLoading ? '—' : stats?.totalMembers ?? 0,
-      color: 'bg-blue-100',
-      icon: (
-        <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-        </svg>
-      ),
-    },
-    {
-      label: 'New Members',
-      value: statsLoading ? '—' : stats?.newMembersThisMonth ?? 0,
-      color: 'bg-green-100',
-      icon: (
-        <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-        </svg>
-      ),
-    },
-    {
-      label: 'Active Bookings',
-      value: statsLoading ? '—' : stats?.activeBookings ?? 0,
-      color: 'bg-indigo-100',
-      icon: (
-        <svg className="w-5 h-5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-        </svg>
-      ),
-    },
-    {
-      label: 'Pending Billing',
-      value: statsLoading ? '—' : stats?.pendingBilling ?? 0,
-      color: 'bg-yellow-100',
-      icon: (
-        <svg className="w-5 h-5 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-      ),
-    },
-    {
-      label: 'Completed Settlements',
-      value: statsLoading ? '—' : stats?.completedSettlements ?? 0,
-      color: 'bg-purple-100',
-      icon: (
-        <svg className="w-5 h-5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
-        </svg>
-      ),
-    },
-  ];
-
-  const recentMembers: AdminMemberActivity[] = (memberActivity ?? []).slice(0, 5);
-  const recentBookings: AdminBookingActivity[] = (bookingActivity ?? []).slice(0, 5);
-  const recentBilling: AdminBillingActivity[] = (billingActivity ?? []).slice(0, 5);
-  const recentNotifications: NotificationRecipient[] = (latestNotifications ?? []).slice(0, 5);
+const PerformerCard: React.FC<{ member: Member; index: number }> = ({ member, index }) => {
+  const teamPercentage = 0;
+  const profileViews = 0;
 
   return (
-    <div className="p-6 space-y-8">
-      {/* Page title */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Branch overview and recent activity</p>
+    <div className="rounded-lg border border-amber-100 bg-amber-50/70 p-4 shadow-sm">
+      <div className="flex items-start gap-3">
+        <Avatar name={member.fullName} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-bold text-gray-900">{member.fullName}</p>
+              <p className="mt-0.5 truncate text-xs text-gray-500">{member.memberId}</p>
+            </div>
+            <span className="rounded-full bg-gold px-2 py-0.5 text-[10px] font-bold text-navy">
+              #{index + 1}
+            </span>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+            <span className="rounded bg-white px-2 py-0.5 font-semibold text-gray-700">
+              {roleLabels[member.role]}
+            </span>
+            <span className="flex items-center gap-1 font-semibold text-teal-700">
+              <span className="h-1.5 w-1.5 rounded-full bg-teal-600" />
+              {member.status === 'ACTIVE' ? 'Active' : member.status.toLowerCase()}
+            </span>
+          </div>
+          <p className="mt-2 truncate text-xs text-gray-500">{member.branch?.name ?? 'Branch network'}</p>
+        </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
-        {kpis.map((kpi) => (
-          <KpiCard key={kpi.label} {...kpi} />
+      <div className="mt-4 border-t border-amber-100 pt-3">
+        <div className="mb-1 flex items-center justify-between text-[11px] font-bold uppercase text-gray-600">
+          <span>Team Members</span>
+          <span>{teamPercentage}%</span>
+        </div>
+        <div className="h-1.5 overflow-hidden rounded-full bg-white">
+          <div className="h-full rounded-full bg-gold" style={{ width: `${teamPercentage}%` }} />
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
+          <div>
+            <p className="font-bold uppercase text-gray-500">Profile Views</p>
+            <p className="mt-1 text-base font-bold text-gray-900">{profileViews}</p>
+          </div>
+          <div>
+            <p className="font-bold uppercase text-gray-500">Status</p>
+            <p className="mt-1 text-base font-bold text-gray-900">{member.status}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const isSameDay = (date: Date, compare: Date) =>
+  date.getFullYear() === compare.getFullYear() &&
+  date.getMonth() === compare.getMonth() &&
+  date.getDate() === compare.getDate();
+
+const getWeekStart = (date: Date) => {
+  const start = new Date(date);
+  const day = start.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  start.setDate(start.getDate() + diff);
+  start.setHours(0, 0, 0, 0);
+  return start;
+};
+
+const parseCreatedAt = (member: Member) => {
+  const date = new Date(member.createdAt);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const sortPerformers = (a: Member, b: Member) => {
+  if (a.status !== b.status) return a.status === 'ACTIVE' ? -1 : 1;
+  return a.fullName.localeCompare(b.fullName);
+};
+
+const AdminDashboardPage: React.FC = () => {
+  const { data: membersResponse, isLoading } = useMembers({ limit: 1000 });
+  const members = membersResponse?.data ?? [];
+  const today = new Date();
+  const weekStart = getWeekStart(today);
+  const totalMembers = membersResponse?.total ?? members.length;
+
+  const joinedToday = members.filter((member) => {
+    const joinedAt = parseCreatedAt(member);
+    return joinedAt ? isSameDay(joinedAt, today) : false;
+  }).length;
+
+  const joinedThisWeek = members.filter((member) => {
+    const joinedAt = parseCreatedAt(member);
+    return joinedAt ? joinedAt >= weekStart && joinedAt <= today : false;
+  }).length;
+
+  const joinedThisMonth = members.filter((member) => {
+    const joinedAt = parseCreatedAt(member);
+    return joinedAt
+      ? joinedAt.getFullYear() === today.getFullYear() && joinedAt.getMonth() === today.getMonth()
+      : false;
+  }).length;
+
+  const activeMembers = members.filter((member) => member.status === 'ACTIVE').length;
+  const pendingActions = members.filter((member) => member.status === 'PENDING' || member.status === 'INACTIVE').length;
+
+  const stats: StatCardProps[] = [
+    { title: 'Members Today', value: isLoading ? '-' : joinedToday, accentClass: 'border-t-2 border-t-gold', icon: <UserPlus className="h-4 w-4" /> },
+    { title: 'Joined This Week', value: isLoading ? '-' : joinedThisWeek, accentClass: 'border-t-2 border-t-teal-700', icon: <CalendarDays className="h-4 w-4" /> },
+    { title: 'Joined This Month', value: isLoading ? '-' : joinedThisMonth, accentClass: 'border-t-2 border-t-gold', icon: <CalendarRange className="h-4 w-4" /> },
+    { title: 'Total Members', value: isLoading ? '-' : totalMembers.toLocaleString('en-IN'), accentClass: 'border-t-2 border-t-teal-700', icon: <Users className="h-4 w-4" /> },
+    { title: 'Active Members', value: isLoading ? '-' : activeMembers.toLocaleString('en-IN'), accentClass: 'border-t-2 border-t-gold', icon: <UserCheck className="h-4 w-4" /> },
+    { title: 'Pending Actions', value: isLoading ? '-' : pendingActions.toLocaleString('en-IN'), accentClass: 'border-t-2 border-t-red-600', icon: <AlertCircle className="h-4 w-4" /> },
+  ];
+
+  return (
+    <div className="p-4 sm:p-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {stats.map((stat) => (
+          <StatCard key={stat.title} {...stat} />
         ))}
       </div>
 
-      {/* Section A: Recent Members */}
-      <div>
-        <SectionHeader title="Recent Members" linkTo="/admin/members" />
-        <TableWrapper>
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Member ID</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Name</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Role</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Joined Date</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {memberLoading ? (
-                <tr>
-                  <td colSpan={5} className="px-4 py-6 text-center text-gray-400">
-                    Loading...
-                  </td>
-                </tr>
-              ) : !recentMembers.length ? (
-                <tr>
-                  <td colSpan={5} className="px-4 py-6 text-center text-gray-400">
-                    No recent member activity
-                  </td>
-                </tr>
-              ) : (
-                recentMembers.map((m) => (
-                  <tr key={m.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-mono text-xs text-gray-500">{m.memberId}</td>
-                    <td className="px-4 py-3 font-medium text-gray-900">{m.fullName}</td>
-                    <td className="px-4 py-3 text-gray-600">{m.role}</td>
-                    <td className="px-4 py-3 text-gray-500">
-                      {new Date(m.createdAt).toLocaleDateString('en-IN')}
-                    </td>
-                    <td className="px-4 py-3">
-                      <StatusBadge status={m.status} />
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </TableWrapper>
-      </div>
-
-      {/* Section B: Recent Bookings */}
-      <div>
-        <SectionHeader title="Recent Bookings" linkTo="/admin/bookings" />
-        <TableWrapper>
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Booking ID</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Applicant</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Project / Plot</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Date</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {bookingLoading ? (
-                <tr>
-                  <td colSpan={5} className="px-4 py-6 text-center text-gray-400">
-                    Loading...
-                  </td>
-                </tr>
-              ) : !recentBookings.length ? (
-                <tr>
-                  <td colSpan={5} className="px-4 py-6 text-center text-gray-400">
-                    No recent bookings
-                  </td>
-                </tr>
-              ) : (
-                recentBookings.map((b) => (
-                  <tr key={b.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-mono text-xs text-gray-500">{b.bookingId}</td>
-                    <td className="px-4 py-3 font-medium text-gray-900">{b.applicantName}</td>
-                    <td className="px-4 py-3 text-gray-600">{b.projectName} / {b.plotNumber}</td>
-                    <td className="px-4 py-3">
-                      <StatusBadge status={b.status} />
-                    </td>
-                    <td className="px-4 py-3 text-gray-500">
-                      {new Date(b.bookingDate).toLocaleDateString('en-IN')}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </TableWrapper>
-      </div>
-
-      {/* Section C: Recent Billing */}
-      <div>
-        <SectionHeader title="Recent Billing" linkTo="/admin/billing" />
-        <TableWrapper>
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Billing ID</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Buyer</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Amt Paid</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Balance</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {billingLoading ? (
-                <tr>
-                  <td colSpan={5} className="px-4 py-6 text-center text-gray-400">
-                    Loading...
-                  </td>
-                </tr>
-              ) : !recentBilling.length ? (
-                <tr>
-                  <td colSpan={5} className="px-4 py-6 text-center text-gray-400">
-                    No recent billing
-                  </td>
-                </tr>
-              ) : (
-                recentBilling.map((b) => (
-                  <tr key={b.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-mono text-xs text-gray-500">{b.billingId}</td>
-                    <td className="px-4 py-3 font-medium text-gray-900">{b.buyerName}</td>
-                    <td className="px-4 py-3 text-gray-900 font-medium">
-                      ₹{Number(b.amountInNumbers).toLocaleString('en-IN')}
-                    </td>
-                    <td className="px-4 py-3 text-red-600">
-                      ₹{Number(b.totalBalance).toLocaleString('en-IN')}
-                    </td>
-                    <td className="px-4 py-3">
-                      <StatusBadge status={b.status} />
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </TableWrapper>
-      </div>
-
-      {/* Section D: Notifications Preview */}
-      <div>
-        <SectionHeader title="Recent Notifications" linkTo="/admin/notifications" />
-        <div className="space-y-2">
-          {notifLoading ? (
-            <div className="bg-white rounded-xl border border-gray-200 p-4 text-center text-gray-400 text-sm">
-              Loading...
-            </div>
-          ) : !recentNotifications.length ? (
-            <div className="bg-white rounded-xl border border-gray-200 p-4 text-center text-gray-400 text-sm">
-              No notifications
-            </div>
-          ) : (
-            recentNotifications.map((nr) => (
-              <div
-                key={nr.id}
-                className={`bg-white rounded-xl border p-4 flex items-start gap-3 ${
-                  nr.status === 'UNREAD' ? 'border-blue-200 bg-blue-50/30' : 'border-gray-200'
-                }`}
-              >
-                <div
-                  className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${
-                    nr.status === 'UNREAD' ? 'bg-blue-500' : 'bg-gray-300'
-                  }`}
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium text-gray-900 truncate">
-                      {nr.notification?.title ?? 'Notification'}
-                    </p>
-                    {nr.notification?.type && (
-                      <StatusBadge status={nr.notification.type} />
-                    )}
-                  </div>
-                  <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">
-                    {nr.notification?.message ?? ''}
-                  </p>
-                </div>
-                <p className="text-xs text-gray-400 flex-shrink-0 whitespace-nowrap">
-                  {nr.notification?.createdAt
-                    ? new Date(nr.notification.createdAt).toLocaleDateString('en-IN')
-                    : '—'}
-                </p>
-              </div>
-            ))
-          )}
+      <section className="mt-5 rounded-lg border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
+        <div className="mb-6">
+          <h1 className="text-xl font-bold text-gray-900">Hierarchy Top Performers</h1>
+          <p className="mt-1 text-sm text-gray-600">
+            Role-wise top active members under this admin network.
+          </p>
         </div>
-      </div>
+
+        <div className="space-y-7">
+          {performerGroups.map((group) => {
+            const performers = members
+              .filter((member) => group.roles.includes(member.role))
+              .sort(sortPerformers)
+              .slice(0, 3);
+
+            return (
+              <div key={group.title}>
+                <div className="mb-4 flex items-center justify-between border-b border-gray-100 pb-3">
+                  <div className={`flex items-center gap-2 text-sm font-bold ${group.colorClass}`}>
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full border border-current text-[10px]">
+                      +
+                    </span>
+                    <span>
+                      {group.title} · {performers.length} Members
+                    </span>
+                  </div>
+                </div>
+
+                {isLoading ? (
+                  <div className="rounded-lg border border-gray-100 bg-gray-50 p-5 text-sm text-gray-500">
+                    Loading performers...
+                  </div>
+                ) : performers.length ? (
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                    {performers.map((member, index) => (
+                      <PerformerCard key={member.id} member={member} index={index} />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-gray-100 bg-gray-50 p-5 text-sm text-gray-500">
+                    No members found for this role group.
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </section>
     </div>
   );
 };
