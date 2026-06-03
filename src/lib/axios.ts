@@ -1,6 +1,16 @@
 import axios from 'axios';
 import { useAuthStore } from '../stores/auth.store';
 
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    skipAuthRedirect?: boolean;
+  }
+
+  interface InternalAxiosRequestConfig {
+    skipAuthRedirect?: boolean;
+  }
+}
+
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 const api = axios.create({
@@ -26,7 +36,13 @@ api.interceptors.response.use(
   (res) => res,
   async (error) => {
     const original = error.config;
-    if (error.response?.status === 401 && !original._retry) {
+    const status = error.response?.status;
+
+    if (status === 401 && original?.skipAuthRedirect) {
+      return Promise.reject(error);
+    }
+
+    if (status === 401 && original && !original._retry) {
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject });
@@ -43,15 +59,19 @@ api.interceptors.response.use(
           {},
           { withCredentials: true },
         );
-        const newToken = data.data.accessToken;
+        const newToken = data?.data?.accessToken ?? data?.accessToken;
+        if (!newToken) throw new Error('Refresh response did not include an access token');
         useAuthStore.getState().setAccessToken(newToken);
         processQueue(null, newToken);
         original.headers.Authorization = `Bearer ${newToken}`;
         return api(original);
       } catch (err) {
         processQueue(err, null);
-        useAuthStore.getState().logout();
-        window.location.href = '/login';
+        const refreshStatus = axios.isAxiosError(err) ? err.response?.status : undefined;
+        if (refreshStatus === 401 || refreshStatus === 403) {
+          useAuthStore.getState().logout();
+          window.location.href = '/login';
+        }
         return Promise.reject(err);
       } finally {
         isRefreshing = false;
