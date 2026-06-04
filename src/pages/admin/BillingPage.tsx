@@ -18,8 +18,11 @@ import {
   X,
 } from 'lucide-react';
 import { useBookings } from '../../hooks/useBookings';
-import { useBillings, useCreateBilling, useUpdateBilling } from '../../hooks/useBilling';
+import { useBillings, useCreateBilling, useUpdateBilling, useUploadBillingSignature } from '../../hooks/useBilling';
 import { billingApi, type CreateBillingData } from '../../api/billing.api';
+import { pdfFilename } from '../../lib/download-file';
+import { resolveFileUrl } from '../../lib/file-url';
+import { extractEntityId } from '../../lib/upload-helpers';
 import type { Billing, BillingStatus, Booking, PaymentMethod } from '../../types';
 
 type BillingFormMode = 'add' | 'edit';
@@ -60,7 +63,8 @@ interface BillingModalProps {
 interface BillingDetailsModalProps {
   billing: Billing;
   onClose: () => void;
-  onDownload: (billing: Billing) => void;
+  onDownload: (billing: Billing) => Promise<void>;
+  isDownloading: boolean;
 }
 
 const statusLabels: Record<BillingStatus, string> = {
@@ -271,6 +275,11 @@ function buildPayload(form: BillingFormState): CreateBillingData {
     totalBalance,
     operationalNotes: form.paymentNotes || undefined,
     settlementNotes: form.settlementNotes || undefined,
+    bankName: form.bankName || undefined,
+    favourOf: form.favourOf || undefined,
+    chequeNumber: form.chequeNumber || undefined,
+    chequeDate: form.chequeDate || undefined,
+    gpayReference: form.gpayReference || undefined,
   };
 }
 
@@ -304,6 +313,11 @@ function payloadToBilling(payload: CreateBillingData, form: BillingFormState, ex
     totalBalance: payload.totalBalance ?? 0,
     operationalNotes: payload.operationalNotes,
     settlementNotes: payload.settlementNotes,
+    bankName: payload.bankName,
+    favourOf: payload.favourOf,
+    chequeNumber: payload.chequeNumber,
+    chequeDate: payload.chequeDate,
+    gpayReference: payload.gpayReference,
     status: existing?.status ?? (form.lifecycleStage === 'ADVANCE_PAYMENT' ? 'PARTIAL_PAYMENT' : 'PENDING'),
     billingDate: payload.billingDate,
     createdAt: existing?.createdAt ?? new Date().toISOString(),
@@ -313,8 +327,10 @@ function payloadToBilling(payload: CreateBillingData, form: BillingFormState, ex
 function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: BillingModalProps) {
   const createBilling = useCreateBilling();
   const updateBilling = useUpdateBilling();
+  const uploadBillingSignature = useUploadBillingSignature();
   const [form, setForm] = useState<BillingFormState>(() => billingToForm(billing));
   const [signatureFile, setSignatureFile] = useState<File | null>(null);
+  const [signaturePreviewUrl, setSignaturePreviewUrl] = useState('');
 
   const title = mode === 'add' ? 'Add Billing' : 'Edit Billing';
   const subtitle =
@@ -324,7 +340,7 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
   const submitText = mode === 'add' ? 'Save Billing' : 'Update Billing';
   const successText =
     mode === 'add' ? 'Billing record created successfully' : 'Billing record updated successfully';
-  const isSaving = createBilling.isPending || updateBilling.isPending;
+  const isSaving = createBilling.isPending || updateBilling.isPending || uploadBillingSignature.isPending;
 
   const updateForm = (key: keyof BillingFormState, value: string) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -350,37 +366,65 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
     onSaved(nextBilling);
   };
 
-  const handleSubmit = (event: React.FormEvent) => {
+  const setUploadedSignature = (file: File | null) => {
+    setSignatureFile(file);
+    setSignaturePreviewUrl((current) => {
+      if (current) URL.revokeObjectURL(current);
+      return file ? URL.createObjectURL(file) : '';
+    });
+  };
+
+  const signatureForUpload = () => {
+    return signatureFile;
+  };
+
+  const uploadSignatureIfSelected = async (savedBilling: Billing) => {
+    const signature = signatureForUpload();
+    if (!signature) return;
+
+    const billingId = extractEntityId(savedBilling, ['billing']);
+    const uploadErrorMessage =
+      mode === 'edit'
+        ? 'Billing updated, but signature upload failed.'
+        : 'Billing saved, but signature upload failed.';
+
+    if (!billingId) {
+      throw new Error(uploadErrorMessage);
+    }
+
+    try {
+      await uploadBillingSignature.mutateAsync({ id: billingId, file: signature });
+    } catch {
+      throw new Error(uploadErrorMessage);
+    }
+  };
+
+  const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     const payload = buildPayload(form);
     const canUseApi = payload.bookingId && !payload.bookingId.startsWith('fallback-') && !billing?.id.startsWith('fallback-');
 
-    if (mode === 'edit' && billing && canUseApi) {
-      updateBilling.mutate(
-        { id: billing.id, data: payload },
-        {
-          onSuccess: (updated) => {
-            toast.success(successText);
-            onSaved(updated);
-          },
-          onError: saveFallback,
-        },
-      );
-      return;
-    }
+    try {
+      if (mode === 'edit' && billing && canUseApi) {
+        const updated = await updateBilling.mutateAsync({ id: billing.id, data: payload });
+        await uploadSignatureIfSelected(updated);
+        toast.success(successText);
+        onSaved(updated);
+        return;
+      }
 
-    if (mode === 'add' && canUseApi) {
-      createBilling.mutate(payload, {
-        onSuccess: (created) => {
-          toast.success(successText);
-          onSaved(created);
-        },
-        onError: saveFallback,
-      });
-      return;
-    }
+      if (mode === 'add' && canUseApi) {
+        const created = await createBilling.mutateAsync(payload);
+        await uploadSignatureIfSelected(created);
+        toast.success(successText);
+        onSaved(created);
+        return;
+      }
 
-    saveFallback();
+      saveFallback();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to save billing. Please try again.');
+    }
   };
 
   return (
@@ -596,25 +640,38 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
               </div>
               <div>
                 <SectionTitle>Authorized Signatory</SectionTitle>
-                <div className="relative flex min-h-40 flex-col items-center justify-center rounded-sm border border-dashed border-stone-200 bg-white bg-[radial-gradient(#dccb9a_1px,transparent_1px)] [background-size:10px_10px] p-6 text-center">
-                  <UploadCloud className="h-8 w-8 text-stone-400" />
-                  <p className="mt-3 text-sm font-semibold text-stone-500">
-                    {signatureFile ? signatureFile.name : 'Upload or Draw Signature'}
-                  </p>
-                  <input
-                    type="file"
-                    accept=".png,.jpg,.jpeg,.pdf"
-                    className="absolute inset-0 cursor-pointer opacity-0"
-                    onChange={(event) => setSignatureFile(event.target.files?.[0] ?? null)}
-                  />
-                  <div className="absolute bottom-3 right-3 flex gap-2">
-                    <button type="button" className="rounded-full bg-amber-50 p-2 text-gold">
-                      <Edit3 className="h-4 w-4" />
-                    </button>
-                    <button type="button" onClick={() => setSignatureFile(null)} className="rounded-full bg-amber-50 p-2 text-gold">
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
+                <div className="space-y-3">
+                  <label className="relative flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-sm border border-dashed border-stone-200 bg-white p-4 text-center">
+                    <UploadCloud className="h-8 w-8 text-stone-400" />
+                    <p className="mt-3 text-sm font-semibold text-stone-500">
+                      {signatureFile
+                        ? signatureFile.name
+                        : mode === 'edit'
+                          ? 'Upload Signature Image'
+                          : 'Upload Authorized Signature'}
+                    </p>
+                    <p className="mt-1 text-xs text-gray-500">PNG or JPG up to 2MB</p>
+                    <input
+                      type="file"
+                      accept=".png,.jpg,.jpeg"
+                      className="absolute inset-0 cursor-pointer opacity-0"
+                      onChange={(event) => setUploadedSignature(event.target.files?.[0] ?? null)}
+                    />
+                  </label>
+                  {signaturePreviewUrl && (
+                    <div className="rounded-sm border border-stone-200 bg-white p-3">
+                      <div className="flex h-20 items-center justify-center">
+                        <img src={signaturePreviewUrl} alt="Uploaded authorized signature" className="max-h-full max-w-full object-contain" />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setUploadedSignature(null)}
+                        className="mt-3 text-xs font-bold text-red-600 hover:text-red-700"
+                      >
+                        Remove signature
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </section>
@@ -682,15 +739,17 @@ function DetailsCard({
   );
 }
 
-function BillingDetailsModal({ billing, onClose, onDownload }: BillingDetailsModalProps) {
+function BillingDetailsModal({ billing, onClose, onDownload, isDownloading }: BillingDetailsModalProps) {
   const booking = billing.booking;
+  const [signatureFailed, setSignatureFailed] = useState(false);
+  const signatureUrl = signatureFailed ? '' : resolveFileUrl(billing.signatureUrl);
   const buyerAddress = billing.buyerAddress || booking?.applicantAddress || 'Anna Nagar, Chennai, Tamil Nadu - 600040';
   const squareFeet = booking?.squareFeet ? `${booking.squareFeet.toLocaleString('en-IN')} SQFT` : '1,200 SQFT';
-  const bankName = 'HDFC Bank';
-  const favourOf = 'Sri Thangam Housing';
-  const chequeNumber = billing.paymentMethod === 'CHEQUE' ? '456123' : 'N/A';
-  const chequeDate = billing.paymentMethod === 'CHEQUE' ? formatDate(billing.billingDate) : 'N/A';
-  const gpayReference = billing.paymentMethod === 'GPAY' ? 'UPI-REF-9840012345' : 'N/A';
+  const bankName = billing.bankName || 'N/A';
+  const favourOf = billing.favourOf || 'N/A';
+  const chequeNumber = billing.chequeNumber || 'N/A';
+  const chequeDate = billing.chequeDate ? formatDate(billing.chequeDate) : 'N/A';
+  const gpayReference = billing.gpayReference || 'N/A';
   const cashPortion = billing.paymentMethod === 'CASH' ? formatCurrency(billing.amountInNumbers) : '₹ 0';
   const lifecycleStage =
     billing.status === 'COMPLETED'
@@ -807,10 +866,19 @@ function BillingDetailsModal({ billing, onClose, onDownload }: BillingDetailsMod
                   </p>
                 </div>
                 <div className="flex h-24 w-full max-w-xs items-center justify-center rounded-sm border border-dashed border-gold/40 bg-amber-50 text-center">
-                  <div>
-                    <p className="font-serif text-2xl italic text-teal-800">Sri Thangam</p>
-                    <p className="mt-1 text-xs font-bold uppercase tracking-wide text-gray-500">Authorized Signature</p>
-                  </div>
+                  {signatureUrl ? (
+                    <img
+                      src={signatureUrl}
+                      alt="Authorized signature"
+                      onError={() => setSignatureFailed(true)}
+                      className="max-h-20 max-w-full object-contain"
+                    />
+                  ) : (
+                    <div>
+                      <p className="font-serif text-2xl italic text-teal-800">Sri Thangam</p>
+                      <p className="mt-1 text-xs font-bold uppercase tracking-wide text-gray-500">Authorized Signature</p>
+                    </div>
+                  )}
                 </div>
               </div>
             </section>
@@ -828,10 +896,11 @@ function BillingDetailsModal({ billing, onClose, onDownload }: BillingDetailsMod
           <button
             type="button"
             onClick={() => onDownload(billing)}
-            className="inline-flex items-center gap-2 rounded-sm bg-gold px-7 py-3 text-sm font-bold text-white hover:bg-gold-light hover:text-navy"
+            disabled={isDownloading}
+            className="inline-flex items-center gap-2 rounded-sm bg-gold px-7 py-3 text-sm font-bold text-white hover:bg-gold-light hover:text-navy disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <Download className="h-4 w-4" />
-            Download PDF
+            <Download className={`h-4 w-4 ${isDownloading ? 'animate-pulse' : ''}`} />
+            {isDownloading ? 'Downloading...' : 'Download PDF'}
           </button>
         </div>
       </div>
@@ -848,8 +917,9 @@ const AdminBillingPage: React.FC = () => {
   const [editingBilling, setEditingBilling] = useState<Billing | null>(null);
   const [viewingBilling, setViewingBilling] = useState<Billing | null>(null);
   const [localBillings, setLocalBillings] = useState<Billing[]>([]);
+  const [downloadingBillingId, setDownloadingBillingId] = useState('');
 
-  const { data, isLoading } = useBillings({
+  const { data, isLoading, refetch } = useBillings({
     page,
     limit: 10,
     search: search || undefined,
@@ -903,6 +973,7 @@ const AdminBillingPage: React.FC = () => {
     });
     setModalMode(null);
     setEditingBilling(null);
+    void refetch();
   };
 
   const openEdit = (billing: Billing) => {
@@ -911,8 +982,21 @@ const AdminBillingPage: React.FC = () => {
   };
 
   async function handleDownload(billing: Billing) {
-    if (billing.id.startsWith('fallback-') || billing.id.startsWith('local-')) return;
-    await billingApi.downloadPdf(billing.id);
+    if (billing.id.startsWith('fallback-') || billing.id.startsWith('local-')) {
+      toast.error('Unable to download PDF. Please try again.');
+      return;
+    }
+
+    const toastId = toast.loading('Downloading PDF...');
+    setDownloadingBillingId(billing.id);
+    try {
+      await billingApi.downloadPdf(billing.id, pdfFilename('billing', billing.billingId, billing.id));
+      toast.success('PDF downloaded successfully', { id: toastId });
+    } catch {
+      toast.error('Unable to download PDF. Please try again.', { id: toastId });
+    } finally {
+      setDownloadingBillingId('');
+    }
   }
 
   return (
@@ -1061,7 +1145,8 @@ const AdminBillingPage: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => handleDownload(billing)}
-                          className="rounded-full p-2 text-teal-700 hover:bg-teal-50"
+                          disabled={downloadingBillingId === billing.id}
+                          className="rounded-full p-2 text-teal-700 hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-50"
                           aria-label="Download billing"
                         >
                           <Download className="h-4 w-4" />
@@ -1117,6 +1202,7 @@ const AdminBillingPage: React.FC = () => {
           billing={viewingBilling}
           onClose={() => setViewingBilling(null)}
           onDownload={handleDownload}
+          isDownloading={downloadingBillingId === viewingBilling.id}
         />
       )}
     </div>

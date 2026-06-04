@@ -18,8 +18,12 @@ import {
   User,
   X,
 } from 'lucide-react';
-import { useBookings, useCreateBooking, useUpdateBooking } from '../../hooks/useBookings';
+import { useBookings, useCreateBooking, useUpdateBooking, useUploadBookingSignature } from '../../hooks/useBookings';
 import { useProperties } from '../../hooks/useProperties';
+import { bookingsApi } from '../../api/bookings.api';
+import { pdfFilename } from '../../lib/download-file';
+import { resolveFileUrl } from '../../lib/file-url';
+import { extractEntityId } from '../../lib/upload-helpers';
 import type { Booking, BookingStatus, Property } from '../../types';
 import type { BookingDenominationData, BookingPaymentData, CreateBookingData } from '../../api/bookings.api';
 
@@ -61,6 +65,8 @@ interface BookingModalProps {
 interface BookingDetailsModalProps {
   booking: Booking;
   onClose: () => void;
+  onDownload: (booking: Booking) => Promise<void>;
+  isDownloading: boolean;
 }
 
 const statusLabels: Record<BookingStatus, string> = {
@@ -329,8 +335,10 @@ const textareaClass =
 function BookingFormModal({ mode, booking, properties, onClose, onSaved }: BookingModalProps) {
   const createBooking = useCreateBooking();
   const updateBooking = useUpdateBooking();
+  const uploadBookingSignature = useUploadBookingSignature();
   const [form, setForm] = useState<BookingFormState>(() => bookingToForm(booking));
   const [signatureFile, setSignatureFile] = useState<File | null>(null);
+  const [signaturePreviewUrl, setSignaturePreviewUrl] = useState('');
   const [denominationRows, setDenominationRows] = useState<BookingDenominationData[]>(
     booking?.denominations?.length
       ? booking.denominations.map((row) => ({
@@ -348,7 +356,7 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
       : 'Update property booking record details.';
   const successText = mode === 'add' ? 'Booking created successfully' : 'Booking updated successfully';
   const submitText = mode === 'add' ? 'Save Booking' : 'Update Booking';
-  const isSaving = createBooking.isPending || updateBooking.isPending;
+  const isSaving = createBooking.isPending || updateBooking.isPending || uploadBookingSignature.isPending;
 
   const updateForm = (key: keyof BookingFormState, value: string) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -374,47 +382,62 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
     });
   };
 
-  const handleSubmit = (event: React.FormEvent) => {
+  const setUploadedSignature = (file: File | null) => {
+    setSignatureFile(file);
+    setSignaturePreviewUrl((current) => {
+      if (current) URL.revokeObjectURL(current);
+      return file ? URL.createObjectURL(file) : '';
+    });
+  };
+
+  const signatureForUpload = () => {
+    return signatureFile;
+  };
+
+  const uploadSignatureIfSelected = async (savedBooking: Booking) => {
+    const signature = signatureForUpload();
+    if (!signature) return;
+
+    const bookingId = extractEntityId(savedBooking, ['booking']);
+    if (!bookingId) {
+      throw new Error('Booking saved, but signature upload failed.');
+    }
+
+    try {
+      await uploadBookingSignature.mutateAsync({ id: bookingId, file: signature });
+    } catch {
+      throw new Error('Booking saved, but signature upload failed.');
+    }
+  };
+
+  const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     const payload = buildBookingPayload(form, denominationRows);
     const canUseApi = payload.propertyId && !payload.propertyId.startsWith('fallback-') && !booking?.id.startsWith('fallback-');
 
-    if (mode === 'edit' && booking && canUseApi) {
-      updateBooking.mutate(
-        { id: booking.id, data: payload },
-        {
-          onSuccess: (updatedBooking) => {
-            toast.success(successText);
-            onSaved(updatedBooking);
-          },
-          onError: () => {
-            const updated = payloadToBooking(payload, booking);
-            toast.success(successText);
-            onSaved(updated);
-          },
-        },
-      );
-      return;
-    }
+    try {
+      if (mode === 'edit' && booking && canUseApi) {
+        const updatedBooking = await updateBooking.mutateAsync({ id: booking.id, data: payload });
+        await uploadSignatureIfSelected(updatedBooking);
+        toast.success(successText);
+        onSaved(updatedBooking);
+        return;
+      }
 
-    if (mode === 'add' && canUseApi) {
-      createBooking.mutate(payload, {
-        onSuccess: (createdBooking) => {
-          toast.success(successText);
-          onSaved(createdBooking);
-        },
-        onError: () => {
-          const created = payloadToBooking(payload);
-          toast.success(successText);
-          onSaved(created);
-        },
-      });
-      return;
-    }
+      if (mode === 'add' && canUseApi) {
+        const createdBooking = await createBooking.mutateAsync(payload);
+        await uploadSignatureIfSelected(createdBooking);
+        toast.success(successText);
+        onSaved(createdBooking);
+        return;
+      }
 
-    const savedBooking = payloadToBooking(payload, booking);
-    toast.success(successText);
-    onSaved(savedBooking);
+      const savedBooking = payloadToBooking(payload, booking);
+      toast.success(successText);
+      onSaved(savedBooking);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to save booking. Please try again.');
+    }
   };
 
   return (
@@ -713,27 +736,30 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
                   <label className="flex min-h-36 cursor-pointer flex-col items-center justify-center rounded-md border border-dashed border-stone-300 bg-amber-50/30 p-6 text-center transition hover:border-gold">
                     <Upload className="h-8 w-8 text-gray-500" />
                     <span className="mt-3 text-sm font-semibold text-gray-700">
-                      {signatureFile ? signatureFile.name : 'Drag & drop or browse'}
+                      {signatureFile ? signatureFile.name : 'Upload Applicant Signature'}
                     </span>
-                    <span className="mt-1 text-xs text-gray-500">PNG, JPG up to 2MB</span>
+                    <span className="mt-1 text-xs text-gray-500">PNG or JPG up to 2MB</span>
                     <input
                       type="file"
                       accept=".png,.jpg,.jpeg"
                       className="sr-only"
-                      onChange={(event) => setSignatureFile(event.target.files?.[0] ?? null)}
+                      onChange={(event) => setUploadedSignature(event.target.files?.[0] ?? null)}
                     />
                   </label>
-                </Field>
-                <Field label="Digital Signature Pad">
-                  <div className="relative min-h-36 rounded-md border border-stone-200 bg-white">
-                    <FileSignature className="absolute left-1/2 top-1/2 h-8 w-8 -translate-x-1/2 -translate-y-1/2 text-stone-200" />
-                    <button
-                      type="button"
-                      className="absolute bottom-3 right-3 rounded-sm border border-stone-200 bg-white px-3 py-1 text-xs font-semibold text-gray-600"
-                    >
-                      Clear
-                    </button>
-                  </div>
+                  {signaturePreviewUrl && (
+                    <div className="mt-3 rounded-sm border border-stone-200 bg-white p-3">
+                      <div className="flex h-20 items-center justify-center">
+                        <img src={signaturePreviewUrl} alt="Uploaded applicant signature" className="max-h-full max-w-full object-contain" />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setUploadedSignature(null)}
+                        className="mt-3 text-xs font-bold text-red-600 hover:text-red-700"
+                      >
+                        Remove signature
+                      </button>
+                    </div>
+                  )}
                 </Field>
               </div>
             </section>
@@ -801,8 +827,10 @@ function DetailsCard({
   );
 }
 
-function BookingDetailsModal({ booking, onClose }: BookingDetailsModalProps) {
+function BookingDetailsModal({ booking, onClose, onDownload, isDownloading }: BookingDetailsModalProps) {
   const payment = booking.payments?.[0];
+  const [signatureFailed, setSignatureFailed] = useState(false);
+  const signatureUrl = signatureFailed ? '' : resolveFileUrl(booking.signatureUrl);
   const detailDenominations = booking.denominations?.length
     ? booking.denominations
     : [
@@ -929,8 +957,13 @@ function BookingDetailsModal({ booking, onClose }: BookingDetailsModalProps) {
                   </p>
                 </div>
                 <div className="flex h-24 w-full max-w-xs items-center justify-center rounded-sm border border-dashed border-gold/40 bg-amber-50 text-center">
-                  {booking.signatureUrl ? (
-                    <img src={booking.signatureUrl} alt="Applicant signature" className="max-h-20 max-w-full object-contain" />
+                  {signatureUrl ? (
+                    <img
+                      src={signatureUrl}
+                      alt="Applicant signature"
+                      onError={() => setSignatureFailed(true)}
+                      className="max-h-20 max-w-full object-contain"
+                    />
                   ) : (
                     <div>
                       <p className="font-serif text-2xl italic text-teal-800">{booking.applicantName}</p>
@@ -953,10 +986,12 @@ function BookingDetailsModal({ booking, onClose }: BookingDetailsModalProps) {
           </button>
           <button
             type="button"
-            className="inline-flex items-center gap-2 rounded-sm bg-gold px-7 py-3 text-sm font-bold text-white hover:bg-gold-light hover:text-navy"
+            onClick={() => onDownload(booking)}
+            disabled={isDownloading}
+            className="inline-flex items-center gap-2 rounded-sm bg-gold px-7 py-3 text-sm font-bold text-white hover:bg-gold-light hover:text-navy disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <Download className="h-4 w-4" />
-            Download PDF
+            <Download className={`h-4 w-4 ${isDownloading ? 'animate-pulse' : ''}`} />
+            {isDownloading ? 'Downloading...' : 'Download PDF'}
           </button>
         </div>
       </div>
@@ -974,8 +1009,9 @@ const AdminBookingsPage: React.FC = () => {
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
   const [viewingBooking, setViewingBooking] = useState<Booking | null>(null);
   const [localBookings, setLocalBookings] = useState<Booking[]>([]);
+  const [downloadingBookingId, setDownloadingBookingId] = useState('');
 
-  const { data, isLoading } = useBookings({
+  const { data, isLoading, refetch } = useBookings({
     page,
     limit: 10,
     search: search || undefined,
@@ -1034,11 +1070,30 @@ const AdminBookingsPage: React.FC = () => {
     });
     setModalMode(null);
     setEditingBooking(null);
+    void refetch();
   };
 
   const openEdit = (booking: Booking) => {
     setEditingBooking(booking);
     setModalMode('edit');
+  };
+
+  const handleDownloadBooking = async (booking: Booking) => {
+    if (booking.id.startsWith('fallback-') || booking.id.startsWith('local-')) {
+      toast.error('Unable to download PDF. Please try again.');
+      return;
+    }
+
+    const toastId = toast.loading('Downloading PDF...');
+    setDownloadingBookingId(booking.id);
+    try {
+      await bookingsApi.downloadPdf(booking.id, pdfFilename('booking', booking.bookingId, booking.id));
+      toast.success('PDF downloaded successfully', { id: toastId });
+    } catch {
+      toast.error('Unable to download PDF. Please try again.', { id: toastId });
+    } finally {
+      setDownloadingBookingId('');
+    }
   };
 
   return (
@@ -1187,6 +1242,15 @@ const AdminBookingsPage: React.FC = () => {
                         >
                           <Edit3 className="h-4 w-4" />
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadBooking(booking)}
+                          disabled={downloadingBookingId === booking.id}
+                          className="rounded-sm p-2 text-gray-700 transition hover:bg-amber-50 hover:text-gold disabled:cursor-not-allowed disabled:opacity-50"
+                          aria-label="Download booking PDF"
+                        >
+                          <Download className="h-4 w-4" />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -1251,6 +1315,8 @@ const AdminBookingsPage: React.FC = () => {
         <BookingDetailsModal
           booking={viewingBooking}
           onClose={() => setViewingBooking(null)}
+          onDownload={handleDownloadBooking}
+          isDownloading={downloadingBookingId === viewingBooking.id}
         />
       )}
     </div>

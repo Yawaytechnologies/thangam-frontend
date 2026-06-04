@@ -19,6 +19,9 @@ import { useCreateMember, useMembers, useUploadMemberPhoto } from '../../hooks/u
 import { useUploadDocument } from '../../hooks/useDocuments';
 import { useAuthStore } from '../../stores/auth.store';
 import { Pagination } from '../../components/ui/Pagination';
+import { SearchableSelect, type SearchableSelectOption } from '../../components/ui/SearchableSelect';
+import { resolveFileUrl } from '../../lib/file-url';
+import { extractEntityId } from '../../lib/upload-helpers';
 import type { Branch, Member, Role, UserStatus } from '../../types';
 
 const memberSchema = z.object({
@@ -44,6 +47,7 @@ const memberSchema = z.object({
   parentGuardianName: z.string().optional(),
   role: z.enum(['DIRECTOR', 'EXECUTIVE_DIRECTOR', 'DEPUTY_DIRECTOR', 'SENIOR_MANAGER', 'BUSINESS_MANAGER', 'AGENT'] as const),
   branchId: z.string().min(1, 'Branch is required'),
+  reportsToId: z.string().optional(),
   addressLine1: z.string().optional(),
   addressLine2: z.string().optional(),
 });
@@ -73,6 +77,34 @@ const selectClass =
 
 function formatRole(role: Role) {
   return roles.find((item) => item.value === role)?.label ?? role.replace(/_/g, ' ');
+}
+
+function memberOptionLabel(member: Member) {
+  return `${member.memberId} — ${member.fullName} — ${formatRole(member.role)}`;
+}
+
+function memberSearchText(member: Member) {
+  return `${member.memberId} ${member.fullName} ${member.phone} ${member.role} ${formatRole(member.role)}`.toLowerCase();
+}
+
+function getStringField(value: unknown) {
+  return typeof value === 'string' ? value : '';
+}
+
+function memberPhotoUrl(member: Member) {
+  const extra = member as Member & Record<string, unknown>;
+  return resolveFileUrl(
+    member.photo ||
+      getStringField(extra.photoUrl) ||
+      getStringField(extra.photo_url) ||
+      getStringField(extra.profileImageUrl) ||
+      getStringField(extra.profile_image_url) ||
+      getStringField(extra.profileImage) ||
+      getStringField(extra.profilePhoto) ||
+      getStringField(extra.member_photo) ||
+      getStringField(extra.image_url) ||
+      getStringField(extra.avatar),
+  );
 }
 
 function formatDate(value: string) {
@@ -157,6 +189,7 @@ const CreateMemberModal: React.FC<{
   const createMember = useCreateMember();
   const uploadPhoto = useUploadMemberPhoto();
   const uploadDocument = useUploadDocument();
+  const { data: reportsToResponse, isLoading: reportsToLoading } = useMembers({ limit: 1000 });
   const [photo, setPhoto] = useState<File | null>(null);
   const [idProof, setIdProof] = useState<File | null>(null);
   const [submitError, setSubmitError] = useState('');
@@ -165,19 +198,32 @@ const CreateMemberModal: React.FC<{
     register,
     handleSubmit,
     reset,
+    setValue,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<MemberFormData>({
     resolver: zodResolver(memberSchema),
     defaultValues: {
       role: 'AGENT',
       branchId: defaultBranchId,
+      reportsToId: '',
     },
   });
+
+  const reportsToMembers = reportsToResponse?.data ?? [];
+  const selectedReportsToId = watch('reportsToId') ?? '';
+  const reportsToOptions = useMemo<SearchableSelectOption[]>(() => {
+    return reportsToMembers.map((member) => ({
+      value: member.id,
+      label: memberOptionLabel(member),
+      searchText: memberSearchText(member),
+    }));
+  }, [reportsToMembers]);
 
   const isSaving = isSubmitting || createMember.isPending || uploadPhoto.isPending || uploadDocument.isPending;
 
   const discardDraft = () => {
-    reset({ role: 'AGENT', branchId: defaultBranchId });
+    reset({ role: 'AGENT', branchId: defaultBranchId, reportsToId: '' });
     setPhoto(null);
     setIdProof(null);
     setSubmitError('');
@@ -195,6 +241,7 @@ const CreateMemberModal: React.FC<{
         email: data.email || undefined,
         role: data.role,
         branchId: data.branchId,
+        reportsToId: data.reportsToId || undefined,
         codeNumber: data.introNo || undefined,
         password: generateTempPassword(data.fullName, data.mobile1),
         dateOfBirth: data.dateOfBirth || undefined,
@@ -214,23 +261,35 @@ const CreateMemberModal: React.FC<{
         nomineeRelation: data.relationship || undefined,
       });
 
-      if (photo) {
-        await uploadPhoto.mutateAsync({ id: member.id, file: photo });
+      const memberId = extractEntityId(member, ['member']);
+      if ((photo || idProof) && !memberId) {
+        throw new Error('Member created, but file upload failed. Please retry upload.');
       }
 
-      if (idProof) {
-        await uploadDocument.mutateAsync({
-          entityType: 'member',
-          entityId: member.id,
-          documentType: 'idProof',
-          file: idProof,
-        });
+      try {
+        if (photo) {
+          await uploadPhoto.mutateAsync({ id: memberId, file: photo });
+        }
+
+        if (idProof) {
+          await uploadDocument.mutateAsync({
+            entityType: 'member',
+            entityId: memberId,
+            documentType: 'AADHAAR',
+            file: idProof,
+          });
+        }
+      } catch {
+        throw new Error('Member created, but file upload failed. Please retry upload.');
       }
 
       onClose();
     } catch (err) {
       const error = err as { response?: { data?: { message?: string } } };
-      setSubmitError(error?.response?.data?.message ?? 'Failed to create member. Please try again.');
+      setSubmitError(
+        error?.response?.data?.message ??
+          (err instanceof Error ? err.message : 'Failed to create member. Please try again.'),
+      );
     }
   };
 
@@ -344,6 +403,16 @@ const CreateMemberModal: React.FC<{
                   ))}
                 </select>
               </SelectField>
+              <Field label="Reports To">
+                <SearchableSelect
+                  value={selectedReportsToId}
+                  options={reportsToOptions}
+                  loading={reportsToLoading}
+                  placeholder="Search or select reporting member"
+                  onChange={(value) => setValue('reportsToId', value, { shouldDirty: true, shouldValidate: true })}
+                />
+                <input type="hidden" {...register('reportsToId')} />
+              </Field>
               <Field label="Address Line 1">
                 <input {...register('addressLine1')} className={inputClass} placeholder="Door No, Street" />
               </Field>
@@ -421,6 +490,28 @@ const RolePill: React.FC<{ role: Role }> = ({ role }) => (
     {formatRole(role)}
   </span>
 );
+
+const MemberPhoto: React.FC<{ member: Member }> = ({ member }) => {
+  const [failed, setFailed] = useState(false);
+  const photoUrl = failed ? '' : memberPhotoUrl(member);
+
+  if (!photoUrl) {
+    return (
+      <div className="flex h-10 w-10 items-center justify-center rounded-md bg-gray-800 text-xs font-bold text-white">
+        {memberInitials(member.fullName)}
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={photoUrl}
+      alt={`${member.fullName} photo`}
+      onError={() => setFailed(true)}
+      className="h-10 w-10 rounded-md object-cover"
+    />
+  );
+};
 
 const SummaryCard: React.FC<{
   title: string;
@@ -633,9 +724,7 @@ const AdminMembersListPage: React.FC = () => {
                 data.data.map((member: Member) => (
                   <tr key={member.id} className="transition hover:bg-amber-50/30">
                     <td className="px-5 py-4">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-md bg-gray-800 text-xs font-bold text-white">
-                        {memberInitials(member.fullName)}
-                      </div>
+                      <MemberPhoto member={member} />
                     </td>
                     <td className="px-5 py-4 font-mono text-xs font-semibold text-gray-700">{member.memberId}</td>
                     <td className="px-5 py-4">

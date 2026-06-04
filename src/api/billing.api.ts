@@ -1,4 +1,5 @@
 import api from '../lib/axios';
+import { downloadResponseFile } from '../lib/download-file';
 import type { Billing, BillingStatus, PaymentMethod, PaginatedResponse } from '../types';
 
 export interface BillingParams {
@@ -28,20 +29,14 @@ export interface CreateBillingData {
   settlementNotes?: string;
   termsConditions?: string;
   signatureUrl?: string;
+  bankName?: string;
+  favourOf?: string;
+  chequeNumber?: string;
+  chequeDate?: string;
+  gpayReference?: string;
 }
 
 export type UpdateBillingData = Partial<CreateBillingData>;
-
-function triggerBlobDownload(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
 
 export const billingApi = {
   getAll: (params?: BillingParams): Promise<PaginatedResponse<Billing>> =>
@@ -59,16 +54,25 @@ export const billingApi = {
   updateStatus: (id: string, status: BillingStatus): Promise<Billing> =>
     api.patch(`/billing/${id}/status`, { status }).then((r) => r.data.data),
 
+  uploadSignature: (id: string, file: File): Promise<unknown> => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('entityType', 'billing');
+    form.append('entityId', id);
+    form.append('documentType', 'BILLING_DOCUMENT');
+    return api.post('/documents/upload', form, { skipAuthRedirect: true }).then((r) => r.data.data);
+  },
+
   delete: (id: string): Promise<void> =>
     api.delete(`/billing/${id}`).then(() => undefined),
 
-  downloadPdf: async (id: string): Promise<void> => {
+  downloadPdf: async (id: string, filename = `billing-${id}.pdf`): Promise<void> => {
     const response = await api.get(`/billing/${id}/pdf`, { responseType: 'blob' });
-    triggerBlobDownload(response.data as Blob, `billing-${id}.pdf`);
+    await downloadResponseFile(response.data, String(response.headers['content-type'] ?? ''), filename);
   },
 
   downloadEstimate: async (id: string): Promise<void> => {
     const response = await api.get(`/billing/${id}/estimate`, { responseType: 'blob' });
-    triggerBlobDownload(response.data as Blob, `estimate-${id}.pdf`);
+    await downloadResponseFile(response.data, String(response.headers['content-type'] ?? ''), `estimate-${id}.pdf`);
   },
 };

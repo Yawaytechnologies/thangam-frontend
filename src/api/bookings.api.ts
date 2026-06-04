@@ -1,4 +1,5 @@
 import api from '../lib/axios';
+import { downloadResponseFile } from '../lib/download-file';
 import type { Booking, BookingStatus, PaginatedResponse } from '../types';
 
 export interface BookingParams {
@@ -54,17 +55,6 @@ export interface CreateBookingData {
 
 export type UpdateBookingData = Partial<CreateBookingData>;
 
-function triggerBlobDownload(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
 export const bookingsApi = {
   getAll: (params?: BookingParams): Promise<PaginatedResponse<Booking>> =>
     api.get('/bookings', { params }).then((r) => r.data.data),
@@ -81,11 +71,20 @@ export const bookingsApi = {
   updateStatus: (id: string, status: BookingStatus): Promise<Booking> =>
     api.patch(`/bookings/${id}/status`, { status }).then((r) => r.data.data),
 
+  uploadSignature: (id: string, file: File): Promise<unknown> => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('entityType', 'booking');
+    form.append('entityId', id);
+    form.append('documentType', 'BOOKING_DOCUMENT');
+    return api.post('/documents/upload', form, { skipAuthRedirect: true }).then((r) => r.data.data);
+  },
+
   delete: (id: string): Promise<void> =>
     api.delete(`/bookings/${id}`).then(() => undefined),
 
-  downloadPdf: async (id: string): Promise<void> => {
+  downloadPdf: async (id: string, filename = `booking-${id}.pdf`): Promise<void> => {
     const response = await api.get(`/bookings/${id}/pdf`, { responseType: 'blob' });
-    triggerBlobDownload(response.data as Blob, `booking-${id}.pdf`);
+    await downloadResponseFile(response.data, String(response.headers['content-type'] ?? ''), filename);
   },
 };

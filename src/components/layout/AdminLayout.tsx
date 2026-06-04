@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/auth.store';
 import { useLogout } from '../../hooks/useAuth';
 import { useUnreadCount } from '../../hooks/useNotifications';
@@ -19,6 +19,7 @@ const navItems = [
   {
     label: 'Add Member',
     to: '/admin/add-member',
+    activePaths: ['/admin/add-member', '/admin/members'],
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3M12 7a4 4 0 11-8 0 4 4 0 018 0zM6 14a6 6 0 00-6 6h12a6 6 0 00-6-6z" />
@@ -85,6 +86,7 @@ const navItems = [
 const AdminLayout: React.FC = () => {
   const user = useAuthStore((s) => s.user);
   const logout = useLogout();
+  const location = useLocation();
   const navigate = useNavigate();
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -159,7 +161,7 @@ const AdminLayout: React.FC = () => {
               to={item.to}
               className={({ isActive }) =>
                 `flex items-center gap-3 border-l-4 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors relative outline-none focus-visible:ring-2 focus-visible:ring-gold/40 focus-visible:ring-offset-1 ${
-                  isActive
+                  isActive || item.activePaths?.includes(location.pathname)
                     ? 'bg-gold/15 text-navy font-semibold border-gold'
                     : 'border-transparent text-gray-600 hover:bg-gray-100 hover:text-gray-900'
                 }`

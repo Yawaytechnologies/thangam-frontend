@@ -1,1479 +1,1058 @@
-import React, { useState } from 'react';
-import {
-  useMembers,
-  useUpdateMemberStatus,
-  useUpdateMember,
-  useUploadMemberPhoto,
-} from '../../hooks/useMembers';
-import { useBranches } from '../../hooks/useBranches';
-import { Modal } from '../../components/ui/Modal';
-import type { Member, Role, UserStatus } from '../../types';
-import type { UpdateMemberData } from '../../api/members.api';
+import React, { useMemo, useState } from 'react';
+import { useMembers } from '../../hooks/useMembers';
 
-const ROLES: Role[] = [
+type MemberRole =
+  | 'FOUNDER'
+  | 'DIRECTOR'
+  | 'DEPUTY_DIRECTOR'
+  | 'EXECUTIVE_DIRECTOR'
+  | 'SENIOR_MANAGER'
+  | 'BUSINESS_MANAGER'
+  | 'AGENT';
+
+type MemberStatus = 'ACTIVE' | 'INACTIVE' | 'PENDING' | string;
+
+type BranchRecord = {
+  id?: string | number | null;
+  name?: string | null;
+  branchName?: string | null;
+};
+
+type ReportsToRecord = {
+  id?: string | number | null;
+  fullName?: string | null;
+  name?: string | null;
+};
+
+type MemberRecord = {
+  id?: string | number | null;
+  fullName?: string | null;
+  name?: string | null;
+  role?: string | null;
+  status?: MemberStatus | null;
+
+  memberId?: string | null;
+  codeNumber?: string | null;
+  phone?: string | null;
+  alternatePhone?: string | null;
+  email?: string | null;
+
+  branch?: BranchRecord | null;
+  branchName?: string | null;
+
+  reportsTo?: ReportsToRecord | null;
+  reportsToId?: string | number | null;
+  reportingToId?: string | number | null;
+  parentId?: string | number | null;
+  managerId?: string | number | null;
+
+  city?: string | null;
+  district?: string | null;
+  state?: string | null;
+  address?: string | null;
+  pincode?: string | number | null;
+
+  createdAt?: string | null;
+  created_at?: string | null;
+  joinedDate?: string | null;
+
+  photo?: string | null;
+  avatarUrl?: string | null;
+  profileImage?: string | null;
+  profileImageUrl?: string | null;
+  photoUrl?: string | null;
+  imageUrl?: string | null;
+  image?: string | null;
+
+  teamSize?: number | null;
+  totalTeam?: number | null;
+  teamCount?: number | null;
+  taggedCount?: number | null;
+  taggedMembers?: number | null;
+  directReports?: number | null;
+  directReportsCount?: number | null;
+};
+
+type MembersApiResponse = {
+  data?: MemberRecord[];
+  members?: MemberRecord[];
+  total?: number;
+  totalMembers?: number;
+  count?: number;
+  meta?: {
+    total?: number;
+  };
+};
+
+type HierarchyNode = MemberRecord & {
+  id: string;
+  fullName: string;
+  role: MemberRole;
+  status: MemberStatus;
+  isFounder?: boolean;
+};
+
+const ROLE_FLOW: MemberRole[] = [
   'DIRECTOR',
-  'EXECUTIVE_DIRECTOR',
   'DEPUTY_DIRECTOR',
+  'EXECUTIVE_DIRECTOR',
   'SENIOR_MANAGER',
   'BUSINESS_MANAGER',
   'AGENT',
 ];
 
-const ROLE_ORDER: Record<string, number> = {
-  DIRECTOR: 1,
-  EXECUTIVE_DIRECTOR: 2,
-  DEPUTY_DIRECTOR: 3,
-  SENIOR_MANAGER: 4,
-  BUSINESS_MANAGER: 5,
-  AGENT: 6,
-};
-
-const ROLE_BADGE_LABELS: Record<string, string> = {
+const ROLE_LABELS: Record<MemberRole, string> = {
+  FOUNDER: 'Founder',
   DIRECTOR: 'Director',
-  EXECUTIVE_DIRECTOR: 'Executive Director',
   DEPUTY_DIRECTOR: 'Deputy Director',
+  EXECUTIVE_DIRECTOR: 'Executive Director',
   SENIOR_MANAGER: 'Senior Manager',
   BUSINESS_MANAGER: 'Business Manager',
   AGENT: 'Agent',
 };
 
-type MemberExtraFields = {
-  photo?: unknown;
-  photoUrl?: unknown;
-  profilePhoto?: unknown;
-  profilePhotoUrl?: unknown;
-  profileImage?: unknown;
-  avatarUrl?: unknown;
-  createdAt?: unknown;
-  created_at?: unknown;
-  branchName?: unknown;
-  reportsToName?: unknown;
+const ROLE_PAGE_TITLES: Record<MemberRole, string> = {
+  FOUNDER: 'Founder',
+  DIRECTOR: 'Directors',
+  DEPUTY_DIRECTOR: 'Deputy Directors',
+  EXECUTIVE_DIRECTOR: 'Executive Directors',
+  SENIOR_MANAGER: 'Senior Managers',
+  BUSINESS_MANAGER: 'Business Managers',
+  AGENT: 'Agents',
 };
 
-type MemberTreeNode = {
-  member: Member;
-  children: MemberTreeNode[];
+const FOUNDER: HierarchyNode = {
+  id: 'founder-root',
+  fullName: 'Dr. Rajesh Thangam',
+  role: 'FOUNDER',
+  status: 'ACTIVE',
+  branchName: 'Chennai HQ',
+  email: 'founder@srithangam.com',
+  phone: '—',
+  memberId: 'FOUNDER-001',
+  isFounder: true,
 };
 
-function getMemberExtraFields(member: Member): MemberExtraFields {
-  return member as unknown as MemberExtraFields;
+function toText(value: unknown, fallback = '—') {
+  if (value === 0) return '0';
+  if (!value) return fallback;
+  return String(value);
 }
 
-function isObjectRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+function toId(value: unknown) {
+  if (value === 0) return '0';
+  if (!value) return '';
+  return String(value);
 }
 
-function getStringValue(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value : undefined;
+function normalizeRole(role?: string | null): MemberRole {
+  const cleanRole = String(role ?? '').toUpperCase();
+
+  if (cleanRole === 'DIRECTOR') return 'DIRECTOR';
+  if (cleanRole === 'DEPUTY_DIRECTOR') return 'DEPUTY_DIRECTOR';
+  if (cleanRole === 'EXECUTIVE_DIRECTOR') return 'EXECUTIVE_DIRECTOR';
+  if (cleanRole === 'SENIOR_MANAGER') return 'SENIOR_MANAGER';
+  if (cleanRole === 'BUSINESS_MANAGER') return 'BUSINESS_MANAGER';
+  if (cleanRole === 'AGENT') return 'AGENT';
+
+  return 'AGENT';
 }
 
-function getRecordValue(source: unknown, key: string): unknown {
-  if (isObjectRecord(source)) {
-    return source[key];
+function getInitials(name?: string | null) {
+  return toText(name, 'NA')
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join('')
+    .toUpperCase();
+}
+
+function getAvatarUrl(member: MemberRecord) {
+  return (
+    member.photo ||
+    member.avatarUrl ||
+    member.profileImage ||
+    member.profileImageUrl ||
+    member.photoUrl ||
+    member.imageUrl ||
+    member.image ||
+    ''
+  );
+}
+
+function getBranchName(member: MemberRecord) {
+  return member.branch?.name || member.branch?.branchName || member.branchName || member.city || 'Unassigned Branch';
+}
+
+function getJoinedDate(member: MemberRecord) {
+  const dateValue = member.joinedDate || member.createdAt || member.created_at;
+
+  if (!dateValue) return '—';
+
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return '—';
+
+  return date.toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+function getReportsToId(member: MemberRecord) {
+  return (
+    toId(member.reportsTo?.id) ||
+    toId(member.reportsToId) ||
+    toId(member.reportingToId) ||
+    toId(member.parentId) ||
+    toId(member.managerId)
+  );
+}
+
+function getDirectNumeric(member: MemberRecord, keys: Array<keyof MemberRecord>) {
+  for (const key of keys) {
+    const value = member[key];
+
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
   }
 
   return undefined;
 }
 
-function getRawMemberValue(member: Member, key: string): unknown {
-  return (member as unknown as Record<string, unknown>)[key];
+function formatNumber(value: number) {
+  return value.toLocaleString('en-IN');
 }
 
-function getText(member: Member, key: string): string {
-  const value = getRawMemberValue(member, key);
-
-  if (typeof value === 'string' && value.trim()) return value;
-  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
-
-  return '—';
-}
-
-function getMemberId(member: Member): string {
-  const id = getRawMemberValue(member, 'id');
-
-  if (typeof id === 'string' && id.trim()) return id;
-  if (typeof id === 'number' && Number.isFinite(id)) return String(id);
-
-  return '';
-}
-
-function getReportsToId(member: Member): string {
-  const directReportsToId =
-    getStringValue(getRawMemberValue(member, 'reportsToId')) ||
-    getStringValue(getRawMemberValue(member, 'reports_to_id'));
-
-  if (directReportsToId) return directReportsToId;
-
-  const reportsTo = getRawMemberValue(member, 'reportsTo');
-
-  if (isObjectRecord(reportsTo)) {
-    const parentId =
-      getStringValue(reportsTo.id) ||
-      getStringValue(reportsTo.memberId) ||
-      getStringValue(reportsTo.userId);
-
-    return parentId || '';
-  }
-
-  return '';
-}
-
-function getMemberPhoto(member: Member): string {
-  const extra = getMemberExtraFields(member);
-
-  return (
-    getStringValue(extra.photo) ||
-    getStringValue(extra.photoUrl) ||
-    getStringValue(extra.profilePhoto) ||
-    getStringValue(extra.profilePhotoUrl) ||
-    getStringValue(extra.profileImage) ||
-    getStringValue(extra.avatarUrl) ||
-    ''
-  );
-}
-
-function formatDate(dateStr?: string) {
-  if (!dateStr) return '—';
-
-  const date = new Date(dateStr);
-
-  if (Number.isNaN(date.getTime())) return '—';
-
-  return date.toLocaleDateString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
-}
-
-function formatDateTime(dateStr?: string) {
-  if (!dateStr) return '—';
-
-  const date = new Date(dateStr);
-
-  if (Number.isNaN(date.getTime())) return '—';
-
-  return date.toLocaleString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
-function CloseIcon() {
-  return (
-    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M18 6L6 18M6 6l12 12"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function SearchIcon() {
-  return (
-    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M21 21l-4.2-4.2M10.5 18a7.5 7.5 0 110-15 7.5 7.5 0 010 15z"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function ResetIcon() {
-  return (
-    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M4 4v6h6M20 20v-6h-6M5 15a7 7 0 0012 3M19 9A7 7 0 007 6"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function CalendarIcon() {
-  return (
-    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M8 3v4M16 3v4M4 9h16M6 5h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V7a2 2 0 012-2z"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function BuildingIcon() {
-  return (
-    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M4 21h16M6 21V5a1 1 0 011-1h10a1 1 0 011 1v16M9 8h1M14 8h1M9 12h1M14 12h1M9 16h1M14 16h1"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function PhoneIcon() {
-  return (
-    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M5 4h3l2 5-2 1.5A12 12 0 0013.5 16l1.5-2 5 2v3a2 2 0 01-2 2A15 15 0 013 6a2 2 0 012-2z"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function BranchIcon() {
-  return (
-    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M12 4v5M6 14v6M18 14v6M6 14h12M12 9H6v5M12 9h6v5M9 4h6v5H9V4z"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function ShieldIcon() {
-  return (
-    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M12 3l7 4v5c0 5-3 8-7 9-4-1-7-4-7-9V7l7-4zM9.5 12l1.8 1.8L15 10"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function FileIcon() {
-  return (
-    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M7 3h7l4 4v14H7V3zM14 3v5h4M9 13h6M9 17h6"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function ClockIcon() {
-  return (
-    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M12 8v5l3 2M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function EditIcon() {
-  return (
-    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4 12.5-12.5z"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function BanIcon() {
-  return (
-    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M8 8l8 8M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function SectionHeading({
-  icon,
-  title,
-}: {
-  icon: React.ReactNode;
-  title: string;
-}) {
-  return (
-    <div className="mb-4 flex items-center gap-2 border-b border-[#f1f1f1] pb-2.5">
-      <span className="text-[#a88213]">{icon}</span>
-      <p className="text-[10px] font-extrabold uppercase tracking-[0.22em] text-[#716a5a]">
-        {title}
-      </p>
-    </div>
-  );
-}
-
-function DetailItem({
-  label,
-  value,
-}: {
-  label: string;
-  value: React.ReactNode;
-}) {
-  return (
-    <div className="rounded-xl border border-[#eeeeee] bg-white px-4 py-3">
-      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[#8c8c8c]">
-        {label}
-      </p>
-
-      <div className="break-words text-sm font-bold text-[#2f2f2f]">
-        {value || '—'}
-      </div>
-    </div>
-  );
-}
-
-function DetailSection({
-  title,
-  icon,
-  children,
-}: {
-  title: string;
-  icon: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <SectionHeading icon={icon} title={title} />
-
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function RecentActivityItem({
-  title,
-  description,
-  time,
-}: {
-  title: string;
-  description: string;
-  time: string;
-}) {
-  return (
-    <div className="flex gap-3 rounded-xl border border-[#eeeeee] bg-white px-4 py-3">
-      <div className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-[#b08a13]" />
-
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-extrabold text-[#2f2f2f]">{title}</p>
-
-        <p className="mt-1 text-xs font-medium text-[#777]">
-          {description}
-        </p>
-
-        <p className="mt-1 text-[11px] font-semibold text-[#9f7e18]">
-          {time}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function MemberAvatar({ name, photo }: { name: string; photo?: string }) {
-  const [hasError, setHasError] = useState(false);
-
-  const initials = name
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((word) => word[0]?.toUpperCase() ?? '')
-    .join('');
-
-  const imageSource = photo && !hasError ? photo : '';
-
-  return (
-    <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-gold/20 bg-gold/15 text-sm font-semibold text-navy">
-      {imageSource ? (
-        <img
-          src={imageSource}
-          alt={name}
-          onError={() => setHasError(true)}
-          className="h-full w-full object-cover"
-        />
-      ) : (
-        initials || 'M'
-      )}
-    </div>
-  );
-}
-
-function sortTreeNodes(a: MemberTreeNode, b: MemberTreeNode) {
-  const roleA = ROLE_ORDER[a.member.role] ?? 999;
-  const roleB = ROLE_ORDER[b.member.role] ?? 999;
-
-  if (roleA !== roleB) return roleA - roleB;
-
-  return a.member.fullName.localeCompare(b.member.fullName);
-}
-
-function buildMemberTree(members: Member[]): MemberTreeNode[] {
-  const nodeMap = new Map<string, MemberTreeNode>();
-  const roots: MemberTreeNode[] = [];
+function groupByBranch(members: HierarchyNode[]) {
+  const groups = new Map<string, HierarchyNode[]>();
 
   members.forEach((member) => {
-    const id = getMemberId(member);
-
-    if (!id) return;
-
-    nodeMap.set(id, {
-      member,
-      children: [],
-    });
+    const branchName = getBranchName(member);
+    const existing = groups.get(branchName) ?? [];
+    groups.set(branchName, [...existing, member]);
   });
 
-  members.forEach((member) => {
-    const id = getMemberId(member);
-    const parentId = getReportsToId(member);
-
-    if (!id) return;
-
-    const node = nodeMap.get(id);
-
-    if (!node) return;
-
-    if (parentId && parentId !== id && nodeMap.has(parentId)) {
-      nodeMap.get(parentId)?.children.push(node);
-    } else {
-      roots.push(node);
-    }
-  });
-
-  function sortNodes(nodes: MemberTreeNode[]) {
-    nodes.sort(sortTreeNodes);
-
-    nodes.forEach((node) => {
-      sortNodes(node.children);
-    });
-  }
-
-  sortNodes(roots);
-
-  return roots;
+  return Array.from(groups.entries())
+    .map(([branchName, branchMembers]) => ({
+      branchName,
+      members: branchMembers,
+    }))
+    .sort((a, b) => a.branchName.localeCompare(b.branchName));
 }
 
-function FounderCard() {
+function IconSearch({ className = 'h-3.5 w-3.5' }: { className?: string }) {
   return (
-    <div className="relative mx-auto w-full max-w-[280px] rounded-2xl border-2 border-[#d2a925] bg-white px-5 pb-5 pt-8 text-center shadow-[0_18px_40px_rgba(0,0,0,0.08)]">
-      <div className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#7a5b00] px-4 py-2 text-[9px] font-extrabold uppercase leading-tight text-white shadow">
-        Chairman & Managing
-        <br />
-        Director
-      </div>
-
-      <div className="mx-auto flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border-2 border-[#d2a925] bg-[#f8f1d2] text-xl font-extrabold text-[#7a5b00]">
-        ST
-      </div>
-
-      <h2 className="mt-4 text-lg font-extrabold text-gray-900">
-        Dr. Rajesh Thangam
-      </h2>
-
-      <p className="mt-1 text-xs font-semibold text-gray-500">
-        Founder & CMD
-      </p>
-
-      <div className="mt-3 flex items-center justify-center gap-2">
-        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
-          Active
-        </span>
-
-        <span className="rounded-full bg-[#fff6d8] px-2 py-0.5 text-[10px] font-bold text-[#9a7500]">
-          Main Branch
-        </span>
-      </div>
-    </div>
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35m1.1-5.4a6.5 6.5 0 11-13 0 6.5 6.5 0 0113 0z" />
+    </svg>
   );
 }
 
-function HierarchyMemberCard({
-  member,
-  onClick,
-}: {
-  member: Member;
-  onClick: (member: Member) => void;
-}) {
-  const photo = getMemberPhoto(member);
-
+function IconClose({ className = 'h-4 w-4' }: { className?: string }) {
   return (
-    <button
-      type="button"
-      onClick={() => onClick(member)}
-      className="group w-full max-w-[340px] rounded-xl border border-gray-200 bg-white p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[#d2a925] hover:shadow-md"
-    >
-      <div className="flex items-center gap-3">
-        <MemberAvatar name={member.fullName} photo={photo} />
-
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <h3 className="line-clamp-2 text-sm font-extrabold leading-5 text-gray-900">
-              {member.fullName}
-            </h3>
-
-            <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-[8px] font-extrabold uppercase text-emerald-700">
-              {ROLE_BADGE_LABELS[member.role] || member.role.replace(/_/g, ' ')}
-            </span>
-          </div>
-
-          <p className="mt-1 break-all font-mono text-[11px] font-semibold text-[#a88213]">
-            {member.memberId}
-          </p>
-
-          <p className="mt-1 line-clamp-1 text-[11px] font-medium text-gray-500">
-            {member.branch?.name ?? 'No branch assigned'}
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-3 grid grid-cols-3 overflow-hidden rounded-lg border border-gray-100 bg-gray-50 text-center">
-        <div className="border-r border-gray-100 px-2 py-2">
-          <p className="text-[9px] font-semibold uppercase text-gray-400">
-            Phone
-          </p>
-
-          <p className="mt-0.5 truncate text-[11px] font-bold text-gray-700">
-            {member.phone || '—'}
-          </p>
-        </div>
-
-        <div className="border-r border-gray-100 px-2 py-2">
-          <p className="text-[9px] font-semibold uppercase text-gray-400">
-            Status
-          </p>
-
-          <p className="mt-0.5 truncate text-[11px] font-bold text-gray-700">
-            {member.status}
-          </p>
-        </div>
-
-        <div className="px-2 py-2">
-          <p className="text-[9px] font-semibold uppercase text-gray-400">
-            Code
-          </p>
-
-          <p className="mt-0.5 truncate text-[11px] font-bold text-gray-700">
-            {member.codeNumber || '—'}
-          </p>
-        </div>
-      </div>
-    </button>
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+    </svg>
   );
 }
 
-function TreeNodeView({
-  node,
-  onMemberClick,
-  visitedIds = new Set<string>(),
-}: {
-  node: MemberTreeNode;
-  onMemberClick: (member: Member) => void;
-  visitedIds?: Set<string>;
-}) {
-  const currentId = getMemberId(node.member);
-
-  if (!currentId || visitedIds.has(currentId)) return null;
-
-  const nextVisitedIds = new Set(visitedIds);
-  nextVisitedIds.add(currentId);
-
-  const children = node.children.filter((child) => {
-    const childId = getMemberId(child.member);
-    return childId && !nextVisitedIds.has(childId);
-  });
-
+function IconChevronRight({ className = 'h-3.5 w-3.5' }: { className?: string }) {
   return (
-    <div className="w-full">
-      <div className="flex justify-center">
-        <HierarchyMemberCard member={node.member} onClick={onMemberClick} />
-      </div>
-
-      {children.length > 0 && (
-        <div className="mt-5">
-          <div className="mx-auto h-8 w-px bg-[#d2a925]" />
-
-          <div className="rounded-2xl border border-[#eadca9] bg-[#fffdf6] p-4">
-            <div className="mb-4 flex items-center justify-center">
-              <span className="rounded-full bg-[#d2a925] px-3 py-1 text-[10px] font-extrabold uppercase tracking-wide text-white">
-                Reporting Under {node.member.fullName}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 2xl:grid-cols-3">
-              {children.map((child) => (
-                <div key={getMemberId(child.member)}>
-                  <TreeNodeView
-                    node={child}
-                    onMemberClick={onMemberClick}
-                    visitedIds={nextVisitedIds}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+    </svg>
   );
 }
 
-function RealNestedHierarchyTree({
-  members,
-  onMemberClick,
-}: {
-  members: Member[];
-  onMemberClick: (member: Member) => void;
-}) {
-  const tree = buildMemberTree(members);
-
-  if (tree.length === 0) {
-    return (
-      <div className="rounded-2xl border border-gray-200 bg-white px-4 py-12 text-center">
-        <p className="text-sm font-bold text-gray-700">No hierarchy found.</p>
-
-        <p className="mt-1 text-xs text-gray-500">
-          Check whether backend is sending reportsToId correctly.
-        </p>
-      </div>
-    );
-  }
-
+function IconUsers({ className = 'h-4 w-4' }: { className?: string }) {
   return (
-    <div className="w-full overflow-hidden">
-      <div className="px-2 py-4 sm:px-4">
-        <FounderCard />
-
-        <div className="mx-auto h-10 w-px bg-[#d2a925]" />
-
-        <div className="space-y-8">
-          {tree.map((rootNode) => (
-            <div
-              key={getMemberId(rootNode.member)}
-              className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm"
-            >
-              <TreeNodeView
-                node={rootNode}
-                onMemberClick={onMemberClick}
-              />
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.9}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5 5 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+    </svg>
   );
 }
 
-function MemberOverviewModal({
-  member,
-  open,
-  onClose,
-  onEdit,
-  onToggleStatus,
-}: {
-  member: Member | null;
-  open: boolean;
-  onClose: () => void;
-  onEdit: (member: Member) => void;
-  onToggleStatus: (member: Member) => void;
-}) {
-  if (!open || !member) return null;
-
-  const imageSource = getMemberPhoto(member);
-
-  const createdAt =
-    getStringValue(getRawMemberValue(member, 'createdAt')) ||
-    getStringValue(getRawMemberValue(member, 'created_at'));
-
-  const updatedAt = getStringValue(getRawMemberValue(member, 'updatedAt'));
-
-  const userRecord = getRecordValue(member, 'user');
-  const lastLoginAt = getStringValue(getRecordValue(userRecord, 'lastLoginAt'));
-
-  const joinedDate = formatDate(createdAt);
-  const dob = formatDate(getStringValue(getRawMemberValue(member, 'dateOfBirth')));
-
-  const branchName =
-    member.branch?.name ||
-    getStringValue(getRawMemberValue(member, 'branchName')) ||
-    '—';
-
-  const branchCode =
-    getStringValue(getRecordValue(member.branch, 'branchCode')) || '—';
-
-  const branchType =
-    getStringValue(getRecordValue(member.branch, 'branchType')) || '—';
-
-  const branchPhone =
-    getStringValue(getRecordValue(member.branch, 'phone')) || '—';
-
-  const branchAddress = [
-    getStringValue(getRecordValue(member.branch, 'address')),
-    getStringValue(getRecordValue(member.branch, 'city')),
-    getStringValue(getRecordValue(member.branch, 'district')),
-    getStringValue(getRecordValue(member.branch, 'state')),
-    getStringValue(getRecordValue(member.branch, 'pincode')),
-  ]
-    .filter(Boolean)
-    .join(', ');
-
-  const isActive = member.status === 'ACTIVE';
-
+function IconUser({ className = 'h-4 w-4' }: { className?: string }) {
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/45 px-2 py-3 backdrop-blur-[3px] sm:px-4">
-      <div className="absolute inset-0" onClick={onClose} />
-
-      <div className="relative flex max-h-[calc(100vh-24px)] w-full max-w-[1050px] flex-col overflow-hidden rounded-[14px] border border-[#ededed] bg-white shadow-[0_24px_70px_rgba(0,0,0,0.28)] sm:rounded-[18px]">
-        <div className="relative shrink-0 px-4 pb-4 pt-5 sm:px-[34px] sm:pb-5 sm:pt-[22px]">
-          <button
-            type="button"
-            onClick={onClose}
-            className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full border border-[#b8cdfb] bg-white text-[#777] shadow-[0_0_0_2px_rgba(96,165,250,0.12)] transition hover:bg-[#f8fbff] sm:right-[30px] sm:top-[18px]"
-            aria-label="Close"
-          >
-            <CloseIcon />
-          </button>
-
-          <h2 className="pr-10 text-[18px] font-extrabold leading-none text-[#2d2d2d] sm:text-[22px]">
-            Member Overview
-          </h2>
-
-          <p className="mt-2 pr-8 text-[12px] font-medium text-[#747474] sm:text-[13px]">
-            View complete member profile, contact, nominee, identity, branch, and activity details.
-          </p>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-5 sm:px-[34px] sm:pb-6">
-          <div className="mb-6 flex flex-col gap-4 rounded-xl border border-[#f0f0f2] bg-[#f7f7f9] px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex min-w-0 items-center gap-4">
-              <div className="relative shrink-0">
-                {imageSource ? (
-                  <img
-                    src={imageSource}
-                    alt={member.fullName}
-                    className="h-[70px] w-[70px] rounded-xl border border-[#cfcfcf] object-cover"
-                  />
-                ) : (
-                  <div className="flex h-[70px] w-[70px] items-center justify-center rounded-xl border border-[#cfcfcf] bg-[#dedede] text-xl font-bold text-[#555]">
-                    {member.fullName?.charAt(0)?.toUpperCase() || 'M'}
-                  </div>
-                )}
-
-                <span
-                  className={`absolute -bottom-1 -right-1 h-4 w-4 rounded-full border-2 border-white ${
-                    isActive ? 'bg-[#2f7d68]' : 'bg-[#d8463b]'
-                  }`}
-                />
-              </div>
-
-              <div className="min-w-0">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                  <h3 className="break-words text-[20px] font-extrabold leading-tight text-[#2d2d2d] sm:text-[24px]">
-                    {member.fullName}
-                  </h3>
-
-                  <span className="w-fit rounded-md border border-[#cddfd9] bg-[#dcebe5] px-2 py-0.5 text-[10px] font-extrabold text-[#477463]">
-                    {member.role.replace(/_/g, ' ')}
-                  </span>
-                </div>
-
-                <p className="mt-2 break-all text-[13px] font-extrabold text-[#b08a13]">
-                  {member.memberId}
-                </p>
-
-                <p className="mt-1 text-xs font-semibold text-[#666]">
-                  Code No: {member.codeNumber || '—'}
-                </p>
-              </div>
-            </div>
-
-            <div className="space-y-2 text-left text-xs font-bold text-[#555] sm:text-right">
-              <p className="flex items-center gap-1.5 sm:justify-end">
-                <CalendarIcon />
-                Joined Date: {joinedDate}
-              </p>
-
-              <p className="flex items-center gap-1.5 sm:justify-end">
-                <BuildingIcon />
-                {branchName}
-              </p>
-
-              <p
-                className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-extrabold ${
-                  isActive
-                    ? 'bg-[#e8f4ef] text-[#2f7d68]'
-                    : 'bg-[#fff1f0] text-[#d8463b]'
-                }`}
-              >
-                <span
-                  className={`h-2 w-2 rounded-full ${
-                    isActive ? 'bg-[#2f7d68]' : 'bg-[#d8463b]'
-                  }`}
-                />
-                {member.status}
-              </p>
-            </div>
-          </div>
-
-          <div className="space-y-6">
-            <DetailSection icon={<PhoneIcon />} title="Contact Information">
-              <DetailItem label="Phone Number" value={member.phone || '—'} />
-              <DetailItem label="Alternate Phone" value={getText(member, 'alternatePhone')} />
-              <DetailItem label="Email Address" value={member.email || '—'} />
-              <DetailItem label="Address" value={getText(member, 'address')} />
-              <DetailItem label="City" value={getText(member, 'city')} />
-              <DetailItem label="District" value={getText(member, 'district')} />
-              <DetailItem label="State" value={getText(member, 'state')} />
-              <DetailItem label="Pincode" value={getText(member, 'pincode')} />
-            </DetailSection>
-
-            <DetailSection icon={<FileIcon />} title="Personal Information">
-              <DetailItem label="Full Name" value={member.fullName || '—'} />
-              <DetailItem label="Gender" value={getText(member, 'gender')} />
-              <DetailItem label="Date of Birth" value={dob} />
-              <DetailItem label="Blood Group" value={getText(member, 'bloodGroup')} />
-              <DetailItem label="Qualification" value={getText(member, 'qualification')} />
-              <DetailItem label="Experience" value={getText(member, 'experience')} />
-              <DetailItem label="Role" value={member.role.replace(/_/g, ' ')} />
-              <DetailItem label="Status" value={member.status} />
-            </DetailSection>
-
-            <DetailSection icon={<ShieldIcon />} title="Identity Details">
-              <DetailItem label="PAN Number" value={getText(member, 'panNumber')} />
-              <DetailItem label="Aadhaar Number" value={getText(member, 'aadhaarNumber')} />
-              <DetailItem label="Voter ID Number" value={getText(member, 'voterIdNumber')} />
-              <DetailItem label="Driving License" value={getText(member, 'drivingLicense')} />
-            </DetailSection>
-
-            <DetailSection icon={<BranchIcon />} title="Branch Details">
-              <DetailItem label="Branch Name" value={branchName} />
-              <DetailItem label="Branch Code" value={branchCode} />
-              <DetailItem label="Branch Type" value={branchType} />
-              <DetailItem label="Branch Phone" value={branchPhone} />
-              <DetailItem label="Branch Address" value={branchAddress || '—'} />
-            </DetailSection>
-
-            <DetailSection icon={<FileIcon />} title="Nominee Details">
-              <DetailItem label="Nominee Name" value={getText(member, 'nomineeName')} />
-              <DetailItem label="Nominee Relation" value={getText(member, 'nomineeRelation')} />
-              <DetailItem label="Nominee Phone" value={getText(member, 'nomineePhone')} />
-            </DetailSection>
-
-            <DetailSection icon={<FileIcon />} title="Bank Details">
-              <DetailItem label="Bank Name" value={getText(member, 'bankName')} />
-              <DetailItem label="Account Holder" value={getText(member, 'accountHolder')} />
-              <DetailItem label="Account Number" value={getText(member, 'accountNumber')} />
-              <DetailItem label="IFSC Code" value={getText(member, 'ifscCode')} />
-              <DetailItem label="Bank Branch" value={getText(member, 'bankBranch')} />
-            </DetailSection>
-
-            <DetailSection icon={<ClockIcon />} title="System Details">
-              <DetailItem label="Member ID" value={member.memberId} />
-              <DetailItem label="Code Number" value={member.codeNumber || '—'} />
-              <DetailItem label="Reports To" value={member.reportsTo?.fullName || '—'} />
-              <DetailItem label="Intro Name" value={getText(member, 'introName')} />
-              <DetailItem label="Created At" value={formatDateTime(createdAt)} />
-              <DetailItem label="Updated At" value={formatDateTime(updatedAt)} />
-            </DetailSection>
-
-            <div>
-              <SectionHeading icon={<ClockIcon />} title="Recent Activity" />
-
-              <div className="space-y-3">
-                <RecentActivityItem
-                  title="Member profile created"
-                  description={`${member.fullName} was added as ${member.role.replace(/_/g, ' ')}.`}
-                  time={formatDateTime(createdAt)}
-                />
-
-                <RecentActivityItem
-                  title="Branch assigned"
-                  description={`Assigned to ${branchName}.`}
-                  time={formatDateTime(createdAt)}
-                />
-
-                <RecentActivityItem
-                  title="Current account status"
-                  description={`Member account is currently ${member.status}.`}
-                  time={formatDateTime(updatedAt)}
-                />
-
-                <RecentActivityItem
-                  title="Profile last updated"
-                  description="Member profile details were updated."
-                  time={formatDateTime(updatedAt)}
-                />
-
-                <RecentActivityItem
-                  title="Last login"
-                  description={
-                    lastLoginAt
-                      ? 'Member logged into the system.'
-                      : 'Member has not logged in yet.'
-                  }
-                  time={lastLoginAt ? formatDateTime(lastLoginAt) : '—'}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex shrink-0 flex-col gap-2 border-t border-[#ececf0] bg-[#f8f8fb] px-4 py-3 sm:flex-row sm:items-center sm:justify-end sm:gap-4 sm:px-[34px]">
-          <button
-            type="button"
-            onClick={() => onEdit(member)}
-            className="inline-flex h-[38px] w-full items-center justify-center gap-2 rounded-[9px] border border-[#d1bd75] bg-white px-4 text-[12px] font-extrabold text-[#a98313] shadow-sm transition hover:bg-[#fffaf0] sm:w-auto sm:min-w-[118px]"
-          >
-            <EditIcon />
-            Edit Member
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onToggleStatus(member)}
-            className="inline-flex h-[38px] w-full items-center justify-center gap-2 rounded-[9px] border border-[#e49c97] bg-white px-4 text-[12px] font-extrabold text-[#d8463b] shadow-sm transition hover:bg-[#fff6f5] sm:w-auto sm:min-w-[150px]"
-          >
-            <BanIcon />
-            {member.status === 'ACTIVE'
-              ? 'Deactivate Member'
-              : 'Activate Member'}
-          </button>
-        </div>
-      </div>
-    </div>
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.9}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 7.5a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.5 20.25a7.5 7.5 0 0115 0" />
+    </svg>
   );
 }
 
-type EditMemberModalProps = {
-  member: Member | null;
-  open: boolean;
-  onClose: () => void;
-};
-
-function getMemberForm(member: Member): UpdateMemberData {
-  return {
-    fullName: member.fullName,
-    phone: member.phone,
-    email: member.email,
-    role: member.role,
-    branchId: member.branchId,
-    codeNumber: member.codeNumber,
-  };
+function IconEdit({ className = 'h-3.5 w-3.5' }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 7.125L16.875 4.5M18 14v5.25A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+    </svg>
+  );
 }
 
-function EditMemberModal({ member, open, onClose }: EditMemberModalProps) {
-  if (!member) return null;
+function StatusDot({ status }: { status?: MemberStatus | null }) {
+  const isActive = String(status ?? '').toUpperCase() === 'ACTIVE';
 
   return (
-    <EditMemberModalContent
-      key={member.id}
-      member={member}
-      open={open}
-      onClose={onClose}
+    <span
+      className={`h-2 w-2 rounded-full ring-[3px] ${
+        isActive ? 'bg-emerald-500 ring-emerald-100' : 'bg-slate-400 ring-slate-100'
+      }`}
     />
   );
 }
 
-function EditMemberModalContent({
-  member,
-  open,
-  onClose,
-}: {
-  member: Member;
-  open: boolean;
-  onClose: () => void;
-}) {
-  const updateMutation = useUpdateMember();
-  const uploadMemberPhoto = useUploadMemberPhoto();
-  const branchesQuery = useBranches();
-  const branches = branchesQuery.data?.data ?? [];
+function Avatar({ member, size = 'md' }: { member: MemberRecord; size?: 'sm' | 'md' | 'lg' }) {
+  const avatarUrl = getAvatarUrl(member);
 
-  const [form, setForm] = useState<UpdateMemberData>(() =>
-    getMemberForm(member)
-  );
-
-  const [memberPhotoFile, setMemberPhotoFile] = useState<File | null>(null);
-
-  function handleClose() {
-    setMemberPhotoFile(null);
-    onClose();
-  }
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-
-    updateMutation.mutate(
-      {
-        id: member.id,
-        data: form,
-      },
-      {
-        onSuccess: (updatedMember) => {
-          if (memberPhotoFile) {
-            uploadMemberPhoto.mutate({
-              id: updatedMember.id,
-              file: memberPhotoFile,
-            });
-          }
-
-          handleClose();
-        },
-      }
-    );
-  }
+  const sizeClass =
+    size === 'lg'
+      ? 'h-16 w-16 text-lg'
+      : size === 'sm'
+        ? 'h-9 w-9 text-[11px]'
+        : 'h-11 w-11 text-xs';
 
   return (
-    <Modal open={open} onClose={handleClose} title="Edit Member" size="lg">
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-700">
-              Full Name
-            </label>
-
-            <input
-              type="text"
-              value={form.fullName ?? ''}
-              onChange={(e) =>
-                setForm((formState) => ({
-                  ...formState,
-                  fullName: e.target.value,
-                }))
-              }
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-700">
-              Phone
-            </label>
-
-            <input
-              type="tel"
-              pattern="[6-9][0-9]{9}"
-              maxLength={10}
-              title="Enter a valid 10-digit Indian mobile number"
-              placeholder="9876543210"
-              value={form.phone ?? ''}
-              onChange={(e) =>
-                setForm((formState) => ({
-                  ...formState,
-                  phone: e.target.value.replace(/\D/g, '').slice(0, 10),
-                }))
-              }
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-700">
-              Email
-            </label>
-
-            <input
-              type="email"
-              value={form.email ?? ''}
-              onChange={(e) =>
-                setForm((formState) => ({
-                  ...formState,
-                  email: e.target.value,
-                }))
-              }
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-700">
-              Role
-            </label>
-
-            <select
-              value={form.role ?? ''}
-              onChange={(e) =>
-                setForm((formState) => ({
-                  ...formState,
-                  role: e.target.value as Role,
-                }))
-              }
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
-            >
-              {ROLES.map((roleItem) => (
-                <option key={roleItem} value={roleItem}>
-                  {roleItem.replace(/_/g, ' ')}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-700">
-              Branch
-            </label>
-
-            <select
-              value={form.branchId ?? ''}
-              onChange={(e) =>
-                setForm((formState) => ({
-                  ...formState,
-                  branchId: e.target.value,
-                }))
-              }
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
-            >
-              <option value="">Select branch</option>
-
-              {branches.map((branch) => (
-                <option key={branch.id} value={branch.id}>
-                  {branch.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-700">
-              Code Number
-            </label>
-
-            <input
-              type="text"
-              value={form.codeNumber ?? ''}
-              onChange={(e) =>
-                setForm((formState) => ({
-                  ...formState,
-                  codeNumber: e.target.value,
-                }))
-              }
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold"
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="mb-1 block text-sm font-medium text-gray-700">
-            Profile Photo
-          </label>
-
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(e) => setMemberPhotoFile(e.target.files?.[0] ?? null)}
-            className="block w-full text-sm text-gray-500 file:mr-4 file:rounded-lg file:border-0 file:bg-gold/10 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-navy hover:file:bg-gold/20"
-          />
-        </div>
-
-        <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
-          <button
-            type="button"
-            onClick={handleClose}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-          >
-            Cancel
-          </button>
-
-          <button
-            type="submit"
-            disabled={updateMutation.isPending}
-            className="rounded-lg bg-gold px-4 py-2 text-sm font-semibold text-navy hover:opacity-90 disabled:opacity-50"
-          >
-            {updateMutation.isPending ? 'Saving...' : 'Save Changes'}
-          </button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
-function DeactivateConfirmModal({
-  member,
-  open,
-  onClose,
-}: {
-  member: Member | null;
-  open: boolean;
-  onClose: () => void;
-}) {
-  const updateStatus = useUpdateMemberStatus();
-
-  if (!member) return null;
-
-  const isActive = member.status === 'ACTIVE';
-  const newStatus: UserStatus = isActive ? 'INACTIVE' : 'ACTIVE';
-
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title={isActive ? 'Deactivate Member' : 'Activate Member'}
-      size="sm"
+    <div
+      className={`flex ${sizeClass} shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 font-black text-slate-700 shadow-sm`}
     >
-      <p className="mb-6 text-sm text-gray-600">
-        {isActive
-          ? `Are you sure you want to deactivate ${member.fullName}? They will lose access to the system.`
-          : `Are you sure you want to activate ${member.fullName}?`}
-      </p>
-
-      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-        >
-          Cancel
-        </button>
-
-        <button
-          type="button"
-          onClick={() =>
-            updateStatus.mutate(
-              { id: member.id, status: newStatus },
-              { onSuccess: () => onClose() }
-            )
-          }
-          disabled={updateStatus.isPending}
-          className={`rounded-lg px-4 py-2 text-sm text-white disabled:opacity-50 ${
-            isActive
-              ? 'bg-red-600 hover:bg-red-700'
-              : 'bg-green-600 hover:bg-green-700'
-          }`}
-        >
-          {updateStatus.isPending
-            ? 'Updating...'
-            : isActive
-            ? 'Deactivate'
-            : 'Activate'}
-        </button>
-      </div>
-    </Modal>
+      {avatarUrl ? (
+        <img src={avatarUrl} alt={toText(member.fullName || member.name)} className="h-full w-full object-cover" />
+      ) : (
+        getInitials(member.fullName || member.name)
+      )}
+    </div>
   );
 }
 
-const MembersPage: React.FC = () => {
-  const [memberIdSearch, setMemberIdSearch] = useState('');
-  const [phoneSearch, setPhoneSearch] = useState('');
-  const [role, setRole] = useState('');
+function StatPill({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
+      <p className="text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">{label}</p>
+      <p className="mt-0.5 text-[15px] font-black text-slate-950">{value}</p>
+    </div>
+  );
+}
 
-  const [viewMember, setViewMember] = useState<Member | null>(null);
-  const [editMember, setEditMember] = useState<Member | null>(null);
-  const [deactivateMember, setDeactivateMember] = useState<Member | null>(null);
+function DetailRow({ label, value }: { label: string; value: string | number | null | undefined }) {
+  return (
+    <div className="grid grid-cols-[100px_1fr] gap-3 border-b border-slate-100 py-2.5 last:border-b-0">
+      <p className="text-[10px] font-black uppercase tracking-[0.1em] text-slate-400">{label}</p>
+      <p className="min-w-0 break-words text-[12px] font-bold leading-5 text-slate-900 [overflow-wrap:anywhere]">
+        {toText(value)}
+      </p>
+    </div>
+  );
+}
 
-  const { data, isLoading } = useMembers({
-    page: 1,
-    limit: 500,
-    role: (role as Role) || undefined,
-  });
-
-  const members = data?.data ?? [];
-
-  const filteredMembers = members.filter((member) => {
-    const memberIdMatch = memberIdSearch.trim()
-      ? member.memberId
-          ?.toLowerCase()
-          .includes(memberIdSearch.trim().toLowerCase())
-      : true;
-
-    const phoneMatch = phoneSearch.trim()
-      ? member.phone?.includes(phoneSearch.trim())
-      : true;
-
-    const roleMatch = role ? member.role === role : true;
-
-    return memberIdMatch && phoneMatch && roleMatch;
-  });
-
-  function handleReset() {
-    setMemberIdSearch('');
-    setPhoneSearch('');
-    setRole('');
-  }
+function HierarchyCard({
+  member,
+  teamSize,
+  directReports,
+  hasNextLevel,
+  onOpen,
+  onViewTeam,
+}: {
+  member: HierarchyNode;
+  teamSize: number;
+  directReports: number;
+  hasNextLevel: boolean;
+  onOpen: () => void;
+  onViewTeam: () => void;
+}) {
+  const isFounder = member.role === 'FOUNDER';
 
   return (
-    <div className="space-y-5 p-3 sm:p-4 lg:p-6">
-      <div>
-        <h1 className="text-2xl font-extrabold leading-tight text-gray-900">
-          Members
-          <br className="hidden sm:block" />
-          Management
-        </h1>
+    <article
+      onClick={onOpen}
+      className="group flex min-h-[218px] cursor-pointer flex-col rounded-[18px] border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,20,25,0.045)] transition hover:-translate-y-0.5 hover:border-[#c9a227]/60 hover:shadow-[0_14px_34px_rgba(15,20,25,0.075)]"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <Avatar member={member} />
+        <StatusDot status={member.status} />
+      </div>
 
-        <p className="mt-1 text-sm font-medium text-gray-500">
-          View real member hierarchy based on Reports To connection.
+      <div className="mt-4 min-w-0">
+        <h3 className="truncate text-[14px] font-black leading-tight text-slate-950">
+          {member.fullName}
+        </h3>
+
+        <p className="mt-1 truncate text-[10px] font-extrabold uppercase tracking-[0.08em] text-[#9b7a09]">
+          {isFounder ? 'Founder & CMD' : ROLE_LABELS[member.role]}
+        </p>
+
+        <p className="mt-1.5 truncate text-[12px] font-semibold text-slate-500">
+          {getBranchName(member)}
         </p>
       </div>
 
-      <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_1fr_auto_auto]">
-          <div>
-            <label className="mb-1 block text-xs font-bold text-gray-700">
-              Member ID
-            </label>
+      <div className="mt-4 space-y-2 rounded-xl bg-slate-50 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-[11px] font-bold text-slate-500">Team Size</span>
+          <span className="text-[12px] font-black text-slate-950">{formatNumber(teamSize)}</span>
+        </div>
 
-            <input
-              type="text"
-              value={memberIdSearch}
-              onChange={(e) => setMemberIdSearch(e.target.value)}
-              placeholder="e.g. STH-MEM-0014"
-              className="h-11 w-full rounded-lg border border-gray-300 px-3 text-sm outline-none focus:border-[#d2a925] focus:ring-2 focus:ring-[#d2a925]/20"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-xs font-bold text-gray-700">
-              Phone Number
-            </label>
-
-            <input
-              type="text"
-              value={phoneSearch}
-              onChange={(e) =>
-                setPhoneSearch(e.target.value.replace(/\D/g, '').slice(0, 10))
-              }
-              placeholder="+91 00000 00000"
-              className="h-11 w-full rounded-lg border border-gray-300 px-3 text-sm outline-none focus:border-[#d2a925] focus:ring-2 focus:ring-[#d2a925]/20"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-xs font-bold text-gray-700">
-              Role
-            </label>
-
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              className="h-11 w-full rounded-lg border border-gray-300 px-3 text-sm outline-none focus:border-[#d2a925] focus:ring-2 focus:ring-[#d2a925]/20"
-            >
-              <option value="">All Roles</option>
-
-              {ROLES.map((roleItem) => (
-                <option key={roleItem} value={roleItem}>
-                  {roleItem.replace(/_/g, ' ')}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex items-end">
-            <button
-              type="button"
-              className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#d2a925] px-6 text-sm font-extrabold text-white shadow-sm transition hover:bg-[#b88f16] md:w-auto"
-            >
-              <SearchIcon />
-              Search
-            </button>
-          </div>
-
-          <div className="flex items-end">
-            <button
-              type="button"
-              onClick={handleReset}
-              className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-6 text-sm font-extrabold text-gray-700 transition hover:bg-gray-100 md:w-auto"
-            >
-              <ResetIcon />
-              Reset
-            </button>
-          </div>
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-[11px] font-bold text-slate-500">Direct Reports</span>
+          <span className="text-[12px] font-black text-slate-950">{formatNumber(directReports)}</span>
         </div>
       </div>
 
-      <div className="rounded-2xl border border-gray-200 bg-[#fbfbfd] p-4 sm:p-6">
-        {isLoading ? (
-          <div className="space-y-4">
-            {Array.from({ length: 4 }).map((_, index) => (
-              <div
-                key={index}
-                className="h-40 animate-pulse rounded-2xl border border-gray-200 bg-white"
-              />
-            ))}
-          </div>
-        ) : filteredMembers.length === 0 ? (
-          <div className="rounded-2xl border border-gray-200 bg-white px-4 py-12 text-center">
-            <p className="text-sm font-bold text-gray-700">
-              No members found.
-            </p>
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          if (hasNextLevel) onViewTeam();
+          else onOpen();
+        }}
+        className="mt-auto flex h-9 items-center justify-center gap-1.5 rounded-xl border border-[#e5dcc0] bg-[#fbf8ef] px-3 text-[11px] font-black text-[#8a6a08] transition group-hover:border-[#c9a227] group-hover:bg-[#c9a227] group-hover:text-white"
+      >
+        {hasNextLevel ? 'View Team' : 'View Profile'}
+        <IconChevronRight className="h-3 w-3" />
+      </button>
+    </article>
+  );
+}
 
-            <p className="mt-1 text-xs text-gray-500">
-              Try changing the search filters.
-            </p>
-          </div>
-        ) : (
-          <RealNestedHierarchyTree
-            members={filteredMembers}
-            onMemberClick={setViewMember}
-          />
-        )}
+function BranchGroup({
+  branchName,
+  members,
+  getCardStats,
+  onOpen,
+  onViewTeam,
+}: {
+  branchName: string;
+  members: HierarchyNode[];
+  getCardStats: (member: HierarchyNode) => {
+    teamSize: number;
+    directReports: number;
+    hasNextLevel: boolean;
+  };
+  onOpen: (member: HierarchyNode) => void;
+  onViewTeam: (member: HierarchyNode) => void;
+}) {
+  const totalTeam = members.reduce((sum, member) => sum + getCardStats(member).teamSize, 0);
+
+  return (
+    <section className="rounded-[20px] border border-slate-200 bg-slate-50/70 p-4">
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h3 className="text-[15px] font-black text-slate-950">{branchName}</h3>
+          <p className="mt-0.5 text-[11px] font-semibold text-slate-500">
+            {members.length} Director{members.length > 1 ? 's' : ''} · Team {formatNumber(totalTeam)}
+          </p>
+        </div>
+
+        <span className="w-fit rounded-full bg-white px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.08em] text-[#8a6a08] shadow-sm">
+          Director Branch
+        </span>
       </div>
 
-      <MemberOverviewModal
-        member={viewMember}
-        open={!!viewMember}
-        onClose={() => setViewMember(null)}
-        onEdit={(member) => {
-          setViewMember(null);
-          setEditMember(member);
-        }}
-        onToggleStatus={(member) => {
-          setViewMember(null);
-          setDeactivateMember(member);
-        }}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {members.map((member) => {
+          const stats = getCardStats(member);
+
+          return (
+            <HierarchyCard
+              key={`${member.role}-${member.id}`}
+              member={member}
+              teamSize={stats.teamSize}
+              directReports={stats.directReports}
+              hasNextLevel={stats.hasNextLevel}
+              onOpen={() => onOpen(member)}
+              onViewTeam={() => onViewTeam(member)}
+            />
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function MemberDrawer({
+  open,
+  member,
+  teamSize,
+  directReports,
+  hasNextLevel,
+  onClose,
+  onViewTeam,
+}: {
+  open: boolean;
+  member: HierarchyNode | null;
+  teamSize: number;
+  directReports: number;
+  hasNextLevel: boolean;
+  onClose: () => void;
+  onViewTeam: () => void;
+}) {
+  if (!open || !member) return null;
+
+  const fullAddress = [
+    member.address,
+    member.city,
+    member.district,
+    member.state,
+    member.pincode,
+  ]
+    .filter(Boolean)
+    .join(', ');
+
+  return (
+    <div className="fixed inset-0 z-[80]">
+      <button
+        type="button"
+        onClick={onClose}
+        className="absolute inset-0 bg-slate-950/45 backdrop-blur-[2px]"
+        aria-label="Close drawer overlay"
       />
 
-      <EditMemberModal
-        member={editMember}
-        open={!!editMember}
-        onClose={() => setEditMember(null)}
-      />
+      <aside className="absolute right-0 top-0 flex h-full w-full max-w-[400px] flex-col overflow-hidden bg-white shadow-[0_24px_80px_rgba(15,20,25,0.32)]">
+        <div className="relative overflow-hidden bg-gradient-to-br from-[#0f1419] via-[#151d2c] to-[#1a2332] px-5 pb-6 pt-5">
+          <div className="absolute -right-20 -top-20 h-48 w-48 rounded-full bg-[#c9a227]/25 blur-3xl" />
 
-      <DeactivateConfirmModal
-        member={deactivateMember}
-        open={!!deactivateMember}
-        onClose={() => setDeactivateMember(null)}
+          <div className="relative flex items-start justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <Avatar member={member} size="lg" />
+
+              <div className="min-w-0">
+                <h2 className="break-words text-[19px] font-black leading-tight text-white">
+                  {member.fullName}
+                </h2>
+                <p className="mt-1 text-[10px] font-black uppercase tracking-[0.12em] text-[#e8c547]">
+                  {member.role === 'FOUNDER' ? 'Founder & CMD' : ROLE_LABELS[member.role]}
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/10 text-white transition hover:bg-white/20"
+              aria-label="Close drawer"
+            >
+              <IconClose />
+            </button>
+          </div>
+
+          <div className="relative mt-5 grid grid-cols-2 gap-3">
+            <div className="rounded-xl border border-white/10 bg-white/10 p-3">
+              <p className="text-[9px] font-black uppercase tracking-[0.12em] text-white/45">Team Size</p>
+              <p className="mt-1 text-lg font-black text-white">{formatNumber(teamSize)}</p>
+            </div>
+
+            <div className="rounded-xl border border-white/10 bg-white/10 p-3">
+              <p className="text-[9px] font-black uppercase tracking-[0.12em] text-white/45">Reports</p>
+              <p className="mt-1 text-lg font-black text-white">{formatNumber(directReports)}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          <div className="rounded-2xl border border-slate-200 bg-white px-4">
+            <DetailRow label="Phone" value={member.phone} />
+            <DetailRow label="Email" value={member.email} />
+            <DetailRow label="Member ID" value={member.memberId || member.id} />
+            <DetailRow label="Branch" value={getBranchName(member)} />
+            <DetailRow label="Joined Date" value={getJoinedDate(member)} />
+            <DetailRow label="Team Size" value={formatNumber(teamSize)} />
+            <DetailRow label="Reports" value={formatNumber(directReports)} />
+            <DetailRow label="Address" value={fullAddress || '—'} />
+          </div>
+        </div>
+
+        <div className="border-t border-slate-200 bg-slate-50 p-4">
+          <div className="grid grid-cols-1 gap-2.5">
+            <button
+              type="button"
+              onClick={onViewTeam}
+              disabled={!hasNextLevel}
+              className="flex h-10 items-center justify-center gap-2 rounded-xl bg-[#c9a227] px-4 text-[12px] font-black text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:bg-slate-300"
+            >
+              <IconUsers className="h-3.5 w-3.5" />
+              {hasNextLevel ? 'View Team' : 'No Downline'}
+            </button>
+
+            <button
+              type="button"
+              className="flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-[12px] font-black text-slate-700 transition hover:bg-slate-100"
+            >
+              <IconEdit />
+              Edit Member
+            </button>
+          </div>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+const SuperAdminDashboardPage: React.FC = () => {
+  const { data: membersData, isLoading } = useMembers({ limit: 10000 });
+
+  const [search, setSearch] = useState('');
+  const [path, setPath] = useState<HierarchyNode[]>([]);
+  const [selectedMember, setSelectedMember] = useState<HierarchyNode | null>(null);
+
+  const rawMembers = useMemo(() => {
+    const response = membersData as MembersApiResponse | MemberRecord[] | undefined;
+
+    if (Array.isArray(response)) return response;
+    if (Array.isArray(response?.data)) return response.data;
+    if (Array.isArray(response?.members)) return response.members;
+
+    return [];
+  }, [membersData]);
+
+  const members = useMemo<HierarchyNode[]>(() => {
+    return rawMembers
+      .filter((member) => member && member.id !== null && member.id !== undefined)
+      .map((member) => ({
+        ...member,
+        id: toId(member.id),
+        fullName: toText(member.fullName || member.name, 'Unnamed Member'),
+        role: normalizeRole(member.role),
+        status: member.status || 'ACTIVE',
+      }));
+  }, [rawMembers]);
+
+  const roleCounts = useMemo(() => {
+    return ROLE_FLOW.reduce<Record<MemberRole, number>>(
+      (acc, role) => {
+        acc[role] = members.filter((member) => member.role === role).length;
+        return acc;
+      },
+      {
+        FOUNDER: 1,
+        DIRECTOR: 0,
+        DEPUTY_DIRECTOR: 0,
+        EXECUTIVE_DIRECTOR: 0,
+        SENIOR_MANAGER: 0,
+        BUSINESS_MANAGER: 0,
+        AGENT: 0,
+      },
+    );
+  }, [members]);
+
+  const totalMembers = useMemo(() => {
+    const response = membersData as MembersApiResponse | undefined;
+
+    return (
+      response?.totalMembers ||
+      response?.total ||
+      response?.count ||
+      response?.meta?.total ||
+      members.length + 1
+    );
+  }, [members.length, membersData]);
+
+  const currentRole = path.length === 0 ? 'FOUNDER' : ROLE_FLOW[path.length - 1];
+  const currentParent = path[path.length - 1] ?? null;
+
+  const hasReportMapping = useMemo(() => {
+    return members.some((member) => Boolean(getReportsToId(member)));
+  }, [members]);
+
+  const directorMembers = useMemo(() => {
+    return members.filter((member) => member.role === 'DIRECTOR');
+  }, [members]);
+
+  const directorGroups = useMemo(() => {
+    return groupByBranch(directorMembers);
+  }, [directorMembers]);
+
+  const getChildren = (parent: HierarchyNode, nextRole?: MemberRole) => {
+    if (!nextRole) return [];
+
+    const roleMembers = members.filter((member) => member.role === nextRole);
+
+    if (parent.role === 'FOUNDER') {
+      return roleMembers;
+    }
+
+    const exactChildren = roleMembers.filter((member) => getReportsToId(member) === parent.id);
+
+    if (exactChildren.length > 0) {
+      return exactChildren;
+    }
+
+    return hasReportMapping ? [] : roleMembers;
+  };
+
+  const getNextRole = (member: HierarchyNode) => {
+    if (member.role === 'FOUNDER') return 'DIRECTOR';
+
+    const currentIndex = ROLE_FLOW.indexOf(member.role);
+    return currentIndex >= 0 ? ROLE_FLOW[currentIndex + 1] : undefined;
+  };
+
+  const getDirectReports = (member: HierarchyNode) => {
+    if (member.role === 'FOUNDER') return roleCounts.DIRECTOR;
+
+    const directValue = getDirectNumeric(member, ['directReports', 'directReportsCount']);
+
+    if (typeof directValue === 'number') {
+      return directValue;
+    }
+
+    const nextRole = getNextRole(member);
+    return getChildren(member, nextRole).length;
+  };
+
+  const getTeamSize = (member: HierarchyNode): number => {
+    if (member.role === 'FOUNDER') return totalMembers;
+
+    const directValue = getDirectNumeric(member, [
+      'teamSize',
+      'totalTeam',
+      'teamCount',
+      'taggedCount',
+      'taggedMembers',
+    ]);
+
+    if (typeof directValue === 'number') {
+      return directValue;
+    }
+
+    const nextRole = getNextRole(member);
+    const children = getChildren(member, nextRole);
+
+    if (children.length === 0) return 0;
+
+    return children.reduce((total, child) => total + 1 + getTeamSize(child), 0);
+  };
+
+  const getCardStats = (member: HierarchyNode) => {
+    const directReports = getDirectReports(member);
+    const teamSize = getTeamSize(member);
+    const hasNextLevel = Boolean(getNextRole(member)) && directReports > 0;
+
+    return {
+      teamSize,
+      directReports,
+      hasNextLevel,
+    };
+  };
+
+  const currentItems = useMemo<HierarchyNode[]>(() => {
+    if (currentRole === 'FOUNDER') return [FOUNDER];
+
+    const roleMembers = members.filter((member) => member.role === currentRole);
+
+    if (!currentParent) return roleMembers;
+
+    if (currentParent.role === 'FOUNDER') return roleMembers;
+
+    const exactChildren = roleMembers.filter((member) => getReportsToId(member) === currentParent.id);
+
+    if (exactChildren.length > 0) return exactChildren;
+
+    return hasReportMapping ? [] : roleMembers;
+  }, [currentParent, currentRole, hasReportMapping, members]);
+
+  const searchResults = useMemo(() => {
+    const query = search.trim().toLowerCase();
+
+    if (!query) return [];
+
+    const searchable = [FOUNDER, ...members];
+
+    return searchable.filter((member) => {
+      const haystack = [
+        member.fullName,
+        ROLE_LABELS[member.role],
+        getBranchName(member),
+        member.phone,
+        member.email,
+        member.memberId,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+
+      return haystack.includes(query);
+    });
+  }, [members, search]);
+
+  const visibleItems = search.trim() ? searchResults : currentItems;
+
+  const pageTitle = useMemo(() => {
+    if (search.trim()) return `Search Results (${visibleItems.length})`;
+
+    if (currentRole === 'FOUNDER') return 'Level 1 — Founder';
+
+    const title = ROLE_PAGE_TITLES[currentRole];
+
+    if (!currentParent || currentParent.role === 'FOUNDER') {
+      return `${title} (${visibleItems.length})`;
+    }
+
+    return `${title} reporting to ${currentParent.fullName}`;
+  }, [currentParent, currentRole, search, visibleItems.length]);
+
+  const canGoBack = path.length > 0;
+
+  const showFounderOnly = !search.trim() && currentRole === 'FOUNDER';
+
+  const showDirectorBranchGroups =
+    !search.trim() &&
+    currentRole === 'DIRECTOR' &&
+    currentParent?.role === 'FOUNDER';
+
+  function handleViewTeam(member: HierarchyNode) {
+    const nextRole = getNextRole(member);
+
+    if (!nextRole) {
+      setSelectedMember(member);
+      return;
+    }
+
+    setSelectedMember(null);
+    setSearch('');
+
+    setPath((previousPath) => {
+      if (member.role === 'FOUNDER') return [FOUNDER];
+
+      const basePath = previousPath.length === 0 ? [FOUNDER] : previousPath;
+      const existingIndex = basePath.findIndex((item) => item.id === member.id);
+
+      if (existingIndex >= 0) {
+        return basePath.slice(0, existingIndex + 1);
+      }
+
+      return [...basePath, member];
+    });
+  }
+
+  function handleBreadcrumbClick(index: number) {
+    setSearch('');
+    setSelectedMember(null);
+    setPath(path.slice(0, index + 1));
+  }
+
+  function handleReset() {
+    setSearch('');
+    setSelectedMember(null);
+    setPath([]);
+  }
+
+  const selectedStats = selectedMember
+    ? getCardStats(selectedMember)
+    : {
+        teamSize: 0,
+        directReports: 0,
+        hasNextLevel: false,
+      };
+
+  return (
+    <div className="min-h-full bg-[#f6f7fb] px-4 py-4 sm:px-5 lg:px-6">
+      <div className="mx-auto w-full max-w-[1320px] space-y-5">
+        <section className="overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_12px_32px_rgba(15,20,25,0.045)]">
+          <div className="border-b border-slate-100 px-5 py-4 sm:px-6">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h1 className="text-[22px] font-black leading-tight text-slate-950 sm:text-[25px]">
+                  Members Hierarchy
+                </h1>
+                <p className="mt-1 text-[12px] font-semibold text-slate-500">
+                  Manage organization structure and reporting hierarchy
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
+                <StatPill label="Total Members" value={formatNumber(totalMembers)} />
+                <StatPill label="Founder" value={1} />
+              </div>
+            </div>
+          </div>
+
+          <div className="border-b border-slate-100 px-5 py-3.5 sm:px-6">
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
+                <IconSearch />
+              </span>
+
+              <input
+                type="search"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search member..."
+                className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-4 text-[13px] font-semibold text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#c9a227] focus:bg-white focus:ring-4 focus:ring-[#c9a227]/10"
+              />
+            </div>
+          </div>
+
+          <div className="px-5 py-3.5 sm:px-6">
+            <div className="flex flex-wrap gap-2 text-[10px] font-black uppercase tracking-[0.07em]">
+              <span className="rounded-full bg-slate-950 px-3 py-1.5 text-white">
+                Total: {formatNumber(totalMembers)}
+              </span>
+
+              <span className="rounded-full bg-[#fbf8ef] px-3 py-1.5 text-[#8a6a08]">
+                Founder 1
+              </span>
+
+              <span className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700">
+                Director {formatNumber(roleCounts.DIRECTOR)}
+              </span>
+
+              <span className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700">
+                Deputy {formatNumber(roleCounts.DEPUTY_DIRECTOR)}
+              </span>
+
+              <span className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700">
+                Executive {formatNumber(roleCounts.EXECUTIVE_DIRECTOR)}
+              </span>
+
+              <span className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700">
+                Managers {formatNumber(roleCounts.SENIOR_MANAGER + roleCounts.BUSINESS_MANAGER)}
+              </span>
+
+              <span className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700">
+                Agents {formatNumber(roleCounts.AGENT)}
+              </span>
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-[0_12px_32px_rgba(15,20,25,0.04)] sm:p-6">
+          <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div className="min-w-0">
+              <div className="mb-2.5 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleReset}
+                  className="rounded-full bg-[#0f1419] px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.08em] text-white transition hover:bg-slate-700"
+                >
+                  Founder
+                </button>
+
+                {path.slice(1).map((item, index) => (
+                  <React.Fragment key={item.id}>
+                    <IconChevronRight className="h-3.5 w-3.5 text-slate-300" />
+                    <button
+                      type="button"
+                      onClick={() => handleBreadcrumbClick(index + 1)}
+                      className="rounded-full bg-slate-100 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.08em] text-slate-700 transition hover:bg-[#fbf8ef] hover:text-[#8a6a08]"
+                    >
+                      {item.fullName}
+                    </button>
+                  </React.Fragment>
+                ))}
+              </div>
+
+              <h2 className="text-[19px] font-black leading-tight text-slate-950 sm:text-[22px]">
+                {pageTitle}
+              </h2>
+
+              <p className="mt-1 text-[12px] font-semibold text-slate-500">
+                Click a card for details. Use View Team to drill into the next level.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {canGoBack && !search.trim() && (
+                <button
+                  type="button"
+                  onClick={() => setPath((previousPath) => previousPath.slice(0, -1))}
+                  className="h-9 rounded-xl border border-slate-200 bg-white px-3.5 text-[11px] font-black text-slate-700 transition hover:bg-slate-50"
+                >
+                  Back
+                </button>
+              )}
+
+              {(search.trim() || canGoBack) && (
+                <button
+                  type="button"
+                  onClick={handleReset}
+                  className="h-9 rounded-xl bg-slate-950 px-3.5 text-[11px] font-black text-white transition hover:bg-slate-700"
+                >
+                  Reset
+                </button>
+              )}
+            </div>
+          </div>
+
+          {isLoading ? (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              {Array.from({ length: 8 }).map((_, index) => (
+                <div
+                  key={index}
+                  className="h-[218px] animate-pulse rounded-[18px] border border-slate-200 bg-slate-100"
+                />
+              ))}
+            </div>
+          ) : visibleItems.length === 0 ? (
+            <div className="rounded-[18px] border border-dashed border-slate-300 bg-slate-50 px-5 py-14 text-center">
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-slate-400 shadow-sm">
+                <IconUser />
+              </div>
+              <p className="mt-3 text-[14px] font-black text-slate-800">No members found</p>
+              <p className="mt-1 text-[12px] font-semibold text-slate-500">
+                Try another search or check the reporting mapping in member data.
+              </p>
+            </div>
+          ) : showFounderOnly ? (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <HierarchyCard
+                member={FOUNDER}
+                teamSize={getCardStats(FOUNDER).teamSize}
+                directReports={getCardStats(FOUNDER).directReports}
+                hasNextLevel={getCardStats(FOUNDER).hasNextLevel}
+                onOpen={() => setSelectedMember(FOUNDER)}
+                onViewTeam={() => handleViewTeam(FOUNDER)}
+              />
+            </div>
+          ) : showDirectorBranchGroups ? (
+            <div className="space-y-4">
+              {directorGroups.map((group) => (
+                <BranchGroup
+                  key={group.branchName}
+                  branchName={group.branchName}
+                  members={group.members}
+                  getCardStats={getCardStats}
+                  onOpen={setSelectedMember}
+                  onViewTeam={handleViewTeam}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              {visibleItems.map((member) => {
+                const stats = getCardStats(member);
+
+                return (
+                  <HierarchyCard
+                    key={`${member.role}-${member.id}`}
+                    member={member}
+                    teamSize={stats.teamSize}
+                    directReports={stats.directReports}
+                    hasNextLevel={stats.hasNextLevel}
+                    onOpen={() => setSelectedMember(member)}
+                    onViewTeam={() => handleViewTeam(member)}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </section>
+      </div>
+
+      <MemberDrawer
+        open={Boolean(selectedMember)}
+        member={selectedMember}
+        teamSize={selectedStats.teamSize}
+        directReports={selectedStats.directReports}
+        hasNextLevel={selectedStats.hasNextLevel}
+        onClose={() => setSelectedMember(null)}
+        onViewTeam={() => {
+          if (selectedMember) handleViewTeam(selectedMember);
+        }}
       />
     </div>
   );
 };
 
-export default MembersPage;
+export default SuperAdminDashboardPage;

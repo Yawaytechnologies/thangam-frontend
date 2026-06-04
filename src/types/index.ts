@@ -219,6 +219,11 @@ export interface Billing {
   settlementNotes?: string;
   termsConditions?: string;
   signatureUrl?: string;
+  bankName?: string;
+  favourOf?: string;
+  chequeNumber?: string;
+  chequeDate?: string;
+  gpayReference?: string;
   status: BillingStatus;
   billingDate: string;
   createdAt: string;
