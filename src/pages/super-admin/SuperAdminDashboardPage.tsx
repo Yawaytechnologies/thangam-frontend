@@ -7,7 +7,8 @@ import {
   useReorderTopPerformers,
   useToggleFreeze,
 } from '../../hooks/useTopPerformers';
-import { useMembers } from '../../hooks/useMembers';
+import { useMembers, useMember } from '../../hooks/useMembers';
+import { Modal } from '../../components/ui/Modal';
 import type { DbTopPerformer } from '../../api/top-performers.api';
 
 const MEMBER_ROLES = [
@@ -169,6 +170,50 @@ function DragHandle({ disabled }: { disabled: boolean }) {
   );
 }
 
+function MemberInfoItem({
+  label,
+  value,
+  wide = false,
+  formatValue,
+}: {
+  label: string;
+  value?: string | number | null;
+  wide?: boolean;
+  formatValue: (value?: string | number | null) => string;
+}) {
+  return (
+    <div
+      className={`min-w-0 rounded-[16px] border border-slate-100 bg-slate-50/80 p-3.5 ${
+        wide ? 'sm:col-span-2 lg:col-span-4' : ''
+      }`}
+    >
+      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">{label}</p>
+      <p className="mt-1.5 break-words text-[13px] font-extrabold leading-5 text-slate-900 [overflow-wrap:anywhere]">
+        {formatValue(value)}
+      </p>
+    </div>
+  );
+}
+
+function MemberSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="min-w-0 rounded-[22px] border border-slate-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,20,25,0.04)] sm:p-5">
+      <div className="mb-4 flex items-center gap-2">
+        <span className="h-2 w-2 rounded-full bg-[#c9a227]" />
+        <h3 className="text-[12px] font-black uppercase tracking-[0.14em] text-slate-700">{title}</h3>
+      </div>
+
+      {children}
+    </section>
+  );
+}
+
 // ─── KPI Cards ───────────────────────────────────────────────────────────────
 
 const KPI_CONFIG = [
@@ -259,9 +304,11 @@ function KpiCard({
 function PerformerCard({
   performer,
   isFrozen,
+  onViewProfile,
 }: {
   performer: DbTopPerformer;
   isFrozen: boolean;
+  onViewProfile: (id: string) => void;
 }) {
   const avatarUrl = getAvatarUrl(performer.member);
   const rankIsFirst = performer.rank === 1;
@@ -336,11 +383,240 @@ function PerformerCard({
 
       <button
         type="button"
+        onClick={() => onViewProfile(performer.member.id)}
         className="mt-5 h-10 w-full rounded-[10px] border border-dashed border-[#d9d5c6] bg-[#faf9f4] text-[11px] font-black text-[#9b7a09] transition hover:border-gold hover:bg-gold/10"
       >
         View Profile
       </button>
     </article>
+  );
+}
+
+// ─── Member Profile Modal ─────────────────────────────────────────────────
+
+function MemberProfileModal({
+  id,
+  open,
+  onClose,
+}: {
+  id: string | null;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const memberQuery = useMember(id ?? '');
+
+  if (!open) return null;
+
+  const m = memberQuery.data;
+
+  const formatValue = (value?: string | number | null) => {
+    if (value === 0) return '0';
+    if (!value) return '—';
+    return String(value);
+  };
+
+  const formatDate = (value?: string | null) => {
+    if (!value) return '—';
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '—';
+
+    return date.toLocaleDateString('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+  };
+
+  const getSafeDate = () => {
+    if (!m) return undefined;
+
+    const record = m as typeof m & {
+      created_at?: string;
+      createdAt?: string;
+    };
+
+    return record.createdAt ?? record.created_at;
+  };
+
+  const avatarSrc = m?.photo || m?.avatarUrl || m?.profileImage || '';
+  const roleLabel = m?.role ? ROLE_BADGES[m.role] ?? m.role.replace(/_/g, ' ') : 'MEMBER';
+
+  const fullAddress = m
+    ? [m.address, m.city, m.district, m.state, m.pincode].filter(Boolean).join(', ')
+    : '';
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Member Profile"
+      subtitle={m?.fullName ? `Complete profile details of ${m.fullName}` : 'View member details'}
+      size="4xl"
+      contentClassName="bg-slate-50"
+    >
+      {memberQuery.isLoading ? (
+        <div className="flex min-h-[360px] items-center justify-center px-6 py-16">
+          <div className="text-center">
+            <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-[#c9a227]" />
+            <p className="mt-4 text-sm font-semibold text-slate-500">Loading member profile...</p>
+          </div>
+        </div>
+      ) : memberQuery.isError ? (
+        <div className="flex min-h-[320px] items-center justify-center px-6 py-16">
+          <div className="rounded-2xl border border-red-100 bg-red-50 px-6 py-5 text-center">
+            <p className="text-sm font-black text-red-600">Unable to load member details.</p>
+            <p className="mt-1 text-xs font-semibold text-red-400">Please try again.</p>
+          </div>
+        </div>
+      ) : m ? (
+        <div className="min-w-0">
+          <div className="relative overflow-hidden bg-gradient-to-br from-[#0f1419] via-[#151d2c] to-[#1a2332] px-4 py-5 sm:px-6 sm:py-6">
+            <div className="absolute -right-20 -top-24 h-56 w-56 rounded-full bg-[#c9a227]/25 blur-3xl" />
+            <div className="absolute -bottom-28 left-10 h-56 w-56 rounded-full bg-white/10 blur-3xl" />
+
+            <div className="relative flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 items-center gap-4">
+                <div className="flex h-[78px] w-[78px] shrink-0 items-center justify-center overflow-hidden rounded-[22px] border border-white/15 bg-white/10 shadow-xl">
+                  {avatarSrc ? (
+                    <img
+                      src={avatarSrc}
+                      alt={m.fullName}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center bg-white/15 text-[22px] font-black text-white">
+                      {getInitials(m.fullName)}
+                    </div>
+                  )}
+                </div>
+
+                <div className="min-w-0">
+                  <h3 className="break-words text-[24px] font-black leading-tight text-white sm:text-[28px]">
+                    {m.fullName}
+                  </h3>
+
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-[#c9a227] px-3 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-[#0f1419]">
+                      {roleLabel}
+                    </span>
+
+                    <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-white">
+                      {formatValue(m.memberId ?? m.id)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="shrink-0 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 backdrop-blur">
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/55">
+                  Status
+                </p>
+                <div className="mt-1 flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
+                  <p className="text-sm font-black uppercase text-white">
+                    {formatValue(m.status)}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="relative mt-5 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl border border-white/10 bg-white/10 p-3 backdrop-blur">
+                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-white/50">
+                  Joined
+                </p>
+                <p className="mt-1 text-sm font-black text-white">
+                  {formatDate(getSafeDate())}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-white/10 p-3 backdrop-blur">
+                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-white/50">
+                  Branch
+                </p>
+                <p className="mt-1 break-words text-sm font-black text-white [overflow-wrap:anywhere]">
+                  {formatValue(m.branch?.name)}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-white/10 p-3 backdrop-blur">
+                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-white/50">
+                  Reporting To
+                </p>
+                <p className="mt-1 break-words text-sm font-black text-white [overflow-wrap:anywhere]">
+                  {formatValue(m.reportsTo?.fullName)}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-4 p-4 sm:p-6">
+            <MemberSection title="Quick Info">
+              <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <MemberInfoItem label="Member ID" value={m.memberId ?? m.id} formatValue={formatValue} />
+                <MemberInfoItem label="Code Number" value={m.codeNumber} formatValue={formatValue} />
+                <MemberInfoItem label="Phone" value={m.phone} formatValue={formatValue} />
+                <MemberInfoItem label="Alternate Phone" value={m.alternatePhone} formatValue={formatValue} />
+                <MemberInfoItem label="Email" value={m.email} wide formatValue={formatValue} />
+                <MemberInfoItem label="Address" value={fullAddress} wide formatValue={formatValue} />
+              </div>
+            </MemberSection>
+
+            <div className="grid min-w-0 gap-4 lg:grid-cols-2">
+              <MemberSection title="Personal Profile">
+                <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+                  <MemberInfoItem label="Gender" value={m.gender} formatValue={formatValue} />
+                  <MemberInfoItem label="Date of Birth" value={formatDate(m.dateOfBirth)} formatValue={formatValue} />
+                  <MemberInfoItem label="Blood Group" value={m.bloodGroup} formatValue={formatValue} />
+                  <MemberInfoItem label="Qualification" value={m.qualification} formatValue={formatValue} />
+                  <MemberInfoItem label="Experience" value={m.experience} formatValue={formatValue} />
+                </div>
+              </MemberSection>
+
+              <MemberSection title="Branch Details">
+                <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+                  <MemberInfoItem label="Branch" value={m.branch?.name} formatValue={formatValue} />
+                  <MemberInfoItem label="Reporting To" value={m.reportsTo?.fullName} formatValue={formatValue} />
+                  <MemberInfoItem label="City" value={m.city} formatValue={formatValue} />
+                  <MemberInfoItem label="District" value={m.district} formatValue={formatValue} />
+                  <MemberInfoItem label="State" value={m.state} formatValue={formatValue} />
+                  <MemberInfoItem label="Pincode" value={m.pincode} formatValue={formatValue} />
+                </div>
+              </MemberSection>
+            </div>
+
+            <div className="grid min-w-0 gap-4 lg:grid-cols-2">
+              <MemberSection title="Bank & Nominee">
+                <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+                  <MemberInfoItem label="Bank Name" value={m.bankName} formatValue={formatValue} />
+                  <MemberInfoItem label="Account Holder" value={m.accountHolder} formatValue={formatValue} />
+                  <MemberInfoItem label="Account Number" value={m.accountNumber} formatValue={formatValue} />
+                  <MemberInfoItem label="IFSC Code" value={m.ifscCode} formatValue={formatValue} />
+                  <MemberInfoItem label="Bank Branch" value={m.bankBranch} formatValue={formatValue} />
+                  <MemberInfoItem label="Nominee" value={m.nomineeName} formatValue={formatValue} />
+                  <MemberInfoItem label="Relation" value={m.nomineeRelation} formatValue={formatValue} />
+                  <MemberInfoItem label="Nominee Phone" value={m.nomineePhone} formatValue={formatValue} />
+                </div>
+              </MemberSection>
+
+              <MemberSection title="Document IDs">
+                <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+                  <MemberInfoItem label="PAN Number" value={m.panNumber} formatValue={formatValue} />
+                  <MemberInfoItem label="Aadhaar Number" value={m.aadhaarNumber} formatValue={formatValue} />
+                  <MemberInfoItem label="Voter ID" value={m.voterIdNumber} formatValue={formatValue} />
+                  <MemberInfoItem label="Driving License" value={m.drivingLicense} formatValue={formatValue} />
+                </div>
+              </MemberSection>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="flex min-h-[320px] items-center justify-center px-6 py-16">
+          <p className="text-sm font-semibold text-slate-500">No member details available.</p>
+        </div>
+      )}
+    </Modal>
   );
 }
 
@@ -827,6 +1103,7 @@ const SuperAdminDashboardPage: React.FC = () => {
   const [manageOpen, setManageOpen] = useState(false);
   const [unfreezeOpen, setUnfreezeOpen] = useState(false);
   const [toastOpen, setToastOpen] = useState(false);
+  const [viewMemberId, setViewMemberId] = useState<string | null>(null);
 
   const isFrozen = topData?.froze ?? false;
   const performerGroups = topData?.performers ?? [];
@@ -997,6 +1274,7 @@ const SuperAdminDashboardPage: React.FC = () => {
                           key={performer.id}
                           performer={performer}
                           isFrozen={isFrozen}
+                          onViewProfile={(id) => setViewMemberId(id)}
                         />
                       ))}
                     </div>
@@ -1017,6 +1295,8 @@ const SuperAdminDashboardPage: React.FC = () => {
           setUnfreezeOpen(true);
         }}
       />
+
+      <MemberProfileModal id={viewMemberId} open={!!viewMemberId} onClose={() => setViewMemberId(null)} />
 
       <UnfreezeConfirmModal
         open={unfreezeOpen}

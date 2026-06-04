@@ -22,12 +22,6 @@ const PencilIcon = () => (
   </svg>
 );
 
-const TrashIcon = () => (
-  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-  </svg>
-);
 
 const BuildingIcon = () => (
   <svg className="w-12 h-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -72,6 +66,8 @@ interface CreateBranchModalProps {
 function CreateBranchModal({ open, onClose }: CreateBranchModalProps) {
   const create = useCreateBranch();
   const [form, setForm] = useState<CreateBranchData>({ name: '' });
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -142,6 +138,67 @@ function CreateBranchModal({ open, onClose }: CreateBranchModalProps) {
           </div>
         </div>
 
+        {/* Admin ID */}
+        <div>
+          <label className={labelClass}>Admin ID</label>
+          <input
+            type="text"
+            placeholder="UUID"
+            value={form.adminId ?? ''}
+            onChange={(e) => field('adminId', e.target.value)}
+            className={inputClass}
+          />
+        </div>
+
+        {/* Branch Images upload */}
+        <div>
+          <label className={labelClass}>Branch Images (Optional)</label>
+          <div
+            className="border-2 border-dashed border-gray-200 rounded-xl p-6 flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-gold transition-colors bg-gray-50"
+            onClick={() => imageInputRef.current?.click()}
+          >
+            <input
+              type="file"
+              multiple
+              accept="image/jpeg,image/png,image/webp"
+              ref={imageInputRef}
+              className="hidden"
+              onChange={(e) => {
+                const files = Array.from(e.target.files || []);
+                setImageFiles(files);
+                setForm((f) => ({ ...f, images: files }));
+              }}
+            />
+            <UploadIcon />
+            <p className="text-sm font-medium text-gray-600">Click to upload or drag &amp; drop</p>
+            <p className="text-xs text-gray-400">JPEG, PNG, WebP up to 5 MB each</p>
+            {imageFiles.length > 0 && (
+              <div className="mt-3 w-full">
+                <p className="text-xs font-medium text-gray-600 mb-2">Selected files ({imageFiles.length}):</p>
+                <div className="flex flex-wrap gap-2">
+                  {imageFiles.map((file, idx) => (
+                    <span key={idx} className="inline-flex items-center gap-1 bg-gold/10 text-gold text-xs px-2 py-1 rounded">
+                      {file.name}
+                      <button
+                        type="button"
+                        className="text-gold hover:text-gold/70"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const updated = imageFiles.filter((_, i) => i !== idx);
+                          setImageFiles(updated);
+                          setForm((f) => ({ ...f, images: updated }));
+                        }}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Location Address */}
         <div>
           <label className={labelClass}>Location Address</label>
@@ -203,15 +260,7 @@ function CreateBranchModal({ open, onClose }: CreateBranchModalProps) {
           </div>
         </div>
 
-        {/* Image upload placeholder */}
-        <div>
-          <label className={labelClass}>Branch Image</label>
-          <div className="border-2 border-dashed border-gray-200 rounded-xl p-6 flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-gold transition-colors bg-gray-50">
-            <UploadIcon />
-            <p className="text-sm font-medium text-gray-600">Click to upload or drag &amp; drop</p>
-            <p className="text-xs text-gray-400">PNG, JPG up to 10MB</p>
-          </div>
-        </div>
+
 
         <div className="flex justify-end gap-3 pt-2">
           <button
@@ -317,6 +366,8 @@ function EditBranchModal({ open, onClose, branch }: EditBranchModalProps) {
           </div>
         </div>
 
+
+
         <div>
           <label className={labelClass}>Location Address</label>
           <div className="relative">
@@ -416,10 +467,19 @@ function ViewBranchModal({ open, onClose, branch }: ViewBranchModalProps) {
   return (
     <Modal open={open} onClose={onClose} title="Branch Details" size="xl">
       {/* Hero */}
-      <div className="rounded-xl overflow-hidden relative h-48 bg-gray-800 mb-6 flex items-end">
-        <div className="absolute inset-0 flex items-center justify-center">
-          <BuildingIcon />
-        </div>
+      <div
+        className="rounded-xl overflow-hidden relative h-48 mb-6 flex items-end"
+        style={
+          branch.images && branch.images.length > 0
+            ? { backgroundImage: `url(${branch.images[0]})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+            : undefined
+        }
+      >
+        {!branch.images?.length && (
+          <div className="absolute inset-0 bg-gray-800 flex items-center justify-center">
+            <BuildingIcon />
+          </div>
+        )}
         <div className="absolute inset-0 bg-linear-to-t from-black/70 to-transparent" />
         <div className="relative z-10 p-4 w-full flex items-end justify-between">
           <div>
@@ -492,17 +552,29 @@ interface BranchCardProps {
   branch: Branch;
   onView: (b: Branch) => void;
   onEdit: (b: Branch) => void;
-  onDelete: (b: Branch) => void;
+  onToggleStatus: (b: Branch) => void;
 }
 
-function BranchCard({ branch, onView, onEdit, onDelete }: BranchCardProps) {
+function BranchCard({ branch, onView, onEdit, onToggleStatus }: BranchCardProps) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
       {/* Image area */}
-      <div className="h-40 bg-gray-200 relative flex items-center justify-center">
-        <BuildingIcon />
+      <div
+        className="h-40 relative flex items-center justify-center overflow-hidden"
+        style={
+          branch.images && branch.images.length > 0
+            ? { backgroundImage: `url(${branch.images[0]})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+            : undefined
+        }
+      >
+        {!branch.images?.length && (
+          <div className="absolute inset-0 bg-gray-200 flex items-center justify-center">
+            <BuildingIcon />
+          </div>
+        )}
+        <div className="absolute inset-0 bg-black/10" />
         {/* Status badge overlay */}
-        <div className="absolute top-3 right-3">
+        <div className="absolute top-3 right-3 z-10">
           <StatusBadge status={branch.status} />
         </div>
       </div>
@@ -529,7 +601,7 @@ function BranchCard({ branch, onView, onEdit, onDelete }: BranchCardProps) {
       </div>
 
       {/* Card footer */}
-      <div className="border-t border-gray-100 px-4 pt-3 pb-4 flex items-center justify-between">
+      <div className="border-t border-gray-100 px-4 pt-3 pb-4 flex items-center justify-between gap-2">
         <button
           type="button"
           onClick={() => onView(branch)}
@@ -548,11 +620,14 @@ function BranchCard({ branch, onView, onEdit, onDelete }: BranchCardProps) {
           </button>
           <button
             type="button"
-            onClick={() => onDelete(branch)}
-            className="p-1.5 rounded-lg text-gray-500 hover:bg-red-50 hover:text-red-600 transition-colors"
-            aria-label="Delete branch"
+            onClick={() => onToggleStatus(branch)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              branch.status === 'ACTIVE'
+                ? 'bg-red-50 text-red-600 hover:bg-red-100'
+                : 'bg-green-50 text-green-700 hover:bg-green-100'
+            }`}
           >
-            <TrashIcon />
+            {branch.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
           </button>
         </div>
       </div>
@@ -588,14 +663,18 @@ const BranchesPage: React.FC = () => {
 
   const activeCount = branches.filter((b) => b.status === 'ACTIVE').length;
 
-  function handleDelete(b: Branch) {
-    if (b.status === 'INACTIVE') {
-      alert(`Branch "${b.name}" is already inactive.`);
+  function handleToggleStatus(b: Branch) {
+    const nextStatus = b.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+
+    if (b.status === nextStatus) {
       return;
     }
-    if (window.confirm(`Deactivate branch "${b.name}"? Members and admins will lose access.`)) {
-      updateBranchStatus.mutate({ id: b.id, status: 'INACTIVE' });
+
+    if (nextStatus === 'INACTIVE' && !window.confirm(`Deactivate branch "${b.name}"? Members and admins will lose access.`)) {
+      return;
     }
+
+    updateBranchStatus.mutate({ id: b.id, status: nextStatus });
   }
 
   return (
@@ -671,7 +750,7 @@ const BranchesPage: React.FC = () => {
               branch={b}
               onView={setViewBranch}
               onEdit={setEditBranch}
-              onDelete={handleDelete}
+              onToggleStatus={handleToggleStatus}
             />
           ))}
         </div>

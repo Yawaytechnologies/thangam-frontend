@@ -70,6 +70,7 @@ export interface Branch {
   district?: string;
   state?: string;
   pincode?: string;
+  images?: string[];
   status: BranchStatus;
   createdAt: string;
   _count?: { admins: number; members: number };
@@ -92,8 +93,11 @@ export interface Member {
   memberId: string;
   fullName: string;
   phone: string;
+  alternatePhone?: string;
   email?: string;
   photo?: string;
+  avatarUrl?: string;
+  profileImage?: string;
   role: Role;
   branchId: string;
   branch?: Branch;
@@ -101,6 +105,28 @@ export interface Member {
   reportsTo?: Member;
   codeNumber?: string;
   status: UserStatus;
+  gender?: string;
+  dateOfBirth?: string;
+  bloodGroup?: string;
+  qualification?: string;
+  experience?: string;
+  address?: string;
+  city?: string;
+  district?: string;
+  state?: string;
+  pincode?: string;
+  panNumber?: string;
+  aadhaarNumber?: string;
+  voterIdNumber?: string;
+  drivingLicense?: string;
+  nomineeName?: string;
+  nomineeRelation?: string;
+  nomineePhone?: string;
+  bankName?: string;
+  accountHolder?: string;
+  accountNumber?: string;
+  ifscCode?: string;
+  bankBranch?: string;
   createdAt: string;
 }
 

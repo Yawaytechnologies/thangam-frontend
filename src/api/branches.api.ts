@@ -12,12 +12,13 @@ export interface CreateBranchData {
   name: string;
   branchType?: string;
   phone?: string;
-  email?: string;
   address?: string;
   city?: string;
   district?: string;
   state?: string;
   pincode?: string;
+  images?: File[];
+  adminId?: string;
 }
 
 export type UpdateBranchData = Partial<CreateBranchData>;
@@ -29,8 +30,23 @@ export const branchesApi = {
   getOne: (id: string): Promise<Branch> =>
     api.get(`/branches/${id}`).then((r) => r.data.data),
 
-  create: (data: CreateBranchData): Promise<Branch> =>
-    api.post('/branches', data).then((r) => r.data.data),
+  create: (data: CreateBranchData): Promise<Branch> => {
+    const formData = new FormData();
+    Object.entries(data).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        if (key === 'images' && Array.isArray(value)) {
+          value.forEach((file: File) => {
+            formData.append('images', file);
+          });
+        } else if (!(value instanceof File)) {
+          formData.append(key, String(value));
+        }
+      }
+    });
+    return api.post('/branches', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data.data);
+  },
 
   update: (id: string, data: UpdateBranchData): Promise<Branch> =>
     api.put(`/branches/${id}`, data).then((r) => r.data.data),
