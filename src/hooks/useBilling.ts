@@ -62,3 +62,16 @@ export function useUpdateBillingStatus() {
     },
   });
 }
+
+export function useUploadBillingSignature() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, file }: { id: string; file: File }) =>
+      billingApi.uploadSignature(id, file),
+    onSuccess: (_data, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['billing', id] });
+      queryClient.invalidateQueries({ queryKey: ['billing'] });
+    },
+  });
+}

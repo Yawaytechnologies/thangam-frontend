@@ -73,8 +73,6 @@ export const membersApi = {
   uploadPhoto: (id: string, file: File): Promise<Member> => {
     const form = new FormData();
     form.append('file', file);
-    return api.post(`/members/${id}/photo`, form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    }).then((r) => r.data.data);
+    return api.post(`/members/${id}/photo`, form, { skipAuthRedirect: true }).then((r) => r.data.data);
   },
 };
