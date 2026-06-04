@@ -170,6 +170,50 @@ function DragHandle({ disabled }: { disabled: boolean }) {
   );
 }
 
+function MemberInfoItem({
+  label,
+  value,
+  wide = false,
+  formatValue,
+}: {
+  label: string;
+  value?: string | number | null;
+  wide?: boolean;
+  formatValue: (value?: string | number | null) => string;
+}) {
+  return (
+    <div
+      className={`min-w-0 rounded-[16px] border border-slate-100 bg-slate-50/80 p-3.5 ${
+        wide ? 'sm:col-span-2 lg:col-span-4' : ''
+      }`}
+    >
+      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">{label}</p>
+      <p className="mt-1.5 break-words text-[13px] font-extrabold leading-5 text-slate-900 [overflow-wrap:anywhere]">
+        {formatValue(value)}
+      </p>
+    </div>
+  );
+}
+
+function MemberSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="min-w-0 rounded-[22px] border border-slate-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,20,25,0.04)] sm:p-5">
+      <div className="mb-4 flex items-center gap-2">
+        <span className="h-2 w-2 rounded-full bg-[#c9a227]" />
+        <h3 className="text-[12px] font-black uppercase tracking-[0.14em] text-slate-700">{title}</h3>
+      </div>
+
+      {children}
+    </section>
+  );
+}
+
 // ─── KPI Cards ───────────────────────────────────────────────────────────────
 
 const KPI_CONFIG = [
@@ -402,48 +446,6 @@ function MemberProfileModal({
     ? [m.address, m.city, m.district, m.state, m.pincode].filter(Boolean).join(', ')
     : '';
 
-  const InfoItem = ({
-    label,
-    value,
-    wide = false,
-  }: {
-    label: string;
-    value?: string | number | null;
-    wide?: boolean;
-  }) => (
-    <div
-      className={`min-w-0 rounded-[16px] border border-slate-100 bg-slate-50/80 p-3.5 ${
-        wide ? 'sm:col-span-2 lg:col-span-4' : ''
-      }`}
-    >
-      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
-        {label}
-      </p>
-      <p className="mt-1.5 break-words text-[13px] font-extrabold leading-5 text-slate-900 [overflow-wrap:anywhere]">
-        {formatValue(value)}
-      </p>
-    </div>
-  );
-
-  const Section = ({
-    title,
-    children,
-  }: {
-    title: string;
-    children: React.ReactNode;
-  }) => (
-    <section className="min-w-0 rounded-[22px] border border-slate-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,20,25,0.04)] sm:p-5">
-      <div className="mb-4 flex items-center gap-2">
-        <span className="h-2 w-2 rounded-full bg-[#c9a227]" />
-        <h3 className="text-[12px] font-black uppercase tracking-[0.14em] text-slate-700">
-          {title}
-        </h3>
-      </div>
-
-      {children}
-    </section>
-  );
-
   return (
     <Modal
       open={open}
@@ -550,62 +552,62 @@ function MemberProfileModal({
           </div>
 
           <div className="space-y-4 p-4 sm:p-6">
-            <Section title="Quick Info">
+            <MemberSection title="Quick Info">
               <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <InfoItem label="Member ID" value={m.memberId ?? m.id} />
-                <InfoItem label="Code Number" value={m.codeNumber} />
-                <InfoItem label="Phone" value={m.phone} />
-                <InfoItem label="Alternate Phone" value={m.alternatePhone} />
-                <InfoItem label="Email" value={m.email} wide />
-                <InfoItem label="Address" value={fullAddress} wide />
+                <MemberInfoItem label="Member ID" value={m.memberId ?? m.id} formatValue={formatValue} />
+                <MemberInfoItem label="Code Number" value={m.codeNumber} formatValue={formatValue} />
+                <MemberInfoItem label="Phone" value={m.phone} formatValue={formatValue} />
+                <MemberInfoItem label="Alternate Phone" value={m.alternatePhone} formatValue={formatValue} />
+                <MemberInfoItem label="Email" value={m.email} wide formatValue={formatValue} />
+                <MemberInfoItem label="Address" value={fullAddress} wide formatValue={formatValue} />
               </div>
-            </Section>
+            </MemberSection>
 
             <div className="grid min-w-0 gap-4 lg:grid-cols-2">
-              <Section title="Personal Profile">
+              <MemberSection title="Personal Profile">
                 <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-                  <InfoItem label="Gender" value={m.gender} />
-                  <InfoItem label="Date of Birth" value={formatDate(m.dateOfBirth)} />
-                  <InfoItem label="Blood Group" value={m.bloodGroup} />
-                  <InfoItem label="Qualification" value={m.qualification} />
-                  <InfoItem label="Experience" value={m.experience} />
+                  <MemberInfoItem label="Gender" value={m.gender} formatValue={formatValue} />
+                  <MemberInfoItem label="Date of Birth" value={formatDate(m.dateOfBirth)} formatValue={formatValue} />
+                  <MemberInfoItem label="Blood Group" value={m.bloodGroup} formatValue={formatValue} />
+                  <MemberInfoItem label="Qualification" value={m.qualification} formatValue={formatValue} />
+                  <MemberInfoItem label="Experience" value={m.experience} formatValue={formatValue} />
                 </div>
-              </Section>
+              </MemberSection>
 
-              <Section title="Branch Details">
+              <MemberSection title="Branch Details">
                 <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-                  <InfoItem label="Branch" value={m.branch?.name} />
-                  <InfoItem label="Reporting To" value={m.reportsTo?.fullName} />
-                  <InfoItem label="City" value={m.city} />
-                  <InfoItem label="District" value={m.district} />
-                  <InfoItem label="State" value={m.state} />
-                  <InfoItem label="Pincode" value={m.pincode} />
+                  <MemberInfoItem label="Branch" value={m.branch?.name} formatValue={formatValue} />
+                  <MemberInfoItem label="Reporting To" value={m.reportsTo?.fullName} formatValue={formatValue} />
+                  <MemberInfoItem label="City" value={m.city} formatValue={formatValue} />
+                  <MemberInfoItem label="District" value={m.district} formatValue={formatValue} />
+                  <MemberInfoItem label="State" value={m.state} formatValue={formatValue} />
+                  <MemberInfoItem label="Pincode" value={m.pincode} formatValue={formatValue} />
                 </div>
-              </Section>
+              </MemberSection>
             </div>
 
             <div className="grid min-w-0 gap-4 lg:grid-cols-2">
-              <Section title="Bank & Nominee">
+              <MemberSection title="Bank & Nominee">
                 <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-                  <InfoItem label="Bank Name" value={m.bankName} />
-                  <InfoItem label="Account Holder" value={m.accountHolder} />
-                  <InfoItem label="Account Number" value={m.accountNumber} />
-                  <InfoItem label="IFSC Code" value={m.ifscCode} />
-                  <InfoItem label="Bank Branch" value={m.bankBranch} />
-                  <InfoItem label="Nominee" value={m.nomineeName} />
-                  <InfoItem label="Relation" value={m.nomineeRelation} />
-                  <InfoItem label="Nominee Phone" value={m.nomineePhone} />
+                  <MemberInfoItem label="Bank Name" value={m.bankName} formatValue={formatValue} />
+                  <MemberInfoItem label="Account Holder" value={m.accountHolder} formatValue={formatValue} />
+                  <MemberInfoItem label="Account Number" value={m.accountNumber} formatValue={formatValue} />
+                  <MemberInfoItem label="IFSC Code" value={m.ifscCode} formatValue={formatValue} />
+                  <MemberInfoItem label="Bank Branch" value={m.bankBranch} formatValue={formatValue} />
+                  <MemberInfoItem label="Nominee" value={m.nomineeName} formatValue={formatValue} />
+                  <MemberInfoItem label="Relation" value={m.nomineeRelation} formatValue={formatValue} />
+                  <MemberInfoItem label="Nominee Phone" value={m.nomineePhone} formatValue={formatValue} />
                 </div>
-              </Section>
+              </MemberSection>
 
-              <Section title="Document IDs">
+              <MemberSection title="Document IDs">
                 <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-                  <InfoItem label="PAN Number" value={m.panNumber} />
-                  <InfoItem label="Aadhaar Number" value={m.aadhaarNumber} />
-                  <InfoItem label="Voter ID" value={m.voterIdNumber} />
-                  <InfoItem label="Driving License" value={m.drivingLicense} />
+                  <MemberInfoItem label="PAN Number" value={m.panNumber} formatValue={formatValue} />
+                  <MemberInfoItem label="Aadhaar Number" value={m.aadhaarNumber} formatValue={formatValue} />
+                  <MemberInfoItem label="Voter ID" value={m.voterIdNumber} formatValue={formatValue} />
+                  <MemberInfoItem label="Driving License" value={m.drivingLicense} formatValue={formatValue} />
                 </div>
-              </Section>
+              </MemberSection>
             </div>
           </div>
         </div>

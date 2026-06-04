@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import type { UpdateMemberData } from '../../api/members.api';
 import { useBranches } from '../../hooks/useBranches';
 import { useMembers, useUpdateMember, useUploadMemberPhoto } from '../../hooks/useMembers';
@@ -1289,14 +1289,14 @@ const MembersPage: React.FC = () => {
       activeFilters.role !== 'ALL',
   );
 
-  function getNextRole(member: HierarchyNode) {
+  const getNextRole = useCallback((member: HierarchyNode) => {
     if (member.role === 'FOUNDER') return 'DIRECTOR';
 
     const currentIndex = ROLE_FLOW.indexOf(member.role);
     return currentIndex >= 0 ? ROLE_FLOW[currentIndex + 1] : undefined;
-  }
+  }, []);
 
-  function getChildren(parent: HierarchyNode, nextRole?: MemberRole) {
+  const getChildren = useCallback((parent: HierarchyNode, nextRole?: MemberRole) => {
     if (!nextRole) return [];
 
     const roleMembers = members.filter((member) => member.role === nextRole);
@@ -1308,7 +1308,7 @@ const MembersPage: React.FC = () => {
     if (exactChildren.length > 0) return exactChildren;
 
     return hasReportMapping ? [] : roleMembers;
-  }
+  }, [hasReportMapping, members]);
 
   function getDirectReports(member: HierarchyNode) {
     if (member.role === 'FOUNDER') return roleCounts.DIRECTOR;
@@ -1354,7 +1354,8 @@ const MembersPage: React.FC = () => {
     };
   }
 
-  function memberMatchesFilters(member: HierarchyNode) {
+  const memberMatchesFilters = useCallback(
+    (member: HierarchyNode) => {
     const globalQuery = activeFilters.global.trim().toLowerCase();
     const memberIdQuery = activeFilters.memberId.trim().toLowerCase();
     const phoneQuery = activeFilters.phone.trim().toLowerCase();
@@ -1391,12 +1392,14 @@ const MembersPage: React.FC = () => {
       .join(' ')
       .toLowerCase();
 
-    return searchable.includes(globalQuery);
-  }
+      return searchable.includes(globalQuery);
+    },
+    [activeFilters.global, activeFilters.memberId, activeFilters.phone, activeFilters.role],
+  );
 
   const filteredMembers = useMemo(() => {
     return [FOUNDER, ...members].filter((member) => memberMatchesFilters(member));
-  }, [members, activeFilters]);
+  }, [members, memberMatchesFilters]);
 
   const directorMembers = useMemo(() => {
     return members.filter((member) => member.role === 'DIRECTOR');
@@ -1411,7 +1414,7 @@ const MembersPage: React.FC = () => {
 
     const nextRole = getNextRole(currentParent);
     return getChildren(currentParent, nextRole);
-  }, [currentParent, members, hasReportMapping]);
+  }, [currentParent, getChildren, getNextRole]);
 
   const pageTitle = useMemo(() => {
     if (isFilterActive) return `Search Results (${filteredMembers.length})`;
@@ -1427,7 +1430,7 @@ const MembersPage: React.FC = () => {
     }
 
     return `${ROLE_LABELS[nextRole]}s reporting to ${currentParent.fullName}`;
-  }, [currentParent, directorMembers.length, filteredMembers.length, isFilterActive]);
+  }, [currentParent, directorMembers.length, filteredMembers.length, getNextRole, isFilterActive]);
 
   function handleTopSearch(value: string) {
     setDraftFilters((previous) => ({
