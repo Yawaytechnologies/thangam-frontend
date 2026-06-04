@@ -31,10 +31,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   const [query, setQuery] = useState('');
 
   const selectedOption = options.find((option) => option.value === value);
-
-  useEffect(() => {
-    if (!open) setQuery(selectedOption?.label ?? '');
-  }, [open, selectedOption?.label]);
+  const inputValue = open ? query : selectedOption?.label ?? '';
 
   useEffect(() => {
     const handleClick = (event: MouseEvent) => {
@@ -67,14 +64,20 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
     setOpen(false);
   };
 
+  const openDropdown = () => {
+    if (!open) setQuery('');
+    setOpen(true);
+  };
+
   return (
     <div ref={rootRef} className={`relative ${className}`}>
       <input
         type="text"
-        value={query}
+        value={inputValue}
         disabled={disabled}
         placeholder={loading ? 'Loading members...' : placeholder}
-        onFocus={() => setOpen(true)}
+        onFocus={openDropdown}
+        onClick={openDropdown}
         onChange={handleInputChange}
         className="h-10 w-full border-0 border-b border-gray-200 bg-amber-50/30 px-0 pr-8 text-sm font-medium text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-teal-700 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
         role="combobox"

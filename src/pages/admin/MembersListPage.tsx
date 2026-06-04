@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
@@ -199,7 +199,7 @@ const CreateMemberModal: React.FC<{
     handleSubmit,
     reset,
     setValue,
-    watch,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<MemberFormData>({
     resolver: zodResolver(memberSchema),
@@ -210,8 +210,14 @@ const CreateMemberModal: React.FC<{
     },
   });
 
-  const reportsToMembers = reportsToResponse?.data ?? [];
-  const selectedReportsToId = watch('reportsToId') ?? '';
+  const reportsToMembers = useMemo(
+    () => reportsToResponse?.data ?? [],
+    [reportsToResponse?.data],
+  );
+  const selectedReportsToId = useWatch({
+    control,
+    name: 'reportsToId',
+  }) ?? '';
   const reportsToOptions = useMemo<SearchableSelectOption[]>(() => {
     return reportsToMembers.map((member) => ({
       value: member.id,
