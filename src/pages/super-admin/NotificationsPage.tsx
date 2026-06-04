@@ -302,7 +302,10 @@ const SuperAdminNotificationsPage: React.FC = () => {
   });
 
   const branchesQuery = useBranches({ limit: 100 });
-  const branches = branchesQuery.data?.data ?? [];
+  const branches = useMemo(
+    () => branchesQuery.data?.data ?? [],
+    [branchesQuery.data?.data],
+  );
 
   const markRead = useMarkRead();
   const markAllRead = useMarkAllRead();
