@@ -502,7 +502,6 @@ function ViewBranchModal({ open, onClose, branch }: ViewBranchModalProps) {
             { label: 'Official Name', value: branch.name },
             { label: 'Branch Code', value: branch.branchCode },
             { label: 'Registered Phone', value: branch.phone ?? '—' },
-            { label: 'Email', value: branch.email ?? '—' },
             { label: 'City', value: branch.city ?? '—' },
             { label: 'State', value: branch.state ?? '—' },
             { label: 'Established', value: new Date(branch.createdAt).toLocaleDateString('en-IN') },
@@ -590,8 +589,8 @@ function BranchCard({ branch, onView, onEdit, onToggleStatus }: BranchCardProps)
         {/* 2-col stats */}
         <div className="grid grid-cols-2 gap-2">
           <div className="bg-gray-50 rounded-lg p-2">
-            <p className="text-xs text-gray-400 uppercase tracking-wide mb-0.5">Manager</p>
-            <p className="text-xs font-medium text-gray-700 truncate">{branch.email ?? '—'}</p>
+            <p className="text-xs text-gray-400 uppercase tracking-wide mb-0.5">Phone</p>
+            <p className="text-xs font-medium text-gray-700 truncate">{branch.phone ?? '—'}</p>
           </div>
           <div className="bg-gray-50 rounded-lg p-2">
             <p className="text-xs text-gray-400 uppercase tracking-wide mb-0.5">Members</p>
