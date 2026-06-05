@@ -139,8 +139,14 @@ export interface Property {
   propertyType: PropertyType;
   squareFeet?: number;
   workflowStatus: WorkflowStatus;
+  address?: string;
   city?: string;
+  district?: string;
   state?: string;
+  pincode?: string;
+  mapLocation?: string;
+  branchId?: string;
+  approvalStatus?: string;
   createdAt: string;
   // detail-view fields (returned by getOne)
   bookingCount?: number;

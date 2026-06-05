@@ -1,12 +1,15 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   useProperties,
   useCreateProperty,
+  useProperty,
   useUpdateProperty,
   useUpdatePropertyWorkflow,
   useUploadPropertyImages,
+  usePropertyDocuments,
 } from '../../hooks/useProperties';
-import { useBranches } from '../../hooks/useBranches';
+import { useDocumentUrl, useUploadDocument } from '../../hooks/useDocuments';
+import { resolveFileUrl } from '../../lib/file-url';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Pagination } from '../../components/ui/Pagination';
 import { SearchInput } from '../../components/ui/SearchInput';
@@ -63,6 +66,75 @@ function stepState(
 
 function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function stringField(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function mapPropertyToEditForm(property: Property): UpdatePropertyData {
+  return {
+    propertyName: property.propertyName,
+    propertyCode: property.propertyId,
+    projectName: property.projectName,
+    plotNumber: property.plotNumber,
+    propertyType: property.propertyType,
+    squareFeet: property.squareFeet,
+    address: property.address ?? '',
+    city: property.city ?? '',
+    district: property.district ?? '',
+    state: property.state ?? '',
+    pincode: property.pincode ?? '',
+    mapLocation: property.mapLocation ?? '',
+  };
+}
+
+function firstPropertyImageUrl(property: Property) {
+  const extra = property as Property & Record<string, unknown>;
+  const first = property.images?.[0];
+
+  if (typeof first === 'string') return resolveFileUrl(first);
+
+  const image = first as ({ url?: string; imageUrl?: string; documentUrl?: string } & Record<string, unknown>) | undefined;
+
+  return resolveFileUrl(
+    image?.url ||
+      stringField(image?.imageUrl) ||
+      stringField(image?.image_url) ||
+      stringField(image?.documentUrl) ||
+      stringField(extra.propertyImageUrl) ||
+      stringField(extra.property_image_url) ||
+      stringField(extra.imageUrl) ||
+      stringField(extra.image_url) ||
+      stringField(extra.thumbnail) ||
+      stringField(extra.thumbnailUrl),
+  );
+}
+
+function propertyImageUrls(property: Property): string[] {
+  const extra = property as Property & Record<string, unknown>;
+  const list = Array.isArray(property.images) ? property.images : [];
+
+  return Array.from(
+    new Set(
+      list
+        .map((item) => {
+          if (typeof item === 'string') return resolveFileUrl(item);
+          const image = item as { url?: string; imageUrl?: string; documentUrl?: string } & Record<string, unknown>;
+          return resolveFileUrl(
+            image?.url ||
+              stringField(image?.imageUrl) ||
+              stringField(image?.image_url) ||
+              stringField(image?.documentUrl) ||
+              stringField(extra.propertyImageUrl) ||
+              stringField(extra.property_image_url) ||
+              stringField(extra.imageUrl) ||
+              stringField(extra.image_url),
+          );
+        })
+        .filter(Boolean),
+    ),
+  );
 }
 
 // ─── SVG Icons ───────────────────────────────────────────────────────────────
@@ -143,6 +215,28 @@ function WorkflowProgressBar({ status }: { status: WorkflowStatus }) {
 
 // ─── Property Card ────────────────────────────────────────────────────────────
 
+function ImagePreviewModal({
+  open,
+  onClose,
+  imageUrl,
+  title,
+}: {
+  open: boolean;
+  onClose: () => void;
+  imageUrl: string;
+  title: string;
+}) {
+  if (!open || !imageUrl) return null;
+
+  return (
+    <Modal open={open} onClose={onClose} title={title} size="3xl">
+      <div className="p-2">
+        <img src={imageUrl} alt={title} className="max-h-[70vh] w-full rounded-xl object-contain bg-gray-100" />
+      </div>
+    </Modal>
+  );
+}
+
 function PropertyCard({
   property,
   onView,
@@ -154,15 +248,36 @@ function PropertyCard({
 }) {
   const isSold = property.workflowStatus === 'COMPLETED';
   const location = [property.city, property.state].filter(Boolean).join(', ') || 'Location not set';
+  const [imageFailed, setImageFailed] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const imageUrl = imageFailed ? '' : firstPropertyImageUrl(property);
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
       {/* Image area */}
       <div className="h-44 relative bg-gradient-to-br from-navy-mid to-navy flex items-end overflow-hidden">
-        {/* Placeholder gradient as background */}
-        <div className="absolute inset-0 bg-gradient-to-br from-navy via-navy-mid to-gray-800 opacity-90" />
-        <div className="absolute inset-0 opacity-10"
-          style={{ backgroundImage: 'radial-gradient(circle at 30% 50%, #c9a227 0%, transparent 60%)' }} />
+        {imageUrl ? (
+          <button
+            type="button"
+            onClick={() => setPreviewOpen(true)}
+            className="absolute inset-0 block h-full w-full cursor-zoom-in"
+            aria-label={`View image for ${property.propertyName}`}
+          >
+            <img
+              src={imageUrl}
+              alt={property.propertyName}
+              className="h-full w-full object-cover"
+              onError={() => setImageFailed(true)}
+            />
+          </button>
+        ) : (
+          <>
+            <div className="absolute inset-0 bg-gradient-to-br from-navy via-navy-mid to-gray-800 opacity-90" />
+            <div className="absolute inset-0 opacity-10"
+              style={{ backgroundImage: 'radial-gradient(circle at 30% 50%, #c9a227 0%, transparent 60%)' }} />
+          </>
+        )}
+        {imageUrl && <div className="absolute inset-0 bg-black/20" />}
 
         {/* Status badge top-left */}
         <div className="absolute top-3 left-3">
@@ -214,6 +329,13 @@ function PropertyCard({
         </div>
       </div>
 
+      <ImagePreviewModal
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        imageUrl={imageUrl}
+        title={property.propertyName}
+      />
+
       {/* Footer */}
       <div className="border-t border-gray-100 px-4 pt-3 pb-4 flex gap-2 mt-auto">
         <button
@@ -238,28 +360,81 @@ function PropertyCard({
 function CreatePropertyModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const create = useCreateProperty();
   const uploadPropertyImages = useUploadPropertyImages();
+  const uploadDocument = useUploadDocument();
   const [form, setForm] = useState<CreatePropertyData>({
     propertyName: '',
+    propertyCode: '',
     projectName: '',
     plotNumber: '',
     propertyType: 'RESIDENTIAL',
+    squareFeet: 0,
+    address: '',
+    city: '',
+    district: '',
+    state: '',
+    pincode: '',
+    mapLocation: '',
   });
   const [propertyImageFiles, setPropertyImageFiles] = useState<File[]>([]);
+  const [propertyDocumentFiles, setPropertyDocumentFiles] = useState<File[]>([]);
+  const [submitError, setSubmitError] = useState('');
 
   function handleClose() {
-    setForm({ propertyName: '', projectName: '', plotNumber: '', propertyType: 'RESIDENTIAL' });
+    setForm({
+      propertyName: '',
+      propertyCode: '',
+      projectName: '',
+      plotNumber: '',
+      propertyType: 'RESIDENTIAL',
+      squareFeet: 0,
+      address: '',
+      city: '',
+      district: '',
+      state: '',
+      pincode: '',
+      mapLocation: '',
+    });
     setPropertyImageFiles([]);
+    setPropertyDocumentFiles([]);
+    setSubmitError('');
     onClose();
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    create.mutate(form, {
-      onSuccess: (newProperty) => {
-        if (propertyImageFiles.length > 0) uploadPropertyImages.mutate({ id: newProperty.id, files: propertyImageFiles });
-        handleClose();
-      },
-    });
+    setSubmitError('');
+
+    try {
+      const newProperty = await create.mutateAsync({
+        ...form,
+        squareFeet: Number(form.squareFeet) || undefined,
+      });
+
+      if (!newProperty?.id) {
+        throw new Error('Property created but no ID was returned.');
+      }
+
+      await Promise.all([
+        propertyImageFiles.length > 0
+          ? uploadPropertyImages.mutateAsync({ id: newProperty.id, files: propertyImageFiles })
+          : Promise.resolve(),
+        ...propertyDocumentFiles.map((file) =>
+          uploadDocument.mutateAsync({
+            entityType: 'property',
+            entityId: newProperty.id,
+            documentType: 'LAYOUT_DOCUMENT',
+            file,
+          }),
+        ),
+      ]);
+
+      handleClose();
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message
+        : 'Property creation failed. Please try again.';
+      setSubmitError(message);
+    }
   }
 
   const inputCls = 'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white';
@@ -293,6 +468,38 @@ function CreatePropertyModal({ open, onClose }: { open: boolean; onClose: () => 
               />
             </div>
 
+            <div>
+              <label className={labelCls}>Property Code</label>
+              <input
+                type="text"
+                value={form.propertyCode ?? ''}
+                onChange={(e) => setForm((f) => ({ ...f, propertyCode: e.target.value || undefined }))}
+                className={inputCls}
+                placeholder="e.g. PROP-001"
+              />
+            </div>
+
+            <div>
+              <label className={labelCls}>Project Name</label>
+              <input
+                type="text"
+                value={form.projectName}
+                onChange={(e) => setForm((f) => ({ ...f, projectName: e.target.value }))}
+                className={inputCls}
+                placeholder="e.g. Sri Thangam Project"
+              />
+            </div>
+
+            <div>
+              <label className={labelCls}>Plot Number</label>
+              <input
+                type="text"
+                value={form.plotNumber}
+                onChange={(e) => setForm((f) => ({ ...f, plotNumber: e.target.value }))}
+                className={inputCls}
+                placeholder="e.g. 12A"
+              />
+            </div>
 
             <div>
               <label className={labelCls}>Property Type *</label>
@@ -309,19 +516,48 @@ function CreatePropertyModal({ open, onClose }: { open: boolean; onClose: () => 
             </div>
 
             <div>
-              <label className={labelCls}>Property Location</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
-                  <PinIcon className="w-3.5 h-3.5" />
-                </span>
-                <input
-                  type="text"
-                  value={form.city ?? ''}
-                  onChange={(e) => setForm((f) => ({ ...f, city: e.target.value || undefined }))}
-                  className={`${inputCls} pl-8`}
-                  placeholder="City"
-                />
-              </div>
+              <label className={labelCls}>Square Feet</label>
+              <input
+                type="number"
+                min="0"
+                value={form.squareFeet ?? 0}
+                onChange={(e) => setForm((f) => ({ ...f, squareFeet: Number(e.target.value) || 0 }))}
+                className={inputCls}
+                placeholder="0"
+              />
+            </div>
+
+            <div>
+              <label className={labelCls}>Address</label>
+              <input
+                type="text"
+                value={form.address ?? ''}
+                onChange={(e) => setForm((f) => ({ ...f, address: e.target.value || undefined }))}
+                className={inputCls}
+                placeholder="Street / Area"
+              />
+            </div>
+
+            <div>
+              <label className={labelCls}>City</label>
+              <input
+                type="text"
+                value={form.city ?? ''}
+                onChange={(e) => setForm((f) => ({ ...f, city: e.target.value || undefined }))}
+                className={inputCls}
+                placeholder="City"
+              />
+            </div>
+
+            <div>
+              <label className={labelCls}>District</label>
+              <input
+                type="text"
+                value={form.district ?? ''}
+                onChange={(e) => setForm((f) => ({ ...f, district: e.target.value || undefined }))}
+                className={inputCls}
+                placeholder="District"
+              />
             </div>
 
             <div>
@@ -331,7 +567,29 @@ function CreatePropertyModal({ open, onClose }: { open: boolean; onClose: () => 
                 value={form.state ?? ''}
                 onChange={(e) => setForm((f) => ({ ...f, state: e.target.value || undefined }))}
                 className={inputCls}
-                placeholder="e.g. Tamil Nadu"
+                placeholder="Tamil Nadu"
+              />
+            </div>
+
+            <div>
+              <label className={labelCls}>Pincode</label>
+              <input
+                type="text"
+                value={form.pincode ?? ''}
+                onChange={(e) => setForm((f) => ({ ...f, pincode: e.target.value || undefined }))}
+                className={inputCls}
+                placeholder="600001"
+              />
+            </div>
+
+            <div>
+              <label className={labelCls}>Map Location</label>
+              <input
+                type="text"
+                value={form.mapLocation ?? ''}
+                onChange={(e) => setForm((f) => ({ ...f, mapLocation: e.target.value || undefined }))}
+                className={inputCls}
+                placeholder="Google Maps / URL"
               />
             </div>
 
@@ -343,7 +601,7 @@ function CreatePropertyModal({ open, onClose }: { open: boolean; onClose: () => 
               <span>Media &amp; Notes</span>
             </div>
 
-            {/* Upload box */}
+            {/* Upload boxes */}
             <div>
               <label className={labelCls}>Upload Property Images</label>
               <input
@@ -354,6 +612,21 @@ function CreatePropertyModal({ open, onClose }: { open: boolean; onClose: () => 
                 className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gold-50 file:text-gold-700 hover:file:bg-gold-100"
               />
             </div>
+
+            <div>
+              <label className={labelCls}>Upload Property Documents</label>
+              <input
+                type="file"
+                accept=".pdf,.doc,.docx,image/*"
+                multiple
+                onChange={(e) => setPropertyDocumentFiles(Array.from(e.target.files ?? []))}
+                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gold-50 file:text-gold-700 hover:file:bg-gold-100"
+              />
+            </div>
+
+            {submitError ? (
+              <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{submitError}</p>
+            ) : null}
 
             {/* Description */}
             <div>
@@ -378,10 +651,12 @@ function CreatePropertyModal({ open, onClose }: { open: boolean; onClose: () => 
           </button>
           <button
             type="submit"
-            disabled={create.isPending}
+            disabled={create.isPending || uploadPropertyImages.isPending || uploadDocument.isPending}
             className="bg-gold text-navy font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 text-sm"
           >
-            {create.isPending ? 'Creating…' : '+ Create Property'}
+            {create.isPending || uploadPropertyImages.isPending || uploadDocument.isPending
+              ? 'Creating & Uploading…'
+              : '+ Create Property'}
           </button>
         </div>
       </form>
@@ -390,6 +665,22 @@ function CreatePropertyModal({ open, onClose }: { open: boolean; onClose: () => 
 }
 
 // ─── Property Detail Modal ────────────────────────────────────────────────────
+
+function DocumentPreviewButton({ doc }: { doc: { id: string; documentType: string; documentUrl: string } }) {
+  const { data } = useDocumentUrl(doc.id);
+  const fileUrl = data?.signedUrl || doc.documentUrl;
+
+  return (
+    <button
+      type="button"
+      onClick={() => window.open(resolveFileUrl(fileUrl), '_blank', 'noopener,noreferrer')}
+      className="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-700 hover:bg-gray-50"
+    >
+      <span className="truncate pr-2">{doc.documentType}</span>
+      <span className="text-gold font-semibold">View</span>
+    </button>
+  );
+}
 
 function PropertyDetailModal({
   property,
@@ -404,7 +695,23 @@ function PropertyDetailModal({
 }) {
   if (!property) return null;
 
+  const docs = usePropertyDocuments(property.id);
+  const imageUrls = propertyImageUrls(property);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewImageUrl, setPreviewImageUrl] = useState('');
+  const [imagePage, setImagePage] = useState(1);
+  const [docPage, setDocPage] = useState(1);
   const location = [property.city, property.state].filter(Boolean).join(', ') || 'Location not set';
+
+  useEffect(() => {
+    setImagePage(1);
+    setDocPage(1);
+  }, [property.id]);
+
+  const imagePageSize = 4;
+  const docPageSize = 5;
+  const pagedImageUrls = imageUrls.slice((imagePage - 1) * imagePageSize, imagePage * imagePageSize);
+  const pagedDocuments = (docs.data ?? []).slice((docPage - 1) * docPageSize, docPage * docPageSize);
 
   const specs: { label: string; value: string }[] = [
     { label: 'Property ID', value: property.propertyId },
@@ -428,7 +735,19 @@ function PropertyDetailModal({
     <Modal open={open} onClose={onClose} title="" size="2xl">
       {/* Hero */}
       <div className="h-56 rounded-xl relative overflow-hidden mb-6 -mx-0">
-        <div className="absolute inset-0 bg-gradient-to-br from-navy via-navy-mid to-gray-800" />
+        {imageUrls[0] ? (
+          <button
+            type="button"
+            onClick={() => { setPreviewImageUrl(imageUrls[0]); setPreviewOpen(true); }}
+            className="absolute inset-0 block h-full w-full cursor-zoom-in"
+            aria-label={`View main image for ${property.propertyName}`}
+          >
+            <img src={imageUrls[0]} alt={property.propertyName} className="h-full w-full object-cover" />
+          </button>
+        ) : (
+          <div className="absolute inset-0 bg-gradient-to-br from-navy via-navy-mid to-gray-800" />
+        )}
+        {imageUrls[0] && <div className="absolute inset-0 bg-black/25" />}
         <div
           className="absolute inset-0 opacity-20"
           style={{ backgroundImage: 'radial-gradient(circle at 20% 60%, #c9a227 0%, transparent 55%)' }}
@@ -457,6 +776,48 @@ function PropertyDetailModal({
           </div>
         </div>
       </div>
+
+      {imageUrls.length > 1 && (
+        <>
+          <div className="grid grid-cols-4 gap-3 mb-3">
+            {pagedImageUrls.map((url, index) => {
+              const globalIndex = (imagePage - 1) * imagePageSize + index;
+              return (
+                <button
+                  key={`${url}-${globalIndex}`}
+                  type="button"
+                  onClick={() => { setPreviewImageUrl(url); setPreviewOpen(true); }}
+                  className="h-20 w-full overflow-hidden rounded-xl border border-gray-200 cursor-zoom-in"
+                  aria-label={`View image ${globalIndex + 1} for ${property.propertyName}`}
+                >
+                  <img
+                    src={url}
+                    alt={`${property.propertyName} image ${globalIndex + 1}`}
+                    className="h-full w-full object-cover"
+                  />
+                </button>
+              );
+            })}
+          </div>
+          {imageUrls.length > imagePageSize && (
+            <div className="mb-6">
+              <Pagination
+                page={imagePage}
+                total={imageUrls.length}
+                limit={imagePageSize}
+                onPageChange={setImagePage}
+              />
+            </div>
+          )}
+        </>
+      )}
+
+      <ImagePreviewModal
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        imageUrl={previewImageUrl}
+        title={property.propertyName}
+      />
 
       {/* 2-column content */}
       <div className="grid grid-cols-2 gap-6">
@@ -512,33 +873,25 @@ function PropertyDetailModal({
               <span>Documentation</span>
             </div>
             <div className="bg-gray-50 rounded-xl p-4 space-y-3 border border-gray-100">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-600">Registry Documents</span>
-                <span
-                  className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                    property.workflowStatus === 'COMPLETED'
-                      ? 'bg-green-100 text-green-700'
-                      : 'bg-yellow-100 text-yellow-700'
-                  }`}
-                >
-                  {property.workflowStatus === 'COMPLETED' ? 'Verified' : 'Pending'}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-600">Final Verification</span>
-                <span
-                  className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                    property.workflowStatus === 'COMPLETED'
-                      ? 'bg-green-100 text-green-700'
-                      : 'bg-gray-100 text-gray-500'
-                  }`}
-                >
-                  {property.workflowStatus === 'COMPLETED' ? 'Done' : 'In Queue'}
-                </span>
-              </div>
-              <button className="w-full text-xs border border-gold text-gold px-3 py-1.5 rounded-lg hover:bg-gold/10 transition-colors mt-1">
-                View Documents
-              </button>
+              {docs.data?.length ? (
+                <div className="space-y-2">
+                  {pagedDocuments.map((doc) => (
+                    <DocumentPreviewButton key={doc.id} doc={doc} />
+                  ))}
+                  {docs.data.length > docPageSize && (
+                    <div className="pt-1">
+                      <Pagination
+                        page={docPage}
+                        total={docs.data.length}
+                        limit={docPageSize}
+                        onPageChange={setDocPage}
+                      />
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-xs text-gray-500">No documents uploaded yet.</p>
+              )}
             </div>
           </div>
         </div>
@@ -596,13 +949,11 @@ function PropertyDetailModal({
       <div className="flex justify-end gap-2 pt-5 mt-4 border-t border-gray-100">
         <button
           onClick={onClose}
-          className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 text-sm"
+          className="border bg-gold border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 text-sm"
         >
           Close
         </button>
-        <button className="bg-gold text-navy font-semibold px-4 py-2 rounded-lg hover:opacity-90 text-sm">
-          Open Full Property Workspace →
-        </button>
+        
       </div>
     </Modal>
   );
@@ -619,67 +970,72 @@ function EditPropertyModal({
   open: boolean;
   onClose: () => void;
 }) {
+  if (!property) return null;
+
   const update = useUpdateProperty();
   const updateWorkflow = useUpdatePropertyWorkflow();
   const uploadPropertyImages = useUploadPropertyImages();
-  const branchesQuery = useBranches();
-  const branches = branchesQuery.data?.data ?? [];
+  const uploadDocument = useUploadDocument();
+  const propertyDetails = useProperty(property.id);
+  const docs = usePropertyDocuments(property.id);
+  const fullProperty = propertyDetails.data ?? property;
 
-  const [form, setForm] = useState<UpdatePropertyData>(() =>
-    property
-      ? {
-          propertyName: property.propertyName,
-          projectName: property.projectName,
-          plotNumber: property.plotNumber,
-          propertyType: property.propertyType,
-          city: property.city,
-          state: property.state,
-          squareFeet: property.squareFeet,
-        }
-      : {}
-  );
+  const [form, setForm] = useState<UpdatePropertyData>(() => mapPropertyToEditForm(fullProperty));
   const [workflowStatus, setWorkflowStatus] = useState<WorkflowStatus>(
     property?.workflowStatus ?? 'AVAILABLE'
   );
   const [toast, setToast] = useState(false);
   const [editImageFiles, setEditImageFiles] = useState<File[]>([]);
+  const [editDocumentFiles, setEditDocumentFiles] = useState<File[]>([]);
+  const [submitError, setSubmitError] = useState('');
 
-  if (!property) return null;
+  useEffect(() => {
+    setForm(mapPropertyToEditForm(fullProperty));
+    setWorkflowStatus(fullProperty.workflowStatus ?? 'AVAILABLE');
+  }, [fullProperty]);
 
   function handleClose() {
     setEditImageFiles([]);
+    setEditDocumentFiles([]);
+    setSubmitError('');
     onClose();
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const workflowChanged = workflowStatus !== property!.workflowStatus;
+    setSubmitError('');
 
-    update.mutate(
-      { id: property!.id, data: form },
-      {
-        onSuccess: () => {
-          if (editImageFiles.length > 0) uploadPropertyImages.mutate({ id: property!.id, files: editImageFiles });
-          if (workflowChanged) {
-            updateWorkflow.mutate(
-              { id: property!.id, data: { workflowStatus } },
-              {
-                onSuccess: () => {
-                  setToast(true);
-                  setTimeout(() => { setToast(false); handleClose(); }, 1500);
-                },
-              }
-            );
-          } else {
-            setToast(true);
-            setTimeout(() => { setToast(false); handleClose(); }, 1500);
-          }
-        },
-      },
-    );
+    try {
+      const workflowChanged = workflowStatus !== property!.workflowStatus;
+
+      await update.mutateAsync({ id: property!.id, data: form });
+
+      await Promise.all([
+        editImageFiles.length > 0
+          ? uploadPropertyImages.mutateAsync({ id: property!.id, files: editImageFiles })
+          : Promise.resolve(),
+        ...editDocumentFiles.map((file) =>
+          uploadDocument.mutateAsync({
+            entityType: 'property',
+            entityId: property!.id,
+            documentType: 'LAYOUT_DOCUMENT',
+            file,
+          }),
+        ),
+      ]);
+
+      if (workflowChanged) {
+        await updateWorkflow.mutateAsync({ id: property!.id, data: { workflowStatus } });
+      }
+
+      setToast(true);
+      setTimeout(() => { setToast(false); handleClose(); }, 1500);
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : 'Failed to update property. Please try again.');
+    }
   }
 
-  const isPending = update.isPending || updateWorkflow.isPending;
+  const isPending = update.isPending || updateWorkflow.isPending || uploadPropertyImages.isPending || uploadDocument.isPending;
 
   const inputCls = 'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white';
   const labelCls = 'block text-xs font-medium text-gray-600 mb-1';
@@ -717,6 +1073,36 @@ function EditPropertyModal({
           </div>
 
           <div>
+            <label className={labelCls}>Property Code</label>
+            <input
+              type="text"
+              value={form.propertyCode ?? ''}
+              onChange={(e) => setForm((f) => ({ ...f, propertyCode: e.target.value || undefined }))}
+              className={inputCls}
+            />
+          </div>
+
+          <div>
+            <label className={labelCls}>Project Name</label>
+            <input
+              type="text"
+              value={form.projectName ?? ''}
+              onChange={(e) => setForm((f) => ({ ...f, projectName: e.target.value }))}
+              className={inputCls}
+            />
+          </div>
+
+          <div>
+            <label className={labelCls}>Plot Number</label>
+            <input
+              type="text"
+              value={form.plotNumber ?? ''}
+              onChange={(e) => setForm((f) => ({ ...f, plotNumber: e.target.value }))}
+              className={inputCls}
+            />
+          </div>
+
+          <div>
             <label className={labelCls}>Property Type</label>
             <select
               value={form.propertyType ?? ''}
@@ -729,6 +1115,26 @@ function EditPropertyModal({
             </select>
           </div>
 
+          <div>
+            <label className={labelCls}>Square Feet</label>
+            <input
+              type="number"
+              min="0"
+              value={form.squareFeet ?? 0}
+              onChange={(e) => setForm((f) => ({ ...f, squareFeet: Number(e.target.value) || 0 }))}
+              className={inputCls}
+            />
+          </div>
+
+          <div>
+            <label className={labelCls}>Address</label>
+            <input
+              type="text"
+              value={form.address ?? ''}
+              onChange={(e) => setForm((f) => ({ ...f, address: e.target.value || undefined }))}
+              className={inputCls}
+            />
+          </div>
 
           <div>
             <label className={labelCls}>City</label>
@@ -746,6 +1152,16 @@ function EditPropertyModal({
           </div>
 
           <div>
+            <label className={labelCls}>District</label>
+            <input
+              type="text"
+              value={form.district ?? ''}
+              onChange={(e) => setForm((f) => ({ ...f, district: e.target.value || undefined }))}
+              className={inputCls}
+            />
+          </div>
+
+          <div>
             <label className={labelCls}>State</label>
             <input
               type="text"
@@ -755,28 +1171,45 @@ function EditPropertyModal({
             />
           </div>
 
+          <div>
+            <label className={labelCls}>Pincode</label>
+            <input
+              type="text"
+              value={form.pincode ?? ''}
+              onChange={(e) => setForm((f) => ({ ...f, pincode: e.target.value || undefined }))}
+              className={inputCls}
+            />
+          </div>
 
           <div>
-            <label className={labelCls}>Branch</label>
-            <select
-              value={form.branchId ?? ''}
-              onChange={(e) => setForm((f) => ({ ...f, branchId: e.target.value || undefined }))}
+            <label className={labelCls}>Map Location</label>
+            <input
+              type="text"
+              value={form.mapLocation ?? ''}
+              onChange={(e) => setForm((f) => ({ ...f, mapLocation: e.target.value || undefined }))}
               className={inputCls}
-            >
-              <option value="">Select branch</option>
-              {branches.map((b) => (
-                <option key={b.id} value={b.id}>{b.name}</option>
-              ))}
-            </select>
+            />
           </div>
         </div>
 
-        {/* Property Images */}
+        {/* Existing property media */}
         <div className="flex items-center gap-2 text-gold text-xs font-semibold uppercase tracking-wide mb-3">
-          <span>Property Images</span>
+          <span>Existing Property Images</span>
         </div>
+        <div className="mb-4 grid grid-cols-4 gap-3">
+          {propertyImageUrls(property).slice(0, 8).map((url, index) => (
+            <img
+              key={`${property.id}-${index}`}
+              src={url}
+              alt={`${property.propertyName} existing image ${index + 1}`}
+              className="h-20 w-full rounded-xl border border-gray-200 object-cover"
+            />
+          ))}
+          {!propertyImageUrls(property).length && <p className="text-xs text-gray-500 col-span-4">No uploaded images yet.</p>}
+        </div>
+
         <div className="mb-5">
-          <label className={labelCls}>Upload Property Images</label>
+          <label className={labelCls}>Upload More Property Images</label>
           <input
             type="file"
             accept="image/*"
@@ -785,6 +1218,28 @@ function EditPropertyModal({
             className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gold-50 file:text-gold-700 hover:file:bg-gold-100"
           />
         </div>
+
+        <div className="flex items-center gap-2 text-gold text-xs font-semibold uppercase tracking-wide mb-3">
+          <span>Existing Property Documents</span>
+        </div>
+        <div className="mb-4 space-y-2 rounded-xl border border-gray-100 bg-gray-50 p-3">
+          {docs.data?.length ? docs.data.map((doc) => (
+            <DocumentPreviewButton key={doc.id} doc={doc} />
+          )) : <p className="text-xs text-gray-500">No uploaded documents yet.</p>}
+        </div>
+
+        <div className="mb-5">
+          <label className={labelCls}>Upload More Property Documents</label>
+          <input
+            type="file"
+            accept=".pdf,.doc,.docx,image/*"
+            multiple
+            onChange={(e) => setEditDocumentFiles(Array.from(e.target.files ?? []))}
+            className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gold-50 file:text-gold-700 hover:file:bg-gold-100"
+          />
+        </div>
+
+        {submitError ? <p className="mb-4 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{submitError}</p> : null}
 
         {/* Workflow section */}
         <div className="flex items-center gap-2 text-gold text-xs font-semibold uppercase tracking-wide mb-3">
