@@ -1,83 +1,33 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import {
-  AlertTriangle,
   Check,
-  CheckCircle2,
   ClipboardCheck,
-  Clock3,
+  Download,
   ExternalLink,
   FileText,
   GitBranch,
   Home,
   MapPin,
   RefreshCw,
-  Send,
-  ShieldCheck,
   X,
 } from 'lucide-react';
-import { useProperties } from '../../hooks/useProperties';
+import { useProperties, useProperty, usePropertyDocuments, usePropertyWorkflow } from '../../hooks/useProperties';
 import { Pagination } from '../../components/ui/Pagination';
 import { resolveFileUrl } from '../../lib/file-url';
+import type { WorkflowDocument, WorkflowHistoryEntry } from '../../api/properties.api';
 import type { Property, PropertyType, WorkflowStatus } from '../../types';
 
-type PropertyDisplayStatus = 'Active' | 'Sold' | 'Under Verification';
-
-const fallbackCounts = {
-  activeProperties: 142,
-  soldProperties: 86,
-  advancePaid: 24,
-  finalSettlementPending: 12,
-  settlementCompleted: 74,
-};
+type PropertyDisplayStatus = 'Available' | 'In Progress' | 'Completed';
 
 const workflowLabels: Record<WorkflowStatus, string> = {
-  AVAILABLE: 'Active',
+  AVAILABLE: 'Available',
   BOOKING_INITIATED: 'Booking Initiated',
-  TOKEN_RECEIVED: 'Token',
-  ADVANCE_PAYMENT: 'Advance Paid',
-  REGISTRATION_PENDING: 'Registration',
+  TOKEN_RECEIVED: 'Token Received',
+  ADVANCE_PAYMENT: 'Advance Payment',
+  REGISTRATION_PENDING: 'Registration Pending',
   FINAL_SETTLEMENT_PENDING: 'Final Settlement Pending',
-  COMPLETED: 'Settlement Completed',
+  COMPLETED: 'Completed',
 };
-
-const fallbackProperties: Property[] = [
-  {
-    id: 'fallback-green-valley',
-    propertyId: 'STH-2941',
-    propertyName: 'Green Valley Residency',
-    projectName: 'Green Valley Residency',
-    plotNumber: 'A-104',
-    propertyType: 'RESIDENTIAL',
-    workflowStatus: 'FINAL_SETTLEMENT_PENDING',
-    city: 'East Tambaram',
-    state: 'Chennai',
-    createdAt: '2023-10-12T00:00:00.000Z',
-  },
-  {
-    id: 'fallback-thangam-heights',
-    propertyId: 'STH-2848',
-    propertyName: 'Thangam Heights III',
-    projectName: 'Thangam Heights III',
-    plotNumber: 'P-118',
-    propertyType: 'PLOT',
-    workflowStatus: 'COMPLETED',
-    city: 'Oyalur Village',
-    state: 'Kanchipuram',
-    createdAt: '2023-09-15T00:00:00.000Z',
-  },
-  {
-    id: 'fallback-platinum-plaza',
-    propertyId: 'STH-3012',
-    propertyName: 'Sri Platinum Plaza',
-    projectName: 'Sri Platinum Plaza',
-    plotNumber: 'C-22',
-    propertyType: 'COMMERCIAL',
-    workflowStatus: 'REGISTRATION_PENDING',
-    city: 'G.S.T Road',
-    state: 'Chrompet',
-    createdAt: '2024-01-08T00:00:00.000Z',
-  },
-];
 
 function stringField(value: unknown) {
   return typeof value === 'string' ? value : '';
@@ -102,11 +52,11 @@ function firstPropertyImageUrl(property: Property) {
 }
 
 function locationFor(property: Property) {
-  return [property.city, property.state].filter(Boolean).join(', ') || 'East Tambaram, Chennai';
+  return [property.address, property.city, property.district, property.state, property.pincode].filter(Boolean).join(', ') || '-';
 }
 
 function displayName(property: Property) {
-  return property.propertyName || property.projectName || 'The Emerald Grand Estate';
+  return property.propertyName || property.projectName || '-';
 }
 
 function statusKind(status: WorkflowStatus) {
@@ -117,9 +67,9 @@ function statusKind(status: WorkflowStatus) {
 }
 
 function displayStatus(property: Property): PropertyDisplayStatus {
-  if (property.workflowStatus === 'COMPLETED') return 'Sold';
-  if (property.workflowStatus === 'AVAILABLE' || property.workflowStatus === 'FINAL_SETTLEMENT_PENDING') return 'Active';
-  return 'Under Verification';
+  if (property.workflowStatus === 'COMPLETED') return 'Completed';
+  if (property.workflowStatus === 'AVAILABLE') return 'Available';
+  return 'In Progress';
 }
 
 function typeLabel(type: PropertyType) {
@@ -133,7 +83,7 @@ function StatCard({
   accent,
 }: {
   label: string;
-  value: number;
+  value: number | string;
   accent: string;
 }) {
   return (
@@ -165,10 +115,6 @@ function PropertyCard({
   const kind = statusKind(property.workflowStatus);
   const [imageFailed, setImageFailed] = useState(false);
   const imageUrl = imageFailed ? '' : firstPropertyImageUrl(property);
-  const advanceDone = ['ADVANCE_PAYMENT', 'REGISTRATION_PENDING', 'FINAL_SETTLEMENT_PENDING', 'COMPLETED'].includes(
-    property.workflowStatus,
-  );
-  const finalPending = property.workflowStatus === 'FINAL_SETTLEMENT_PENDING';
 
   return (
     <article className="overflow-hidden border border-gray-200 bg-white shadow-sm">
@@ -184,7 +130,7 @@ function PropertyCard({
         <div className="absolute inset-0 bg-black/10" />
         <div className="absolute left-4 top-4 flex gap-2">
           <Pill tone={kind === 'active' ? 'green' : kind === 'danger' ? 'red' : 'gold'}>
-            {displayStatus(property)}
+            {workflowLabels[property.workflowStatus]}
           </Pill>
           <Pill tone="gold">{typeLabel(property.propertyType)}</Pill>
         </div>
@@ -200,23 +146,20 @@ function PropertyCard({
 
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div className="flex items-center gap-2">
-            {advanceDone ? <CheckCircle2 className="h-4 w-4 text-teal-700" /> : <span className="h-4 w-4 rounded-full border border-gray-400" />}
-            <span className={advanceDone ? 'font-semibold text-gray-800' : 'text-gray-400'}>Advance Status</span>
+            <GitBranch className="h-4 w-4 text-gold" />
+            <span className="font-semibold text-gray-800">{workflowLabels[property.workflowStatus]}</span>
           </div>
           <div className="flex items-center gap-2">
-            {finalPending ? <AlertTriangle className="h-4 w-4 text-red-600" /> : <CheckCircle2 className="h-4 w-4 text-teal-700" />}
-            <span className="font-semibold text-gray-800">Final Settlement</span>
+            <Home className="h-4 w-4 text-teal-700" />
+            <span className="font-semibold text-gray-800">Plot: {property.plotNumber || '-'}</span>
           </div>
           <div className="flex items-center gap-2">
             <FileText className="h-4 w-4 text-gold" />
-            <span className="font-semibold text-gray-800">
-              Documents: {kind === 'complete' ? 'Archived' : finalPending ? 'Verified' : 'Pending Legal'}
-            </span>
+            <span className="font-semibold text-gray-800">Property ID: {property.propertyId || '-'}</span>
           </div>
           <div className="flex items-center gap-2">
-            <Clock3 className="h-4 w-4 text-red-600" />
-            <Pill tone={finalPending ? 'red' : 'green'}>
-              {finalPending ? 'Due in 3 days' : kind === 'complete' ? 'Process Complete' : 'Due in 12 days'}
+            <Pill tone={kind === 'complete' ? 'green' : kind === 'danger' ? 'red' : 'gold'}>
+              {workflowLabels[property.workflowStatus]}
             </Pill>
           </div>
         </div>
@@ -257,11 +200,149 @@ function LifecycleStep({
   );
 }
 
+const workflowOrder: WorkflowStatus[] = [
+  'AVAILABLE',
+  'BOOKING_INITIATED',
+  'TOKEN_RECEIVED',
+  'ADVANCE_PAYMENT',
+  'REGISTRATION_PENDING',
+  'FINAL_SETTLEMENT_PENDING',
+  'COMPLETED',
+];
+
+function lifecycleState(status: WorkflowStatus, requiredStatus: WorkflowStatus): 'done' | 'current' | 'pending' {
+  const currentIndex = workflowOrder.indexOf(status);
+  const requiredIndex = workflowOrder.indexOf(requiredStatus);
+  if (currentIndex < requiredIndex) return 'pending';
+  if (currentIndex === requiredIndex && status !== 'COMPLETED') return 'current';
+  return 'done';
+}
+
+function formatWorkflowDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function readableEnum(value: string) {
+  const labels: Record<string, string> = {
+    PROPERTY_IMAGE: 'Property Image',
+    LAYOUT_DOCUMENT: 'Layout Document',
+    SALE_DEED: 'Sale Deed',
+    APPROVAL_DOCUMENT: 'Approval Document',
+    OTHER: 'Other Document',
+  };
+  return labels[value] ?? value.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function isTechnicalUserId(value: string) {
+  return (
+    /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(value) ||
+    /^[0-9a-f]{8,}$/i.test(value) ||
+    /^user\s+[0-9a-f]{8}(?:[0-9a-f-]*)$/i.test(value)
+  );
+}
+
+function workflowActor(entry: WorkflowHistoryEntry) {
+  const extra = entry as unknown as {
+    updatedByUser?: { name?: string; fullName?: string; email?: string };
+    createdByUser?: { name?: string; fullName?: string; email?: string };
+    performedByUser?: { name?: string; fullName?: string; email?: string };
+    performedBy?: string | { name?: string; fullName?: string; email?: string; id?: string };
+  };
+  const performedByObject = typeof extra.performedBy === 'object' ? extra.performedBy : undefined;
+  const user = extra.updatedByUser ?? extra.createdByUser ?? extra.performedByUser ?? performedByObject;
+  const userLabel = user?.fullName || user?.name || user?.email;
+  if (userLabel) return isTechnicalUserId(userLabel) ? 'Admin' : userLabel;
+
+  const actor =
+    typeof extra.performedBy === 'string'
+      ? extra.performedBy.trim()
+      : performedByObject?.id?.trim();
+  if (!actor) return 'System';
+  if (/^system$/i.test(actor)) return 'System';
+  if (/admin/i.test(actor)) return 'Admin';
+  if (isTechnicalUserId(actor)) return 'Admin';
+  return actor;
+}
+
+function workflowDescription(entry: WorkflowHistoryEntry) {
+  const defaultDescription = `Property workflow updated to ${workflowLabels[entry.toStatus]}.`;
+  const remarks = entry.remarks?.trim();
+  if (!remarks) return defaultDescription;
+
+  if (/property workflow updated due to booking status change/i.test(remarks)) {
+    return defaultDescription;
+  }
+
+  let description = remarks;
+  Object.entries(workflowLabels).forEach(([status, label]) => {
+    description = description.replace(new RegExp(`\\b${status}\\b`, 'gi'), label);
+  });
+  description = description.replace(
+    /\b[0-9a-f]{8}-[0-9a-f-]{27}\b/gi,
+    'Admin',
+  );
+
+  return /[.!?]$/.test(description) ? description : `${description}.`;
+}
+
+function cleanWorkflowHistory(entries: WorkflowHistoryEntry[]) {
+  const sorted = [...entries].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+
+  return sorted.filter((entry, index) => {
+    const previous = sorted[index - 1];
+    if (!previous) return true;
+    const sameContent =
+      entry.toStatus === previous.toStatus &&
+      workflowDescription(entry).toLowerCase() === workflowDescription(previous).toLowerCase();
+    const timeDifference = Math.abs(new Date(previous.createdAt).getTime() - new Date(entry.createdAt).getTime());
+    return !sameContent || timeDifference > 5 * 60 * 1000;
+  });
+}
+
+function documentUrl(document: WorkflowDocument) {
+  const extra = document as WorkflowDocument & {
+    url?: string;
+    fileUrl?: string;
+    signedUrl?: string;
+  };
+  const path = extra.signedUrl || extra.fileUrl || extra.url || document.documentUrl;
+  if (!path || ['-', 'null', 'undefined'].includes(path.trim().toLowerCase())) return '';
+  return resolveFileUrl(path);
+}
+
+function documentFileName(document: WorkflowDocument) {
+  const extra = document as WorkflowDocument & { fileName?: string; originalName?: string; name?: string };
+  const explicitName = extra.originalName || extra.fileName || extra.name;
+  if (explicitName) return explicitName;
+
+  const path = document.documentUrl?.split('?')[0];
+  const finalSegment = path?.split('/').filter(Boolean).at(-1);
+  if (!finalSegment) return 'Uploaded';
+  try {
+    return decodeURIComponent(finalSegment);
+  } catch {
+    return finalSegment;
+  }
+}
+
 function PropertyDetailModal({ property, onClose }: { property: Property; onClose: () => void }) {
-  const finalPending = property.workflowStatus === 'FINAL_SETTLEMENT_PENDING';
-  const completed = property.workflowStatus === 'COMPLETED';
+  const { data: latestProperty, isLoading: isPropertyLoading } = useProperty(property.id);
+  const { data: workflowHistory = [], isLoading: isWorkflowLoading } = usePropertyWorkflow(property.id);
+  const { data: documents = [], isLoading: isDocumentsLoading } = usePropertyDocuments(property.id);
+  const detailedProperty = latestProperty ?? property;
+  const visibleWorkflowHistory = cleanWorkflowHistory(workflowHistory);
   const [imageFailed, setImageFailed] = useState(false);
-  const imageUrl = imageFailed ? '' : firstPropertyImageUrl(property);
+  const imageUrl = imageFailed ? '' : firstPropertyImageUrl(detailedProperty);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[1px]">
@@ -271,7 +352,7 @@ function PropertyDetailModal({ property, onClose }: { property: Property; onClos
             {imageUrl && (
               <img
                 src={imageUrl}
-                alt={displayName(property)}
+                alt={displayName(detailedProperty)}
                 onError={() => setImageFailed(true)}
                 className="absolute inset-0 h-full w-full object-cover"
               />
@@ -287,21 +368,23 @@ function PropertyDetailModal({ property, onClose }: { property: Property; onClos
             </button>
             <div className="absolute bottom-6 left-6 right-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
               <div>
-                <Pill tone="gold">{property.propertyType === 'VILLA' ? 'Luxury Villa' : property.propertyType.replace(/_/g, ' ')}</Pill>
-                <h2 className="mt-4 text-3xl font-bold text-white drop-shadow">{displayName(property)}</h2>
+                <Pill tone="gold">{typeLabel(detailedProperty.propertyType)}</Pill>
+                <h2 className="mt-4 text-3xl font-bold text-white drop-shadow">{displayName(detailedProperty)}</h2>
                 <p className="mt-2 flex items-center gap-2 text-sm font-semibold text-white">
                   <MapPin className="h-4 w-4" />
-                  {locationFor(property)}
+                  {locationFor(detailedProperty)}
                 </p>
               </div>
               <div className="grid w-full max-w-md grid-cols-1 gap-2 sm:grid-cols-2">
                 <div className="rounded-sm border border-white/80 bg-white px-4 py-3 text-gray-900 shadow-lg">
-                  <p className="text-[10px] font-black uppercase tracking-wide text-teal-700">Status</p>
-                  <p className="mt-1 text-base font-black uppercase">{completed ? 'Final Settlement' : workflowLabels[property.workflowStatus]}</p>
+                  <p className="text-[10px] font-black uppercase tracking-wide text-teal-700">Workflow Status</p>
+                  <p className="mt-1 text-base font-black uppercase">
+                    {workflowLabels[detailedProperty.workflowStatus]}
+                  </p>
                 </div>
                 <div className="rounded-sm border border-gold bg-white px-4 py-3 text-gray-900 shadow-lg">
                   <p className="text-[10px] font-black uppercase tracking-wide text-gold">Property ID</p>
-                  <p className="mt-1 break-all font-mono text-base font-black">#{property.propertyId}</p>
+                  <p className="mt-1 break-all font-mono text-base font-black">#{detailedProperty.propertyId}</p>
                 </div>
               </div>
             </div>
@@ -314,139 +397,148 @@ function PropertyDetailModal({ property, onClose }: { property: Property; onClos
                   <GitBranch className="h-5 w-5 text-gold" />
                   <h3 className="text-lg font-bold text-gray-900">Property Lifecycle</h3>
                 </div>
+                <p className="mb-5 text-sm font-semibold text-gray-700">
+                  Current status: {workflowLabels[detailedProperty.workflowStatus]}
+                </p>
                 <div className="grid grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr] items-center gap-3">
-                  <LifecycleStep label="Token" state="done" />
-                  <div className="h-px bg-teal-700" />
-                  <LifecycleStep label="Advance" state="done" />
-                  <div className="h-px bg-gold" />
-                  <LifecycleStep label="Registration" state={completed ? 'done' : 'current'} />
+                  <LifecycleStep label="Token" state={lifecycleState(detailedProperty.workflowStatus, 'TOKEN_RECEIVED')} />
                   <div className="h-px bg-stone-200" />
-                  <LifecycleStep label="Settlement" state={completed ? 'done' : 'pending'} />
+                  <LifecycleStep label="Advance" state={lifecycleState(detailedProperty.workflowStatus, 'ADVANCE_PAYMENT')} />
+                  <div className="h-px bg-stone-200" />
+                  <LifecycleStep label="Registration" state={lifecycleState(detailedProperty.workflowStatus, 'REGISTRATION_PENDING')} />
+                  <div className="h-px bg-stone-200" />
+                  <LifecycleStep label="Final Settlement" state={lifecycleState(detailedProperty.workflowStatus, 'FINAL_SETTLEMENT_PENDING')} />
                 </div>
               </section>
 
-              <div className="grid gap-4 md:grid-cols-2">
-                <section className="rounded-lg border border-teal-100 bg-teal-50/40 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-bold uppercase text-teal-700">Advance Payment</p>
-                      <p className="mt-1 text-sm font-bold text-teal-800">Status: Paid</p>
+              <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+                <h3 className="mb-4 text-lg font-bold text-gray-900">Property Details</h3>
+                <div className="grid gap-4 text-sm sm:grid-cols-2">
+                  {[
+                    ['Project', detailedProperty.projectName],
+                    ['Plot Number', detailedProperty.plotNumber],
+                    ['Property Type', typeLabel(detailedProperty.propertyType)],
+                    ['Square Feet', detailedProperty.squareFeet ? String(detailedProperty.squareFeet) : '-'],
+                    ['Approval Status', detailedProperty.approvalStatus || '-'],
+                    ['Map Location', detailedProperty.mapLocation || '-'],
+                  ].map(([label, value]) => (
+                    <div key={label}>
+                      <p className="text-xs font-bold uppercase text-gray-500">{label}</p>
+                      <p className="mt-1 font-semibold text-gray-900">{value}</p>
                     </div>
-                    <ShieldCheck className="h-5 w-5 text-teal-700" />
-                  </div>
-                  <p className="mt-4 text-sm text-gray-700">Date: Oct 12, 2023</p>
-                  <p className="mt-1 text-xs font-semibold italic text-gray-500">Updated by Rajesh Kumar</p>
-                </section>
-
-                <section className="rounded-lg border border-red-100 bg-red-50/50 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-bold uppercase text-red-700">Final Settlement</p>
-                      <p className="mt-1 text-sm font-bold text-red-800">
-                        {finalPending ? 'Pending Final Settlement' : 'Final Settlement Complete'}
-                      </p>
-                    </div>
-                    <AlertTriangle className="h-5 w-5 text-red-600" />
-                  </div>
-                  <div className="mt-4 inline-flex rounded bg-red-100 px-3 py-1 text-sm font-bold text-red-700">
-                    {finalPending ? 'Due in 5 Days' : 'Process Complete'}
-                  </div>
-                  <p className="mt-3 flex items-center gap-2 text-sm text-gray-600">
-                    <Clock3 className="h-4 w-4" />
-                    Awaiting Final Verification
-                  </p>
-                </section>
-              </div>
+                  ))}
+                </div>
+              </section>
 
               <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
-                <div className="mb-5 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <FileText className="h-5 w-5 text-gold" />
-                    <h3 className="text-lg font-bold text-gray-900">Verified Documents</h3>
-                  </div>
-                  <button className="inline-flex items-center gap-1 text-xs font-bold text-gold">
-                    View All
-                    <ExternalLink className="h-3.5 w-3.5" />
-                  </button>
+                <div className="mb-4 flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-gold" />
+                  <h3 className="text-lg font-bold text-gray-900">Property Documents</h3>
                 </div>
-                {['Property Sale Deed', 'Approved Layout Plan'].map((doc, index) => (
-                  <div key={doc} className="flex items-center justify-between gap-4 py-3">
-                    <div className="flex items-center gap-4">
-                      <span className="flex h-10 w-10 items-center justify-center rounded bg-teal-50 text-teal-700">
-                        <FileText className="h-5 w-5" />
-                      </span>
-                      <div>
-                        <p className="text-sm font-bold text-gray-900">{doc}</p>
-                        <p className="text-xs text-gray-500">Verified on Sep {28 + index}, 2023</p>
-                      </div>
+                {isDocumentsLoading ? (
+                  <p className="text-sm text-gray-500">Loading documents...</p>
+                ) : documents.length ? (
+                  <div className="overflow-hidden rounded border border-gray-100">
+                    <div className="grid grid-cols-[1.1fr_1.4fr_auto] gap-3 bg-stone-50 px-4 py-2 text-xs font-bold uppercase text-gray-500">
+                      <span>Document Type</span>
+                      <span>File / Status</span>
+                      <span>Action</span>
                     </div>
-                    <CheckCircle2 className="h-5 w-5 text-teal-700" />
+                    {documents.map((document) => {
+                      const fileUrl = documentUrl(document);
+                      return (
+                        <div
+                          key={document.id}
+                          className="grid grid-cols-[1.1fr_1.4fr_auto] items-center gap-3 border-t border-gray-100 px-4 py-3"
+                        >
+                          <div className="flex items-center gap-2">
+                            <FileText className="h-4 w-4 shrink-0 text-teal-700" />
+                            <p className="text-sm font-bold text-gray-900">{readableEnum(document.documentType)}</p>
+                          </div>
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-gray-800">
+                              {fileUrl ? documentFileName(document) : 'Not uploaded'}
+                            </p>
+                            {fileUrl && (
+                              <p className="text-xs text-gray-500">Uploaded {formatWorkflowDate(document.uploadedAt)}</p>
+                            )}
+                          </div>
+                          {fileUrl ? (
+                            <div className="flex items-center gap-2">
+                              <a
+                                href={fileUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 text-xs font-bold text-gold hover:underline"
+                              >
+                                View <ExternalLink className="h-3.5 w-3.5" />
+                              </a>
+                              <a
+                                href={fileUrl}
+                                download
+                                className="inline-flex items-center gap-1 text-xs font-bold text-teal-700 hover:underline"
+                              >
+                                Download <Download className="h-3.5 w-3.5" />
+                              </a>
+                            </div>
+                          ) : (
+                            <span className="text-sm text-gray-400">-</span>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                ))}
+                ) : (
+                  <div className="grid grid-cols-[1.1fr_1.4fr_auto] items-center gap-3 rounded border border-gray-100 px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-gray-400" />
+                      <p className="text-sm font-bold text-gray-900">Property Documents</p>
+                    </div>
+                    <p className="text-sm font-semibold text-gray-500">Not uploaded</p>
+                    <span className="text-sm text-gray-400">-</span>
+                  </div>
+                )}
               </section>
             </div>
 
-            <aside className="space-y-6">
-              <section className="rounded-lg bg-stone-100 p-5">
-                <h3 className="text-xs font-bold uppercase tracking-wide text-gray-600">Network Hierarchy</h3>
-                {[
-                  ['Regional Director', 'Arjun V. Raman'],
-                  ['Branch Admin', 'Priya Sundaram'],
-                  ['Branch Location', 'OMR - Navalur Branch'],
-                ].map(([label, value]) => (
-                  <div key={label} className="mt-4 flex gap-3">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-100 text-gold">
-                      <ShieldCheck className="h-4 w-4" />
-                    </span>
-                    <div>
-                      <p className="text-xs font-bold text-gray-500">{label}</p>
-                      <p className="text-sm font-bold text-gray-900">{value}</p>
-                    </div>
-                  </div>
-                ))}
-                <p className="mt-5 flex items-center gap-2 border-t border-stone-200 pt-4 text-sm font-bold text-gold">
-                  <ShieldCheck className="h-4 w-4" />
-                  Created by Super Admin
-                </p>
-              </section>
-
+            <aside>
               <section>
-                <h3 className="mb-4 text-lg font-bold text-gray-900">Activity Timeline</h3>
-                {[
-                  ['Property Created', 'Sep 15, 2023 - Super Admin'],
-                  ['Token Completed', 'Sep 25, 2023 - Priya S.'],
-                  ['Advance Paid', 'Oct 12, 2023 - Rajesh K.'],
-                  ['Settlement Reminder Sent', '2 hours ago - System'],
-                ].map(([title, meta], index) => (
-                  <div key={title} className="mb-4 flex gap-3">
-                    <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${index === 3 ? 'bg-gold text-navy' : 'bg-teal-700 text-white'}`}>
-                      {index === 3 ? <AlertTriangle className="h-4 w-4" /> : <ClipboardCheck className="h-4 w-4" />}
-                    </span>
-                    <div>
-                      <p className="text-sm font-bold text-gray-900">{title}</p>
-                      <p className="text-xs text-gray-500">{meta}</p>
-                    </div>
+                <h3 className="mb-4 text-lg font-bold text-gray-900">Workflow History</h3>
+                {isPropertyLoading || isWorkflowLoading ? (
+                  <p className="text-sm text-gray-500">Loading workflow...</p>
+                ) : visibleWorkflowHistory.length ? (
+                  <div className="space-y-3">
+                    {visibleWorkflowHistory.map((entry) => (
+                      <div key={entry.id} className="flex gap-3 rounded-lg border border-gray-100 bg-white p-3 shadow-sm">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-teal-700 text-white">
+                          <ClipboardCheck className="h-4 w-4" />
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-gray-900">{workflowLabels[entry.toStatus]}</p>
+                          <p className="mt-0.5 text-xs font-semibold text-gray-500">
+                            {formatWorkflowDate(entry.createdAt)}
+                          </p>
+                          <p className="mt-2 text-xs leading-5 text-gray-700">{workflowDescription(entry)}</p>
+                          <p className="mt-1 text-xs text-gray-500">Updated by: {workflowActor(entry)}</p>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                ) : (
+                  <p className="text-sm text-gray-500">No workflow history available.</p>
+                )}
               </section>
             </aside>
           </div>
 
-          <div className="flex flex-col gap-3 border-t border-gray-100 bg-white px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs italic text-gray-500">All document verifications are logged under administrative oversight.</p>
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={onClose}
-                className="border border-gold bg-white px-8 py-3 text-sm font-bold text-gold transition hover:bg-amber-50"
-              >
-                CLOSE
-              </button>
-              <button className="inline-flex items-center gap-2 bg-gold px-8 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-gold-light hover:text-navy">
-                <Send className="h-4 w-4" />
-                SEND REMINDER
-              </button>
-            </div>
+          <div className="flex justify-end border-t border-gray-100 bg-white px-6 py-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="border border-gold bg-white px-8 py-3 text-sm font-bold text-gold transition hover:bg-amber-50"
+            >
+              CLOSE
+            </button>
           </div>
         </div>
       </div>
@@ -465,27 +557,52 @@ const AdminPropertiesPage: React.FC = () => {
     limit: 24,
     workflowStatus: workflowStatus || undefined,
   });
+  const {
+    data: availableProperties,
+    isLoading: isAvailableCountLoading,
+    isError: isAvailableCountError,
+  } = useProperties({ limit: 1, workflowStatus: 'AVAILABLE' });
+  const {
+    data: completedProperties,
+    isLoading: isCompletedCountLoading,
+    isError: isCompletedCountError,
+  } = useProperties({ limit: 1, workflowStatus: 'COMPLETED' });
+  const {
+    data: advancePaidProperties,
+    isLoading: isAdvancePaidCountLoading,
+    isError: isAdvancePaidCountError,
+  } = useProperties({ limit: 1, workflowStatus: 'ADVANCE_PAYMENT' });
+  const {
+    data: finalSettlementPendingProperties,
+    isLoading: isFinalSettlementPendingCountLoading,
+    isError: isFinalSettlementPendingCountError,
+  } = useProperties({ limit: 1, workflowStatus: 'FINAL_SETTLEMENT_PENDING' });
 
   const apiProperties = data?.data ?? [];
-  const properties = apiProperties.length ? apiProperties : fallbackProperties;
+  const properties = apiProperties;
   const filteredProperties = properties.filter((property) => {
     if (statusFilter && displayStatus(property) !== statusFilter) return false;
     if (workflowStatus && property.workflowStatus !== workflowStatus) return false;
     return true;
   });
-  const counts = useMemo(() => {
-    if (!properties.length) return fallbackCounts;
-
-    return {
-      activeProperties: properties.filter((property) => property.workflowStatus === 'AVAILABLE').length || fallbackCounts.activeProperties,
-      soldProperties: properties.filter((property) => property.workflowStatus === 'COMPLETED').length || fallbackCounts.soldProperties,
-      advancePaid: properties.filter((property) => property.workflowStatus === 'ADVANCE_PAYMENT').length || fallbackCounts.advancePaid,
-      finalSettlementPending:
-        properties.filter((property) => property.workflowStatus === 'FINAL_SETTLEMENT_PENDING').length ||
-        fallbackCounts.finalSettlementPending,
-      settlementCompleted: properties.filter((property) => property.workflowStatus === 'COMPLETED').length || fallbackCounts.settlementCompleted,
-    };
-  }, [properties]);
+  const counts = {
+    activeProperties: availableProperties?.total ?? 0,
+    soldProperties: completedProperties?.total ?? 0,
+    advancePaid: advancePaidProperties?.total ?? 0,
+    finalSettlementPending: finalSettlementPendingProperties?.total ?? 0,
+    settlementCompleted: completedProperties?.total ?? 0,
+  };
+  const isStatsLoading =
+    isAvailableCountLoading ||
+    isCompletedCountLoading ||
+    isAdvancePaidCountLoading ||
+    isFinalSettlementPendingCountLoading;
+  const hasStatsError =
+    isAvailableCountError ||
+    isCompletedCountError ||
+    isAdvancePaidCountError ||
+    isFinalSettlementPendingCountError;
+  const statValue = (value: number) => (isStatsLoading ? '-' : value);
 
   const resetFilters = () => {
     setStatusFilter('');
@@ -501,12 +618,15 @@ const AdminPropertiesPage: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <StatCard label="Active Properties" value={counts.activeProperties} accent="border-t-2 border-t-gold" />
-        <StatCard label="Sold Properties" value={counts.soldProperties} accent="border-t-2 border-t-teal-700" />
-        <StatCard label="Advance Paid" value={counts.advancePaid} accent="border-t-2 border-t-gold-light" />
-        <StatCard label="Final Settlement Pending" value={counts.finalSettlementPending} accent="border-t-2 border-t-red-600" />
-        <StatCard label="Settlement Completed" value={counts.settlementCompleted} accent="border-t-2 border-t-teal-300" />
+        <StatCard label="Active Properties" value={statValue(counts.activeProperties)} accent="border-t-2 border-t-gold" />
+        <StatCard label="Sold Properties" value={statValue(counts.soldProperties)} accent="border-t-2 border-t-teal-700" />
+        <StatCard label="Advance Paid" value={statValue(counts.advancePaid)} accent="border-t-2 border-t-gold-light" />
+        <StatCard label="Final Settlement Pending" value={statValue(counts.finalSettlementPending)} accent="border-t-2 border-t-red-600" />
+        <StatCard label="Settlement Completed" value={statValue(counts.settlementCompleted)} accent="border-t-2 border-t-teal-300" />
       </div>
+      {hasStatsError && (
+        <p className="text-sm font-semibold text-red-600">Unable to load some property statistics. Unavailable counts are shown as 0.</p>
+      )}
 
       <div className="flex flex-col gap-3 border border-gray-100 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-col gap-3 sm:flex-row">
@@ -519,9 +639,9 @@ const AdminPropertiesPage: React.FC = () => {
             className="h-10 rounded-sm border border-gray-200 bg-amber-50/60 px-4 text-sm font-semibold text-gray-700 outline-none focus:border-gold"
           >
             <option value="">Status: All</option>
-            <option value="Active">Active</option>
-            <option value="Sold">Sold</option>
-            <option value="Under Verification">Under Verification</option>
+            <option value="Available">Available</option>
+            <option value="In Progress">In Progress</option>
+            <option value="Completed">Completed</option>
           </select>
           <select
             value={workflowStatus}

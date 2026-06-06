@@ -24,6 +24,7 @@ export function useCreateBooking() {
     mutationFn: (data: CreateBookingData) => bookingsApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bookings'] });
+      queryClient.invalidateQueries({ queryKey: ['properties'] });
     },
   });
 }
@@ -36,6 +37,7 @@ export function useUpdateBooking() {
       bookingsApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bookings'] });
+      queryClient.invalidateQueries({ queryKey: ['properties'] });
     },
   });
 }
@@ -47,6 +49,7 @@ export function useDeleteBooking() {
     mutationFn: (id: string) => bookingsApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bookings'] });
+      queryClient.invalidateQueries({ queryKey: ['properties'] });
     },
   });
 }
@@ -59,6 +62,7 @@ export function useUpdateBookingStatus() {
       bookingsApi.updateStatus(id, status),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bookings'] });
+      queryClient.invalidateQueries({ queryKey: ['properties'] });
     },
   });
 }

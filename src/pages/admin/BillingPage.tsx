@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import axios from 'axios';
 import toast from 'react-hot-toast';
 import {
   Building2,
@@ -17,13 +18,15 @@ import {
   User,
   X,
 } from 'lucide-react';
-import { useBookings } from '../../hooks/useBookings';
+import { useBookings, useUpdateBookingStatus } from '../../hooks/useBookings';
 import { useBillings, useCreateBilling, useUpdateBilling, useUploadBillingSignature } from '../../hooks/useBilling';
-import { billingApi, type CreateBillingData } from '../../api/billing.api';
+import { billingApi, type CreateBillingData, type UpdateBillingData } from '../../api/billing.api';
+import { bookingsApi } from '../../api/bookings.api';
+import { documentsApi } from '../../api/documents.api';
 import { pdfFilename } from '../../lib/download-file';
 import { resolveFileUrl } from '../../lib/file-url';
 import { extractEntityId } from '../../lib/upload-helpers';
-import type { Billing, BillingStatus, Booking, PaymentMethod } from '../../types';
+import type { Billing, BillingStatus, Booking, BookingStatus, PaymentMethod } from '../../types';
 
 type BillingFormMode = 'add' | 'edit';
 type LifecycleStage = 'TOKEN_RECEIVED' | 'ADVANCE_PAYMENT' | 'REGISTRATION_PENDING' | 'FINAL_SETTLEMENT' | 'COMPLETED';
@@ -57,7 +60,7 @@ interface BillingModalProps {
   billing?: Billing | null;
   bookings: Booking[];
   onClose: () => void;
-  onSaved: (billing: Billing) => void;
+  onSaved: (billing: Billing) => void | Promise<void>;
 }
 
 interface BillingDetailsModalProps {
@@ -159,6 +162,8 @@ const inputClass =
   'h-10 w-full border-0 border-b border-stone-200 bg-white px-3 text-sm font-semibold text-gray-800 outline-none focus:border-gold';
 const textareaClass =
   'min-h-24 w-full resize-none border border-stone-100 bg-white px-3 py-3 text-sm font-semibold text-gray-800 outline-none focus:border-gold';
+const signatureMimeTypes = new Set(['image/png', 'image/jpeg']);
+const maxSignatureSizeBytes = 2 * 1024 * 1024;
 
 function formatDate(value: string) {
   const date = new Date(value);
@@ -207,6 +212,92 @@ function detailStatusLabel(status: BillingStatus) {
   return statusLabels[status];
 }
 
+function numberToWords(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '';
+
+  const ones = [
+    '',
+    'One',
+    'Two',
+    'Three',
+    'Four',
+    'Five',
+    'Six',
+    'Seven',
+    'Eight',
+    'Nine',
+    'Ten',
+    'Eleven',
+    'Twelve',
+    'Thirteen',
+    'Fourteen',
+    'Fifteen',
+    'Sixteen',
+    'Seventeen',
+    'Eighteen',
+    'Nineteen',
+  ];
+  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+  const underThousand = (amount: number) => {
+    const parts: string[] = [];
+    if (amount >= 100) {
+      parts.push(`${ones[Math.floor(amount / 100)]} Hundred`);
+      amount %= 100;
+    }
+    if (amount >= 20) {
+      parts.push(tens[Math.floor(amount / 10)]);
+      amount %= 10;
+    }
+    if (amount > 0) parts.push(ones[amount]);
+    return parts.join(' ');
+  };
+
+  let amount = Math.floor(value);
+  const parts: string[] = [];
+  const units = [
+    { value: 10_000_000, label: 'Crore' },
+    { value: 100_000, label: 'Lakh' },
+    { value: 1_000, label: 'Thousand' },
+  ];
+
+  for (const unit of units) {
+    if (amount >= unit.value) {
+      parts.push(`${underThousand(Math.floor(amount / unit.value))} ${unit.label}`);
+      amount %= unit.value;
+    }
+  }
+  if (amount > 0) parts.push(underThousand(amount));
+
+  return `${parts.join(' ')} Rupees Only`;
+}
+
+function lifecycleFromBookingStatus(status?: BookingStatus): LifecycleStage {
+  if (status === 'ADVANCE_PAYMENT') return 'ADVANCE_PAYMENT';
+  if (status === 'REGISTRATION_PENDING') return 'REGISTRATION_PENDING';
+  if (status === 'FINAL_SETTLEMENT_PENDING') return 'FINAL_SETTLEMENT';
+  if (status === 'COMPLETED') return 'COMPLETED';
+  return 'TOKEN_RECEIVED';
+}
+
+function lifecycleFromBillingStatus(status?: BillingStatus): LifecycleStage {
+  if (status === 'PARTIAL_PAYMENT' || status === 'PAID') return 'ADVANCE_PAYMENT';
+  if (status === 'FINAL_SETTLEMENT') return 'FINAL_SETTLEMENT';
+  if (status === 'COMPLETED') return 'COMPLETED';
+  return 'TOKEN_RECEIVED';
+}
+
+function lifecycleToBillingStatus(stage: LifecycleStage): BillingStatus {
+  if (stage === 'ADVANCE_PAYMENT') return 'PARTIAL_PAYMENT';
+  if (stage === 'FINAL_SETTLEMENT') return 'FINAL_SETTLEMENT';
+  if (stage === 'COMPLETED') return 'COMPLETED';
+  return 'PENDING';
+}
+
+function lifecycleToBookingStatus(stage: LifecycleStage): BookingStatus {
+  if (stage === 'FINAL_SETTLEMENT') return 'FINAL_SETTLEMENT_PENDING';
+  return stage;
+}
+
 function Field({ label, children, className = '' }: { label: string; children: React.ReactNode; className?: string }) {
   return (
     <label className={className}>
@@ -252,22 +343,29 @@ function billingToForm(billing?: Billing | null): BillingFormState {
             : 'TOKEN_RECEIVED',
     totalReceived: billing?.totalReceived ? String(billing.totalReceived) : '',
     balanceAmount: billing?.totalBalance ? String(billing.totalBalance) : '',
-    amountInWords: billing?.amountInWords ?? 'Rupees Zero Only',
+    amountInWords: billing?.amountInWords ?? '',
     paymentNotes: billing?.operationalNotes ?? '',
     settlementNotes: billing?.settlementNotes ?? '',
     billingDate: toDateInput(billing?.billingDate) || new Date().toISOString().split('T')[0],
   };
 }
 
+function enteredBillingAmount(form: BillingFormState) {
+  if (form.amountReceived.trim() !== '') return Number(form.amountReceived);
+  if (form.paymentMethod === 'CASH' && form.cashAmount.trim() !== '') return Number(form.cashAmount);
+  if (form.totalReceived.trim() !== '') return Number(form.totalReceived);
+  return 0;
+}
+
 function buildPayload(form: BillingFormState): CreateBillingData {
-  const amount = Number(form.amountReceived || form.cashAmount || 0);
-  const totalReceived = Number(form.totalReceived || amount || 0);
-  const totalBalance = Number(form.balanceAmount || Math.max(0, amount - totalReceived));
+  const amount = enteredBillingAmount(form);
+  const totalReceived = Number(form.totalReceived || 0);
+  const totalBalance = form.balanceAmount === '' ? undefined : Number(form.balanceAmount);
 
   return {
     bookingId: form.bookingId,
     buyerName: form.applicantName,
-    buyerPhone: form.applicantPhone || '+91 00000 00000',
+    buyerPhone: form.applicantPhone,
     billingDate: form.billingDate || new Date().toISOString().split('T')[0],
     paymentMethod: form.paymentMethod,
     amountInNumbers: amount,
@@ -281,6 +379,59 @@ function buildPayload(form: BillingFormState): CreateBillingData {
     chequeDate: form.chequeDate || undefined,
     gpayReference: form.gpayReference || undefined,
   };
+}
+
+function buildUpdatePayload(form: BillingFormState): UpdateBillingData {
+  const amount = enteredBillingAmount(form);
+  const totalReceived = Number(form.totalReceived || 0);
+
+  return {
+    paymentMethod: form.paymentMethod,
+    amountInNumbers: amount,
+    totalReceived,
+    operationalNotes: form.paymentNotes || undefined,
+    settlementNotes: form.settlementNotes || undefined,
+    status: lifecycleToBillingStatus(form.lifecycleStage),
+    bankName: form.bankName || undefined,
+    favourOf: form.favourOf || undefined,
+    chequeNumber: form.chequeNumber || undefined,
+    chequeDate: form.chequeDate || undefined,
+    gpayReference: form.gpayReference || undefined,
+  };
+}
+
+function isBadRequestValidationError(error: unknown) {
+  return axios.isAxiosError(error) && error.response?.status === 400;
+}
+
+function isApiBackedBilling(billing?: Billing | null) {
+  return !!billing && !billing.id.startsWith('fallback-') && !billing.id.startsWith('local-');
+}
+
+function isValidSignatureFile(file: File) {
+  const hasValidExtension = /\.(png|jpe?g)$/i.test(file.name);
+  const hasValidMime = signatureMimeTypes.has(file.type);
+  return hasValidExtension && (!file.type || hasValidMime) && file.size <= maxSignatureSizeBytes;
+}
+
+function getBillingSignaturePath(billing: Billing): string {
+  const record = billing as Billing & {
+    authorizedSignature?: string;
+    authorizedSignatureUrl?: string;
+    signature?: string;
+    documentUrl?: string;
+    fileUrl?: string;
+  };
+
+  return (
+    record.signatureUrl ||
+    record.authorizedSignatureUrl ||
+    record.authorizedSignature ||
+    record.signature ||
+    record.documentUrl ||
+    record.fileUrl ||
+    ''
+  );
 }
 
 function payloadToBilling(payload: CreateBillingData, form: BillingFormState, existing?: Billing | null): Billing {
@@ -308,7 +459,7 @@ function payloadToBilling(payload: CreateBillingData, form: BillingFormState, ex
     buyerPhone: payload.buyerPhone,
     paymentMethod: payload.paymentMethod,
     amountInNumbers: payload.amountInNumbers,
-    amountInWords: form.amountInWords || 'Rupees Zero Only',
+    amountInWords: form.amountInWords,
     totalReceived: payload.totalReceived,
     totalBalance: payload.totalBalance ?? 0,
     operationalNotes: payload.operationalNotes,
@@ -327,10 +478,20 @@ function payloadToBilling(payload: CreateBillingData, form: BillingFormState, ex
 function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: BillingModalProps) {
   const createBilling = useCreateBilling();
   const updateBilling = useUpdateBilling();
+  const updateBookingStatus = useUpdateBookingStatus();
   const uploadBillingSignature = useUploadBillingSignature();
   const [form, setForm] = useState<BillingFormState>(() => billingToForm(billing));
   const [signatureFile, setSignatureFile] = useState<File | null>(null);
   const [signaturePreviewUrl, setSignaturePreviewUrl] = useState('');
+  const [previousReceivedAmount, setPreviousReceivedAmount] = useState(() =>
+    billing ? Math.max((Number(billing.totalReceived) || 0) - (Number(billing.amountInNumbers) || 0), 0) : 0,
+  );
+  const [bookingTotalAmount, setBookingTotalAmount] = useState<number | null>(() => {
+    if (!billing) return null;
+    const total = (Number(billing.totalReceived) || 0) + (Number(billing.totalBalance) || 0);
+    return total > 0 ? total : null;
+  });
+  const [isLoadingBookingDetails, setIsLoadingBookingDetails] = useState(false);
 
   const title = mode === 'add' ? 'Add Billing' : 'Edit Billing';
   const subtitle =
@@ -338,25 +499,129 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
       ? 'Create payment record and estimate copy for an existing booking.'
       : 'Update payment record and settlement details.';
   const submitText = mode === 'add' ? 'Save Billing' : 'Update Billing';
-  const successText =
-    mode === 'add' ? 'Billing record created successfully' : 'Billing record updated successfully';
-  const isSaving = createBilling.isPending || updateBilling.isPending || uploadBillingSignature.isPending;
+  const successText = mode === 'add' ? 'Billing saved successfully.' : 'Billing updated successfully.';
+  const isSaving =
+    createBilling.isPending ||
+    updateBilling.isPending ||
+    updateBookingStatus.isPending ||
+    uploadBillingSignature.isPending ||
+    isLoadingBookingDetails;
 
   const updateForm = (key: keyof BillingFormState, value: string) => {
     setForm((current) => ({ ...current, [key]: value }));
   };
 
-  const handleBookingChange = (bookingId: string) => {
-    const booking = bookings.find((item) => item.id === bookingId || item.bookingId === bookingId);
+  const handleAmountReceivedChange = (value: string) => {
+    setForm((current) => ({ ...current, amountReceived: value }));
+  };
+
+  const handleCashAmountChange = (value: string) => {
+    setForm((current) => ({ ...current, cashAmount: value }));
+  };
+
+  const handleTotalReceivedChange = (value: string) => {
+    const amount = Number(value);
+    const hasValidAmount = value.trim() !== '' && Number.isFinite(amount) && amount > 0;
+    const cumulativeReceived = previousReceivedAmount + (hasValidAmount ? amount : 0);
+    const balanceAmount =
+      bookingTotalAmount === null ? '' : String(Math.max(bookingTotalAmount - cumulativeReceived, 0));
+
     setForm((current) => ({
       ...current,
-      bookingId: booking?.id ?? bookingId,
-      applicantName: booking?.applicantName ?? current.applicantName,
-      applicantPhone: booking?.cellNumber ?? current.applicantPhone,
-      projectName: booking?.projectName ?? current.projectName,
-      plotNumber: booking?.plotNumber ?? current.plotNumber,
-      squareFeet: booking?.squareFeet ? String(booking.squareFeet) : current.squareFeet,
+      totalReceived: value,
+      amountInWords: hasValidAmount ? numberToWords(amount) : '',
+      balanceAmount,
     }));
+  };
+
+  const handleBookingChange = async (bookingId: string) => {
+    if (!bookingId) {
+      setPreviousReceivedAmount(0);
+      setBookingTotalAmount(null);
+      setForm(billingToForm());
+      return;
+    }
+
+    const selectedBooking = bookings.find((item) => item.id === bookingId || item.bookingId === bookingId);
+    if (!selectedBooking || selectedBooking.id.startsWith('fallback-')) {
+      toast.error('Please select a valid booking.');
+      return;
+    }
+
+    setForm((current) => ({
+      ...current,
+      bookingId: selectedBooking.id,
+      applicantName: selectedBooking.applicantName ?? '',
+      applicantPhone: selectedBooking.cellNumber ?? '',
+      projectName: selectedBooking.projectName ?? '',
+      plotNumber: selectedBooking.plotNumber ?? '',
+      squareFeet: selectedBooking.squareFeet ? String(selectedBooking.squareFeet) : '',
+      lifecycleStage: lifecycleFromBookingStatus(selectedBooking.status),
+      amountReceived: '',
+      totalReceived: mode === 'add' ? '' : current.totalReceived,
+      amountInWords: mode === 'add' ? '' : current.amountInWords,
+    }));
+    setIsLoadingBookingDetails(true);
+
+    try {
+      const bookingDetails = await bookingsApi.getOne(selectedBooking.id);
+      let previousBillings: Billing[] = [];
+      try {
+        const billingResponse = await billingApi.getAll({ bookingId: selectedBooking.id, limit: 1000 });
+        previousBillings = (billingResponse.data ?? []).filter(
+          (item) => item.bookingId === selectedBooking.id || item.booking?.id === selectedBooking.id,
+        );
+      } catch {
+        previousBillings = [];
+      }
+      const latestBilling = [...previousBillings].sort(
+        (a, b) => new Date(b.billingDate || b.createdAt).getTime() - new Date(a.billingDate || a.createdAt).getTime(),
+      )[0];
+      const previousBillingReceived = previousBillings.reduce(
+        (highest, item) => Math.max(highest, Number(item.totalReceived) || 0),
+        0,
+      );
+      const bookingPaymentReceived =
+        bookingDetails.payments?.reduce((total, payment) => total + (Number(payment.totalAmount) || 0), 0) ?? 0;
+      const previousReceived = Math.max(previousBillingReceived, bookingPaymentReceived);
+      const latestKnownTotal = latestBilling
+        ? (Number(latestBilling.totalReceived) || 0) + (Number(latestBilling.totalBalance) || 0)
+        : 0;
+      const totalAmount = latestKnownTotal > 0 ? latestKnownTotal : null;
+      const previousPayment = latestBilling ?? bookingDetails.payments?.[0];
+
+      setPreviousReceivedAmount(previousReceived);
+      setBookingTotalAmount(totalAmount);
+      setForm((current) => ({
+        ...current,
+        bookingId: bookingDetails.id,
+        applicantName: bookingDetails.applicantName ?? '',
+        applicantPhone: bookingDetails.cellNumber ?? '',
+        projectName: bookingDetails.projectName ?? bookingDetails.property?.projectName ?? '',
+        plotNumber: bookingDetails.plotNumber ?? bookingDetails.property?.plotNumber ?? '',
+        squareFeet: bookingDetails.squareFeet ? String(bookingDetails.squareFeet) : '',
+        paymentMethod: previousPayment?.paymentMethod ?? current.paymentMethod,
+        bankName: previousPayment?.bankName ?? '',
+        favourOf: previousPayment?.favourOf ?? current.favourOf,
+        chequeNumber: previousPayment?.chequeNumber ?? '',
+        chequeDate: toDateInput(previousPayment?.chequeDate),
+        gpayReference: previousPayment?.gpayReference ?? '',
+        lifecycleStage: bookingDetails.status
+          ? lifecycleFromBookingStatus(bookingDetails.status)
+          : lifecycleFromBillingStatus(latestBilling?.status),
+        totalReceived: mode === 'add' ? '' : current.totalReceived,
+        balanceAmount: totalAmount === null ? '' : String(Math.max(totalAmount - previousReceived, 0)),
+        amountReceived: '',
+        cashAmount: '',
+        amountInWords: mode === 'add' ? '' : current.amountInWords,
+        paymentNotes: latestBilling?.operationalNotes ?? '',
+        settlementNotes: latestBilling?.settlementNotes ?? '',
+      }));
+    } catch {
+      toast.error('Unable to load booking details. Please try again.');
+    } finally {
+      setIsLoadingBookingDetails(false);
+    }
   };
 
   const saveFallback = () => {
@@ -374,15 +639,32 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
     });
   };
 
+  const handleSignatureInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
+    if (!file) {
+      setUploadedSignature(null);
+      return;
+    }
+
+    if (!isValidSignatureFile(file)) {
+      event.target.value = '';
+      toast.error('Please upload a valid PNG or JPG signature under 2MB.');
+      setUploadedSignature(null);
+      return;
+    }
+
+    setUploadedSignature(file);
+  };
+
   const signatureForUpload = () => {
     return signatureFile;
   };
 
-  const uploadSignatureIfSelected = async (savedBilling: Billing) => {
+  const uploadSignatureIfSelected = async (savedBilling: Billing, billingIdOverride?: string) => {
     const signature = signatureForUpload();
     if (!signature) return;
 
-    const billingId = extractEntityId(savedBilling, ['billing']);
+    const billingId = billingIdOverride || extractEntityId(savedBilling, ['billing']);
     const uploadErrorMessage =
       mode === 'edit'
         ? 'Billing updated, but signature upload failed.'
@@ -399,31 +681,90 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
     }
   };
 
+  const finishApiSave = async (savedBilling: Billing, bookingId?: string, billingIdOverride?: string) => {
+    let workflowResult: 'success' | 'failed' | 'missing' = 'missing';
+
+    if (bookingId) {
+      try {
+        await updateBookingStatus.mutateAsync({
+          id: bookingId,
+          status: lifecycleToBookingStatus(form.lifecycleStage),
+        });
+        workflowResult = 'success';
+      } catch {
+        workflowResult = 'failed';
+      }
+    }
+
+    await uploadSignatureIfSelected(savedBilling, billingIdOverride);
+
+    await onSaved(savedBilling);
+
+    if (workflowResult === 'missing') {
+      toast.error('Billing saved, but booking reference is missing.');
+    } else if (workflowResult === 'failed') {
+      toast.error(
+        mode === 'add'
+          ? 'Billing saved, but property workflow update failed.'
+          : 'Billing updated, but property workflow update failed.',
+      );
+    } else {
+      toast.success(successText);
+    }
+  };
+
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    const payload = buildPayload(form);
-    const canUseApi = payload.bookingId && !payload.bookingId.startsWith('fallback-') && !billing?.id.startsWith('fallback-');
+    const canCreateBilling = form.bookingId && !form.bookingId.startsWith('fallback-');
+    const amount = enteredBillingAmount(form);
+    const currentTotalReceived = Number(form.totalReceived);
+
+    if (mode === 'add' && !canCreateBilling) {
+      toast.error('Please select a valid booking.');
+      return;
+    }
+    if (
+      !Number.isFinite(amount) ||
+      amount <= 0 ||
+      (mode === 'add' && (!Number.isFinite(currentTotalReceived) || currentTotalReceived <= 0))
+    ) {
+      toast.error('Please enter a valid amount.');
+      return;
+    }
 
     try {
-      if (mode === 'edit' && billing && canUseApi) {
-        const updated = await updateBilling.mutateAsync({ id: billing.id, data: payload });
-        await uploadSignatureIfSelected(updated);
-        toast.success(successText);
-        onSaved(updated);
+      if (mode === 'edit' && billing) {
+        if (isApiBackedBilling(billing)) {
+          const updated = await updateBilling.mutateAsync({ id: billing.id, data: buildUpdatePayload(form) });
+          await finishApiSave(updated, billing.booking?.id || billing.bookingId, billing.id);
+          return;
+        }
+
+        saveFallback();
         return;
       }
 
-      if (mode === 'add' && canUseApi) {
+      if (mode === 'add' && canCreateBilling) {
+        const payload = buildPayload(form);
         const created = await createBilling.mutateAsync(payload);
-        await uploadSignatureIfSelected(created);
-        toast.success(successText);
-        onSaved(created);
+        await finishApiSave(created, payload.bookingId);
         return;
       }
 
       saveFallback();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to save billing. Please try again.');
+      const message =
+        mode === 'edit' && isBadRequestValidationError(error)
+          ? 'Invalid billing update data. Please check the form details.'
+          : mode === 'edit' && error instanceof Error && error.message === 'Billing updated, but signature upload failed.'
+            ? error.message
+            : mode === 'edit'
+              ? 'Unable to update billing. Please try again.'
+              : error instanceof Error
+                ? error.message
+                : 'Failed to save billing. Please try again.';
+
+      toast.error(message);
     }
   };
 
@@ -557,7 +898,7 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
                 <Field label="Cash Amount">
                   <input
                     value={form.cashAmount}
-                    onChange={(event) => updateForm('cashAmount', event.target.value)}
+                    onChange={(event) => handleCashAmountChange(event.target.value)}
                     className={inputClass}
                     placeholder="₹ 0.00"
                   />
@@ -565,7 +906,7 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
                 <Field label="Amount Received" className="md:col-span-2">
                   <input
                     value={form.amountReceived}
-                    onChange={(event) => updateForm('amountReceived', event.target.value)}
+                    onChange={(event) => handleAmountReceivedChange(event.target.value)}
                     className={inputClass}
                     placeholder="₹ Total Amount"
                   />
@@ -592,7 +933,7 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
                 <Field label="Total Received">
                   <input
                     value={form.totalReceived}
-                    onChange={(event) => updateForm('totalReceived', event.target.value)}
+                    onChange={(event) => handleTotalReceivedChange(event.target.value)}
                     className={inputClass}
                     placeholder="₹ 0.00"
                   />
@@ -610,7 +951,7 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
                     value={form.amountInWords}
                     onChange={(event) => updateForm('amountInWords', event.target.value)}
                     className={inputClass}
-                    placeholder="Rupees Zero Only"
+                    placeholder="Amount in words will appear here"
                   />
                 </Field>
               </div>
@@ -655,7 +996,7 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
                       type="file"
                       accept=".png,.jpg,.jpeg"
                       className="absolute inset-0 cursor-pointer opacity-0"
-                      onChange={(event) => setUploadedSignature(event.target.files?.[0] ?? null)}
+                      onChange={handleSignatureInputChange}
                     />
                   </label>
                   {signaturePreviewUrl && (
@@ -741,8 +1082,7 @@ function DetailsCard({
 
 function BillingDetailsModal({ billing, onClose, onDownload, isDownloading }: BillingDetailsModalProps) {
   const booking = billing.booking;
-  const [signatureFailed, setSignatureFailed] = useState(false);
-  const signatureUrl = signatureFailed ? '' : resolveFileUrl(billing.signatureUrl);
+  const [signatureUrl, setSignatureUrl] = useState('');
   const buyerAddress = billing.buyerAddress || booking?.applicantAddress || 'Anna Nagar, Chennai, Tamil Nadu - 600040';
   const squareFeet = booking?.squareFeet ? `${booking.squareFeet.toLocaleString('en-IN')} SQFT` : '1,200 SQFT';
   const bankName = billing.bankName || 'N/A';
@@ -759,6 +1099,52 @@ function BillingDetailsModal({ billing, onClose, onDownload, isDownloading }: Bi
         : billing.status === 'PARTIAL_PAYMENT'
           ? 'Advance Payment'
           : 'Token Received';
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    async function loadSignature() {
+      const directSignatureUrl = resolveFileUrl(getBillingSignaturePath(billing));
+      if (directSignatureUrl) {
+        setSignatureUrl(directSignatureUrl);
+        return;
+      }
+
+      if (!isApiBackedBilling(billing)) {
+        setSignatureUrl('');
+        return;
+      }
+
+      try {
+        const documents = await documentsApi.getByEntity('billing', billing.id);
+        if (!isCurrent) return;
+
+        const signatureDocument = [...documents]
+          .filter((document) => document.documentType === 'BILLING_DOCUMENT')
+          .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime())[0];
+
+        if (!signatureDocument) {
+          setSignatureUrl('');
+          return;
+        }
+
+        try {
+          const signed = await documentsApi.getUrl(signatureDocument.id);
+          if (isCurrent) setSignatureUrl(resolveFileUrl(signed.signedUrl || signatureDocument.documentUrl));
+        } catch {
+          if (isCurrent) setSignatureUrl(resolveFileUrl(signatureDocument.documentUrl));
+        }
+      } catch {
+        if (isCurrent) setSignatureUrl('');
+      }
+    }
+
+    void loadSignature();
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [billing]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]">
@@ -870,14 +1256,13 @@ function BillingDetailsModal({ billing, onClose, onDownload, isDownloading }: Bi
                     <img
                       src={signatureUrl}
                       alt="Authorized signature"
-                      onError={() => setSignatureFailed(true)}
+                      onError={() => {
+                        setSignatureUrl('');
+                      }}
                       className="max-h-20 max-w-full object-contain"
                     />
                   ) : (
-                    <div>
-                      <p className="font-serif text-2xl italic text-teal-800">Sri Thangam</p>
-                      <p className="mt-1 text-xs font-bold uppercase tracking-wide text-gray-500">Authorized Signature</p>
-                    </div>
+                    <p className="text-sm font-semibold text-gray-500">No signature uploaded</p>
                   )}
                 </div>
               </div>
@@ -929,7 +1314,13 @@ const AdminBillingPage: React.FC = () => {
 
   const apiBillings = useMemo(() => data?.data ?? [], [data?.data]);
   const baseBillings = useMemo(() => (apiBillings.length ? apiBillings : fallbackBillings), [apiBillings]);
-  const billings = useMemo(() => [...localBillings, ...baseBillings], [localBillings, baseBillings]);
+  const billings = useMemo(() => {
+    const uniqueBillings = new Map<string, Billing>();
+    [...localBillings, ...baseBillings].forEach((billing) => {
+      if (!uniqueBillings.has(billing.id)) uniqueBillings.set(billing.id, billing);
+    });
+    return [...uniqueBillings.values()];
+  }, [localBillings, baseBillings]);
   const bookings = bookingsData?.data?.length ? bookingsData.data : fallbackBookings;
   const propertyOptions = useMemo(() => {
     const map = new Map<string, string>();
@@ -956,7 +1347,15 @@ const AdminBillingPage: React.FC = () => {
     setPage(1);
   };
 
-  const handleSaved = (billing: Billing) => {
+  const handleSaved = async (billing: Billing) => {
+    if (isApiBackedBilling(billing)) {
+      setLocalBillings((current) => current.filter((item) => item.id !== billing.id));
+      await refetch();
+      setModalMode(null);
+      setEditingBilling(null);
+      return;
+    }
+
     setLocalBillings((current) => {
       const existingIndex = current.findIndex((item) => item.id === billing.id);
       if (existingIndex >= 0) {
@@ -973,7 +1372,6 @@ const AdminBillingPage: React.FC = () => {
     });
     setModalMode(null);
     setEditingBilling(null);
-    void refetch();
   };
 
   const openEdit = (billing: Billing) => {

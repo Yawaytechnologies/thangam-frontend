@@ -36,7 +36,20 @@ export interface CreateBillingData {
   gpayReference?: string;
 }
 
-export type UpdateBillingData = Partial<CreateBillingData>;
+export interface UpdateBillingData {
+  paymentMethod?: PaymentMethod;
+  amountInNumbers?: number;
+  totalReceived?: number;
+  operationalNotes?: string;
+  settlementNotes?: string;
+  termsConditions?: string;
+  status?: BillingStatus;
+  bankName?: string;
+  favourOf?: string;
+  chequeNumber?: string;
+  chequeDate?: string;
+  gpayReference?: string;
+}
 
 export const billingApi = {
   getAll: (params?: BillingParams): Promise<PaginatedResponse<Billing>> =>

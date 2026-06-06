@@ -8,10 +8,27 @@ declare module 'axios' {
 
   interface InternalAxiosRequestConfig {
     skipAuthRedirect?: boolean;
+    _retry?: boolean;
   }
 }
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const RAW_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const BASE_URL = RAW_BASE_URL.replace(/\/+$/, '');
+
+function hasApiPath(baseUrl: string) {
+  try {
+    return new URL(baseUrl, window.location.origin).pathname.replace(/\/+$/, '').endsWith('/api');
+  } catch {
+    return baseUrl.replace(/\/+$/, '').endsWith('/api');
+  }
+}
+
+function joinUrl(baseUrl: string, path: string) {
+  return `${baseUrl.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
+}
+
+const REFRESH_PATH = hasApiPath(BASE_URL) ? '/auth/refresh' : '/api/auth/refresh';
+const REFRESH_URL = joinUrl(BASE_URL, REFRESH_PATH);
 
 const api = axios.create({
   baseURL: BASE_URL,
@@ -54,11 +71,7 @@ api.interceptors.response.use(
       original._retry = true;
       isRefreshing = true;
       try {
-        const { data } = await axios.post(
-          `${BASE_URL}/auth/refresh`,
-          {},
-          { withCredentials: true },
-        );
+        const { data } = await axios.post(REFRESH_URL, {}, { withCredentials: true });
         const newToken = data?.data?.accessToken ?? data?.accessToken;
         if (!newToken) throw new Error('Refresh response did not include an access token');
         useAuthStore.getState().setAccessToken(newToken);
@@ -69,8 +82,10 @@ api.interceptors.response.use(
         processQueue(err, null);
         const refreshStatus = axios.isAxiosError(err) ? err.response?.status : undefined;
         if (refreshStatus === 401 || refreshStatus === 403) {
+          const sessionError = new Error('Session expired. Please login again.');
           useAuthStore.getState().logout();
           window.location.href = '/login';
+          return Promise.reject(sessionError);
         }
         return Promise.reject(err);
       } finally {
