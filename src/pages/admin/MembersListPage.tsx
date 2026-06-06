@@ -5,10 +5,8 @@ import { z } from 'zod';
 import {
   CheckCircle2,
   ChevronDown,
-  Clock,
   Filter,
   ImagePlus,
-  MapPin,
   RefreshCw,
   Upload,
   UserPlus,
@@ -519,24 +517,6 @@ const MemberPhoto: React.FC<{ member: Member }> = ({ member }) => {
   );
 };
 
-const SummaryCard: React.FC<{
-  title: string;
-  value: string | number;
-  helper?: string;
-  icon: React.ReactNode;
-  children?: React.ReactNode;
-}> = ({ title, value, helper, icon, children }) => (
-  <div className="rounded-lg border border-gray-200 bg-amber-50/70 p-5 shadow-sm">
-    <div className="mb-4 flex items-center gap-3">
-      <span className="text-teal-700">{icon}</span>
-      <p className="text-sm font-bold text-teal-800">{title}</p>
-    </div>
-    <p className="text-3xl font-bold text-gray-900">{value}</p>
-    {helper && <p className="mt-2 text-xs font-semibold text-teal-700">{helper}</p>}
-    {children}
-  </div>
-);
-
 const AdminMembersListPage: React.FC = () => {
   const user = useAuthStore((state) => state.user);
   const [page, setPage] = useState(1);
@@ -563,33 +543,6 @@ const AdminMembersListPage: React.FC = () => {
     status: status || undefined,
     branchId: activeBranchId,
   });
-
-  const { data: summaryResponse } = useMembers({ limit: 1000 });
-  const summaryMembers = summaryResponse?.data ?? [];
-
-  const newlyJoined = summaryMembers.filter((member) => {
-    const joined = new Date(member.createdAt);
-    if (Number.isNaN(joined.getTime())) return false;
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    return joined >= thirtyDaysAgo;
-  }).length;
-
-  const pendingApproval = summaryMembers.filter((member) => member.status === 'PENDING').length;
-  const activeMembersByRegion = Object.values(
-    summaryMembers
-      .filter((member) => member.status === 'ACTIVE')
-      .reduce<Record<string, { name: string; count: number }>>((acc, member) => {
-        const key = member.branch?.id ?? member.branchId ?? 'unknown';
-        const name = member.branch?.name ?? 'Unassigned';
-        acc[key] = acc[key] ?? { name, count: 0 };
-        acc[key].count += 1;
-        return acc;
-      }, {}),
-  )
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 4);
-  const maxRegionCount = Math.max(...activeMembersByRegion.map((item) => item.count), 1);
 
   const resetFilters = () => {
     setRole('');
@@ -755,43 +708,6 @@ const AdminMembersListPage: React.FC = () => {
           </table>
         </div>
         {data && <Pagination page={page} total={data.total} limit={data.limit} onPageChange={setPage} />}
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_1fr_2fr]">
-        <SummaryCard
-          title="Newly Joined"
-          value={newlyJoined}
-          helper="+ last 30 days"
-          icon={<UserPlus className="h-5 w-5" />}
-        />
-        <SummaryCard
-          title="Pending Approval"
-          value={pendingApproval.toString().padStart(2, '0')}
-          helper="Action required"
-          icon={<Clock className="h-5 w-5" />}
-        />
-        <SummaryCard
-          title="Active Members by Region"
-          value=""
-          icon={<MapPin className="h-5 w-5" />}
-        >
-          <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {(activeMembersByRegion.length ? activeMembersByRegion : [{ name: 'No active members', count: 0 }]).map(
-              (region) => (
-                <div key={region.name} className="min-w-0">
-                  <div className="flex h-16 items-end rounded bg-white px-2 pb-2">
-                    <div
-                      className="w-full rounded-sm bg-gold"
-                      style={{ height: `${Math.max((region.count / maxRegionCount) * 100, region.count ? 18 : 4)}%` }}
-                    />
-                  </div>
-                  <p className="mt-2 truncate text-xs font-semibold text-gray-600">{region.name}</p>
-                  <p className="text-xs font-bold text-gray-900">{region.count}</p>
-                </div>
-              ),
-            )}
-          </div>
-        </SummaryCard>
       </div>
 
       {createOpen && (
