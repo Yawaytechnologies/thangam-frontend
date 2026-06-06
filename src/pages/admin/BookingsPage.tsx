@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import axios from 'axios';
 import toast from 'react-hot-toast';
 import {
   Building2,
@@ -129,13 +130,6 @@ const fallbackBookings: Booking[] = [
     createdAt: '2023-11-18T00:00:00.000Z',
   },
 ];
-
-const fallbackSummary = {
-  totalActiveBookings: 342,
-  completedThisMonth: 28,
-  pendingRegistration: 12,
-  advanceReceived: 45,
-};
 
 const fallbackProperties: Property[] = [
   {
@@ -331,6 +325,55 @@ const inputClass =
   'h-10 w-full rounded-sm border border-stone-300 bg-amber-50/40 px-3 text-sm font-semibold text-gray-800 outline-none focus:border-gold focus:bg-white';
 const textareaClass =
   'min-h-20 w-full rounded-sm border border-stone-300 bg-amber-50/40 px-3 py-2 text-sm font-semibold text-gray-800 outline-none focus:border-gold focus:bg-white';
+const unavailablePropertyMessage = 'This property is not available for booking. Please select an available property.';
+
+function propertyBookingStatus(property?: Property | null) {
+  if (!property) return '';
+  const extra = property as Property & { status?: string; workflow_status?: string };
+  return property.workflowStatus ?? extra.status ?? extra.workflow_status ?? '';
+}
+
+function toLocalDateParam(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function formatStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    AVAILABLE: 'Available',
+    BOOKED: 'Booked',
+    BOOKING_INITIATED: 'Booking Initiated',
+    TOKEN_RECEIVED: 'Token Received',
+    ADVANCE_RECEIVED: 'Advance Received',
+    ADVANCE_PAYMENT: 'Advance Received',
+    REGISTRATION_PENDING: 'Registration Pending',
+    FINAL_SETTLEMENT_PENDING: 'Final Settlement Pending',
+    COMPLETED: 'Completed',
+  };
+
+  return labels[status] ?? status.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function isBookableProperty(property?: Property | null) {
+  return propertyBookingStatus(property) === 'AVAILABLE';
+}
+
+function bookingSubmitErrorMessage(error: unknown) {
+  if (axios.isAxiosError(error)) {
+    const message = error.response?.data?.message;
+    const text = Array.isArray(message) ? message.join(', ') : message;
+
+    if (error.response?.status === 409 && typeof text === 'string' && text.trim()) {
+      const status = text.match(/current status:\s*([A-Z_]+)/i)?.[1];
+      if (status) return `Property is not available for booking. Current status: ${status}`;
+      return text.trim();
+    }
+  }
+
+  return 'Unable to create booking. Please try again.';
+}
 
 function BookingFormModal({ mode, booking, properties, onClose, onSaved }: BookingModalProps) {
   const createBooking = useCreateBooking();
@@ -354,7 +397,7 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
     mode === 'add'
       ? 'Create a booking record using Sri Thangam Housing booking form details.'
       : 'Update property booking record details.';
-  const successText = mode === 'add' ? 'Booking created successfully' : 'Booking updated successfully';
+  const successText = mode === 'add' ? 'Booking created successfully.' : 'Booking updated successfully.';
   const submitText = mode === 'add' ? 'Save Booking' : 'Update Booking';
   const isSaving = createBooking.isPending || updateBooking.isPending || uploadBookingSignature.isPending;
 
@@ -364,6 +407,11 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
 
   const handlePropertyChange = (propertyId: string) => {
     const property = properties.find((item) => item.id === propertyId);
+    if (mode === 'add' && property && !isBookableProperty(property)) {
+      toast.error(unavailablePropertyMessage);
+      return;
+    }
+
     setForm((current) => ({
       ...current,
       propertyId,
@@ -413,6 +461,13 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     const payload = buildBookingPayload(form, denominationRows);
+    const selectedProperty = properties.find((property) => property.id === payload.propertyId);
+
+    if (mode === 'add' && (!selectedProperty || !isBookableProperty(selectedProperty))) {
+      toast.error(unavailablePropertyMessage);
+      return;
+    }
+
     const canUseApi = payload.propertyId && !payload.propertyId.startsWith('fallback-') && !booking?.id.startsWith('fallback-');
 
     try {
@@ -436,7 +491,7 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
       toast.success(successText);
       onSaved(savedBooking);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to save booking. Please try again.');
+      toast.error(mode === 'add' ? bookingSubmitErrorMessage(error) : error instanceof Error ? error.message : 'Failed to save booking. Please try again.');
     }
   };
 
@@ -469,12 +524,18 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
                     onChange={(event) => handlePropertyChange(event.target.value)}
                     className={inputClass}
                   >
-                    <option value="">Select Project</option>
-                    {properties.map((property) => (
-                      <option key={property.id} value={property.id}>
+                    <option value="">Select available project</option>
+                    {properties.map((property) => {
+                      const status = propertyBookingStatus(property);
+                      const isUnavailable = mode === 'add' && !isBookableProperty(property);
+
+                      return (
+                      <option key={property.id} value={property.id} disabled={isUnavailable}>
                         {property.projectName}
+                        {isUnavailable && status ? ` - ${formatStatusLabel(status)}` : ''}
                       </option>
-                    ))}
+                      );
+                    })}
                   </select>
                 </Field>
                 <Field label="Plot Number">
@@ -1020,6 +1081,35 @@ const AdminBookingsPage: React.FC = () => {
     startDate: bookingDate || undefined,
     endDate: bookingDate || undefined,
   });
+  const { data: bookingInitiatedStats, isLoading: isBookingInitiatedStatsLoading, isError: isBookingInitiatedStatsError } =
+    useBookings({ limit: 1, status: 'BOOKING_INITIATED' });
+  const { data: tokenReceivedStats, isLoading: isTokenReceivedStatsLoading, isError: isTokenReceivedStatsError } =
+    useBookings({ limit: 1, status: 'TOKEN_RECEIVED' });
+  const { data: advancePaymentStats, isLoading: isAdvancePaymentStatsLoading, isError: isAdvancePaymentStatsError } =
+    useBookings({ limit: 1, status: 'ADVANCE_PAYMENT' });
+  const {
+    data: registrationPendingStats,
+    isLoading: isRegistrationPendingStatsLoading,
+    isError: isRegistrationPendingStatsError,
+  } = useBookings({ limit: 1, status: 'REGISTRATION_PENDING' });
+  const {
+    data: finalSettlementPendingStats,
+    isLoading: isFinalSettlementPendingStatsLoading,
+    isError: isFinalSettlementPendingStatsError,
+  } = useBookings({ limit: 1, status: 'FINAL_SETTLEMENT_PENDING' });
+  const currentMonthStart = new Date();
+  currentMonthStart.setDate(1);
+  const currentMonthEnd = new Date(currentMonthStart.getFullYear(), currentMonthStart.getMonth() + 1, 0);
+  const {
+    data: completedThisMonthStats,
+    isLoading: isCompletedThisMonthStatsLoading,
+    isError: isCompletedThisMonthStatsError,
+  } = useBookings({
+    limit: 1,
+    status: 'COMPLETED',
+    startDate: toLocalDateParam(currentMonthStart),
+    endDate: toLocalDateParam(currentMonthEnd),
+  });
   const { data: propertiesData } = useProperties({ limit: 200 });
   const properties = propertiesData?.data?.length ? propertiesData.data : fallbackProperties;
   const apiBookings = useMemo(() => data?.data ?? [], [data?.data]);
@@ -1034,16 +1124,32 @@ const AdminBookingsPage: React.FC = () => {
     return true;
   });
 
-  const summary = useMemo(() => {
-    if (!apiBookings.length && !localBookings.length) return fallbackSummary;
-    const bookings = allBookings;
-    return {
-      totalActiveBookings: bookings.filter((booking) => booking.status !== 'COMPLETED' && booking.status !== 'CANCELLED').length || fallbackSummary.totalActiveBookings,
-      completedThisMonth: bookings.filter((booking) => booking.status === 'COMPLETED').length || fallbackSummary.completedThisMonth,
-      pendingRegistration: bookings.filter((booking) => booking.status === 'REGISTRATION_PENDING').length || fallbackSummary.pendingRegistration,
-      advanceReceived: bookings.filter((booking) => booking.status === 'ADVANCE_PAYMENT').length || fallbackSummary.advanceReceived,
-    };
-  }, [allBookings, apiBookings.length, localBookings.length]);
+  const summary = {
+    totalActiveBookings:
+      (bookingInitiatedStats?.total ?? 0) +
+      (tokenReceivedStats?.total ?? 0) +
+      (advancePaymentStats?.total ?? 0) +
+      (registrationPendingStats?.total ?? 0) +
+      (finalSettlementPendingStats?.total ?? 0),
+    completedThisMonth: completedThisMonthStats?.total ?? 0,
+    pendingRegistration: registrationPendingStats?.total ?? 0,
+    advanceReceived: advancePaymentStats?.total ?? 0,
+  };
+  const isStatsLoading =
+    isBookingInitiatedStatsLoading ||
+    isTokenReceivedStatsLoading ||
+    isAdvancePaymentStatsLoading ||
+    isRegistrationPendingStatsLoading ||
+    isFinalSettlementPendingStatsLoading ||
+    isCompletedThisMonthStatsLoading;
+  const hasStatsError =
+    isBookingInitiatedStatsError ||
+    isTokenReceivedStatsError ||
+    isAdvancePaymentStatsError ||
+    isRegistrationPendingStatsError ||
+    isFinalSettlementPendingStatsError ||
+    isCompletedThisMonthStatsError;
+  const statValue = (value: number) => (isStatsLoading ? '-' : value);
 
   const resetFilters = () => {
     setSearch('');
@@ -1117,6 +1223,23 @@ const AdminBookingsPage: React.FC = () => {
           Add Booking
         </button>
       </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+        {[
+          { label: 'Total Active Bookings', value: statValue(summary.totalActiveBookings), accent: 'border-l-gold text-gold' },
+          { label: 'Completed This Month', value: statValue(summary.completedThisMonth), accent: 'border-l-teal-700 text-teal-700' },
+          { label: 'Pending Registration', value: statValue(summary.pendingRegistration), accent: 'border-l-gold text-gold' },
+          { label: 'Advance Received', value: statValue(summary.advanceReceived), accent: 'border-l-blue-700 text-blue-700' },
+        ].map((card) => (
+          <div key={card.label} className={`rounded-md border border-stone-100 border-l-4 bg-stone-100/80 p-5 shadow-sm ${card.accent}`}>
+            <p className="text-xs font-bold uppercase tracking-wide text-gray-700">{card.label}</p>
+            <p className="mt-2 text-3xl font-bold">{card.value}</p>
+          </div>
+        ))}
+      </div>
+      {hasStatsError && (
+        <p className="text-sm font-semibold text-red-600">Unable to load some booking statistics. Unavailable counts are shown as 0.</p>
+      )}
 
       <section className="rounded-md border border-stone-100 bg-white p-4 shadow-sm">
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.4fr_0.8fr_1fr_0.8fr_auto]">
@@ -1283,20 +1406,6 @@ const AdminBookingsPage: React.FC = () => {
           </div>
         </div>
       </section>
-
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-        {[
-          { label: 'Total Active Bookings', value: summary.totalActiveBookings, accent: 'border-l-gold text-gold' },
-          { label: 'Completed This Month', value: summary.completedThisMonth, accent: 'border-l-teal-700 text-teal-700' },
-          { label: 'Pending Registration', value: summary.pendingRegistration, accent: 'border-l-gold text-gold' },
-          { label: 'Advance Received', value: summary.advanceReceived, accent: 'border-l-blue-700 text-blue-700' },
-        ].map((card) => (
-          <div key={card.label} className={`rounded-md border border-stone-100 border-l-4 bg-stone-100/80 p-5 shadow-sm ${card.accent}`}>
-            <p className="text-xs font-bold uppercase tracking-wide text-gray-700">{card.label}</p>
-            <p className="mt-2 text-3xl font-bold">{card.value}</p>
-          </div>
-        ))}
-      </div>
 
       {modalMode && (
         <BookingFormModal

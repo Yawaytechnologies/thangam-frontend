@@ -24,6 +24,8 @@ export function useCreateBilling() {
     mutationFn: (data: CreateBillingData) => billingApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['billing'] });
+      queryClient.invalidateQueries({ queryKey: ['bookings'] });
+      queryClient.invalidateQueries({ queryKey: ['properties'] });
     },
   });
 }
@@ -36,6 +38,8 @@ export function useUpdateBilling() {
       billingApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['billing'] });
+      queryClient.invalidateQueries({ queryKey: ['bookings'] });
+      queryClient.invalidateQueries({ queryKey: ['properties'] });
     },
   });
 }
@@ -47,6 +51,8 @@ export function useDeleteBilling() {
     mutationFn: (id: string) => billingApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['billing'] });
+      queryClient.invalidateQueries({ queryKey: ['bookings'] });
+      queryClient.invalidateQueries({ queryKey: ['properties'] });
     },
   });
 }
@@ -59,6 +65,8 @@ export function useUpdateBillingStatus() {
       billingApi.updateStatus(id, status),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['billing'] });
+      queryClient.invalidateQueries({ queryKey: ['bookings'] });
+      queryClient.invalidateQueries({ queryKey: ['properties'] });
     },
   });
 }
