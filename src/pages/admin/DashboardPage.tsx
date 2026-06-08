@@ -1,6 +1,7 @@
 import React from 'react';
 import { AlertCircle, CalendarDays, CalendarRange, UserCheck, UserPlus, Users } from 'lucide-react';
-import { useMembers } from '../../hooks/useMembers';
+import { useAdminStats } from '../../hooks/useDashboard';
+import { useTeam } from '../../hooks/useMembers';
 import type { Member, Role } from '../../types';
 
 interface StatCardProps {
@@ -45,6 +46,29 @@ const roleLabels: Record<Role, string> = {
   AGENT: 'Agent',
 };
 
+function normalizeRole(value: unknown): Role | null {
+  const normalized = String(value ?? '')
+    .trim()
+    .replace(/([a-z])([A-Z])/g, '$1_$2')
+    .replace(/[\s-]+/g, '_')
+    .toUpperCase();
+
+  if (normalized in roleLabels) return normalized as Role;
+  return null;
+}
+
+function membersFromTeamResponse(response: unknown): Member[] {
+  if (Array.isArray(response)) return response as Member[];
+  if (!response || typeof response !== 'object') return [];
+
+  const record = response as Record<string, unknown>;
+  if (Array.isArray(record.data)) return record.data as Member[];
+  if (Array.isArray(record.members)) return record.members as Member[];
+  if (Array.isArray(record.teamMembers)) return record.teamMembers as Member[];
+
+  return [];
+}
+
 const StatCard: React.FC<StatCardProps> = ({ title, value, accentClass, icon }) => (
   <div className={`rounded-lg border border-gray-200 bg-white p-4 shadow-sm ${accentClass}`}>
     <div className="flex items-start justify-between gap-3">
@@ -70,7 +94,7 @@ const Avatar: React.FC<{ name: string }> = ({ name }) => (
 
 const PerformerCard: React.FC<{ member: Member; index: number }> = ({ member, index }) => {
   const teamPercentage = 0;
-  const profileViews = 0;
+  const role = normalizeRole(member.role);
 
   return (
     <div className="rounded-lg border border-amber-100 bg-amber-50/70 p-4 shadow-sm">
@@ -88,7 +112,7 @@ const PerformerCard: React.FC<{ member: Member; index: number }> = ({ member, in
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
             <span className="rounded bg-white px-2 py-0.5 font-semibold text-gray-700">
-              {roleLabels[member.role]}
+              {role ? roleLabels[role] : String(member.role || '-')}
             </span>
             <span className="flex items-center gap-1 font-semibold text-teal-700">
               <span className="h-1.5 w-1.5 rounded-full bg-teal-600" />
@@ -107,15 +131,9 @@ const PerformerCard: React.FC<{ member: Member; index: number }> = ({ member, in
         <div className="h-1.5 overflow-hidden rounded-full bg-white">
           <div className="h-full rounded-full bg-gold" style={{ width: `${teamPercentage}%` }} />
         </div>
-        <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
-          <div>
-            <p className="font-bold uppercase text-gray-500">Profile Views</p>
-            <p className="mt-1 text-base font-bold text-gray-900">{profileViews}</p>
-          </div>
-          <div>
-            <p className="font-bold uppercase text-gray-500">Status</p>
-            <p className="mt-1 text-base font-bold text-gray-900">{member.status}</p>
-          </div>
+        <div className="mt-3 text-xs">
+          <p className="font-bold uppercase text-gray-500">Status</p>
+          <p className="mt-1 text-base font-bold text-gray-900">{member.status}</p>
         </div>
       </div>
     </div>
@@ -147,11 +165,12 @@ const sortPerformers = (a: Member, b: Member) => {
 };
 
 const AdminDashboardPage: React.FC = () => {
-  const { data: membersResponse, isLoading } = useMembers({ limit: 1000 });
-  const members = membersResponse?.data ?? [];
+  const { data: dashboardStats, isLoading: isStatsLoading } = useAdminStats();
+  const { data: membersResponse, isLoading: isTeamLoading } = useTeam({ limit: 1000 });
+  const members = membersFromTeamResponse(membersResponse).filter((member) => normalizeRole(member.role) !== 'SUPER_ADMIN');
+  const isLoading = isStatsLoading || isTeamLoading;
   const today = new Date();
   const weekStart = getWeekStart(today);
-  const totalMembers = membersResponse?.total ?? members.length;
 
   const joinedToday = members.filter((member) => {
     const joinedAt = parseCreatedAt(member);
@@ -172,12 +191,14 @@ const AdminDashboardPage: React.FC = () => {
 
   const activeMembers = members.filter((member) => member.status === 'ACTIVE').length;
   const pendingActions = members.filter((member) => member.status === 'PENDING' || member.status === 'INACTIVE').length;
+  const statsTotalMembers = Number(dashboardStats?.totalMembers);
+  const teamMembers = Number.isFinite(statsTotalMembers) ? statsTotalMembers : members.length;
 
   const stats: StatCardProps[] = [
     { title: 'Members Today', value: isLoading ? '-' : joinedToday, accentClass: 'border-t-2 border-t-gold', icon: <UserPlus className="h-4 w-4" /> },
     { title: 'Joined This Week', value: isLoading ? '-' : joinedThisWeek, accentClass: 'border-t-2 border-t-teal-700', icon: <CalendarDays className="h-4 w-4" /> },
     { title: 'Joined This Month', value: isLoading ? '-' : joinedThisMonth, accentClass: 'border-t-2 border-t-gold', icon: <CalendarRange className="h-4 w-4" /> },
-    { title: 'Total Members', value: isLoading ? '-' : totalMembers.toLocaleString('en-IN'), accentClass: 'border-t-2 border-t-teal-700', icon: <Users className="h-4 w-4" /> },
+    { title: 'Team Members', value: isLoading ? '-' : teamMembers.toLocaleString('en-IN'), accentClass: 'border-t-2 border-t-teal-700', icon: <Users className="h-4 w-4" /> },
     { title: 'Active Members', value: isLoading ? '-' : activeMembers.toLocaleString('en-IN'), accentClass: 'border-t-2 border-t-gold', icon: <UserCheck className="h-4 w-4" /> },
     { title: 'Pending Actions', value: isLoading ? '-' : pendingActions.toLocaleString('en-IN'), accentClass: 'border-t-2 border-t-red-600', icon: <AlertCircle className="h-4 w-4" /> },
   ];
@@ -201,7 +222,10 @@ const AdminDashboardPage: React.FC = () => {
         <div className="space-y-7">
           {performerGroups.map((group) => {
             const performers = members
-              .filter((member) => group.roles.includes(member.role))
+              .filter((member) => {
+                const role = normalizeRole(member.role);
+                return role ? group.roles.includes(role) : false;
+              })
               .sort(sortPerformers)
               .slice(0, 3);
 

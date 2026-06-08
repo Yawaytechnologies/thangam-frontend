@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import {
@@ -19,8 +20,9 @@ import {
   User,
   X,
 } from 'lucide-react';
-import { useBookings, useCreateBooking, useUpdateBooking, useUploadBookingSignature } from '../../hooks/useBookings';
+import { useBooking, useBookings, useCreateBooking, useUpdateBooking, useUploadBookingSignature } from '../../hooks/useBookings';
 import { useProperties } from '../../hooks/useProperties';
+import { useDocuments, useDocumentUrl } from '../../hooks/useDocuments';
 import { bookingsApi } from '../../api/bookings.api';
 import { pdfFilename } from '../../lib/download-file';
 import { resolveFileUrl } from '../../lib/file-url';
@@ -164,7 +166,22 @@ const fallbackProperties: Property[] = [
   },
 ];
 
-const denominations = [2000, 500, 200, 100];
+const denominations = [2000, 1000, 500, 200, 100, 50, 20, 10];
+
+function calculateDenominationAmount(denomination: number, count: number) {
+  return (Number(denomination) || 0) * (Number(count) || 0);
+}
+
+function normalizeDenominationRow(row: BookingDenominationData): BookingDenominationData {
+  const denomination = Number(row.denomination) || 0;
+  const count = Number(row.count) || 0;
+
+  return {
+    denomination,
+    count,
+    amount: calculateDenominationAmount(denomination, count),
+  };
+}
 
 function formatDate(value: string) {
   const date = new Date(value);
@@ -175,6 +192,27 @@ function formatDate(value: string) {
 function formatCurrency(value?: number | null) {
   const amount = Number(value ?? 0);
   return `₹ ${amount.toLocaleString('en-IN')}`;
+}
+
+function formatOptionalCurrency(value?: number | null) {
+  return value === null || value === undefined ? '-' : formatCurrency(value);
+}
+
+function formatPaymentMethod(value?: string) {
+  return value ? value.replace(/_/g, ' ') : '-';
+}
+
+function paymentNumber(payment: unknown, keys: string[]) {
+  const record = payment as Record<string, unknown> | undefined;
+
+  for (const key of keys) {
+    const value = record?.[key];
+    const amount = typeof value === 'number' ? value : Number(value);
+
+    if (Number.isFinite(amount)) return amount;
+  }
+
+  return undefined;
 }
 
 function toDateInput(value?: string) {
@@ -211,8 +249,11 @@ function bookingToForm(booking?: Booking | null): BookingFormState {
 }
 
 function buildBookingPayload(form: BookingFormState, denominationRows: BookingDenominationData[]): CreateBookingData {
-  const totalAmount = Number(form.totalAmount || 0);
+  const validDenominations = denominationRows.map(normalizeDenominationRow).filter((row) => row.count > 0);
+  const denominationTotal = validDenominations.reduce((total, row) => total + row.amount, 0);
   const cashAmount = Number(form.cashAmount || 0);
+  const calculatedTotalAmount = cashAmount + denominationTotal;
+  const totalAmount = Number(form.totalAmount || 0) || calculatedTotalAmount;
   const payment: BookingPaymentData = {
     bankName: form.bankName || undefined,
     favourOf: form.favourOf || 'Sri Thangam Housing',
@@ -241,7 +282,7 @@ function buildBookingPayload(form: BookingFormState, denominationRows: BookingDe
     referenceCode: form.referenceCode || undefined,
     directorName: form.directorName || undefined,
     payments: totalAmount > 0 ? [payment] : undefined,
-    denominations: denominationRows.filter((row) => row.count > 0),
+    denominations: validDenominations,
   };
 }
 
@@ -326,6 +367,8 @@ const inputClass =
 const textareaClass =
   'min-h-20 w-full rounded-sm border border-stone-300 bg-amber-50/40 px-3 py-2 text-sm font-semibold text-gray-800 outline-none focus:border-gold focus:bg-white';
 const unavailablePropertyMessage = 'This property is not available for booking. Please select an available property.';
+const signatureMimeTypes = new Set(['image/png', 'image/jpeg']);
+const maxSignatureSizeBytes = 2 * 1024 * 1024;
 
 function propertyBookingStatus(property?: Property | null) {
   if (!property) return '';
@@ -360,6 +403,43 @@ function isBookableProperty(property?: Property | null) {
   return propertyBookingStatus(property) === 'AVAILABLE';
 }
 
+function isValidSignatureFile(file: File) {
+  const hasValidExtension = /\.(png|jpe?g)$/i.test(file.name);
+  const hasValidMime = signatureMimeTypes.has(file.type);
+  return hasValidExtension && (!file.type || hasValidMime) && file.size <= maxSignatureSizeBytes;
+}
+
+function getBookingSignaturePath(booking: Booking): string {
+  const record = booking as Booking & {
+    applicantSignature?: string;
+    applicantSignatureUrl?: string;
+    signature?: string;
+    documentUrl?: string;
+    fileUrl?: string;
+    documents?: Array<{
+      documentType?: string;
+      documentUrl?: string;
+      fileUrl?: string;
+      url?: string;
+    }>;
+  };
+
+  const document = record.documents?.find((item) => item.documentType === 'BOOKING_DOCUMENT') ?? record.documents?.[0];
+
+  return (
+    record.applicantSignatureUrl ||
+    record.applicantSignature ||
+    record.signatureUrl ||
+    record.signature ||
+    record.documentUrl ||
+    record.fileUrl ||
+    document?.documentUrl ||
+    document?.fileUrl ||
+    document?.url ||
+    ''
+  );
+}
+
 function bookingSubmitErrorMessage(error: unknown) {
   if (axios.isAxiosError(error)) {
     const message = error.response?.data?.message;
@@ -376,19 +456,23 @@ function bookingSubmitErrorMessage(error: unknown) {
 }
 
 function BookingFormModal({ mode, booking, properties, onClose, onSaved }: BookingModalProps) {
+  const queryClient = useQueryClient();
   const createBooking = useCreateBooking();
   const updateBooking = useUpdateBooking();
   const uploadBookingSignature = useUploadBookingSignature();
   const [form, setForm] = useState<BookingFormState>(() => bookingToForm(booking));
   const [signatureFile, setSignatureFile] = useState<File | null>(null);
   const [signaturePreviewUrl, setSignaturePreviewUrl] = useState('');
+  const [isTotalAmountManual, setIsTotalAmountManual] = useState(Boolean(booking?.payments?.[0]?.totalAmount));
   const [denominationRows, setDenominationRows] = useState<BookingDenominationData[]>(
     booking?.denominations?.length
-      ? booking.denominations.map((row) => ({
-          denomination: row.denomination,
-          count: row.count,
-          amount: row.amount,
-        }))
+      ? booking.denominations.map((row) =>
+          normalizeDenominationRow({
+            denomination: row.denomination,
+            count: row.count,
+            amount: row.amount,
+          }),
+        )
       : [{ denomination: 2000, count: 0, amount: 0 }],
   );
 
@@ -400,9 +484,27 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
   const successText = mode === 'add' ? 'Booking created successfully.' : 'Booking updated successfully.';
   const submitText = mode === 'add' ? 'Save Booking' : 'Update Booking';
   const isSaving = createBooking.isPending || updateBooking.isPending || uploadBookingSignature.isPending;
+  const existingSignatureUrl = resolveFileUrl(booking ? getBookingSignaturePath(booking) : '');
+  const denominationTotal = useMemo(
+    () => denominationRows.reduce((total, row) => total + calculateDenominationAmount(row.denomination, row.count), 0),
+    [denominationRows],
+  );
+  const cashAmount = Number(form.cashAmount || 0);
+  const calculatedTotalAmount = cashAmount + denominationTotal;
+  const hasManualTotalAmount = isTotalAmountManual && form.totalAmount.trim() !== '';
+  const totalAmountForDisplay = hasManualTotalAmount
+    ? form.totalAmount
+    : calculatedTotalAmount > 0
+      ? String(calculatedTotalAmount)
+      : '';
 
   const updateForm = (key: keyof BookingFormState, value: string) => {
     setForm((current) => ({ ...current, [key]: value }));
+  };
+
+  const updateTotalAmount = (value: string) => {
+    setIsTotalAmountManual(value.trim() !== '');
+    updateForm('totalAmount', value);
   };
 
   const handlePropertyChange = (propertyId: string) => {
@@ -424,8 +526,13 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
   const updateDenomination = (index: number, key: 'denomination' | 'count', value: number) => {
     setDenominationRows((current) => {
       const next = [...current];
-      next[index] = { ...next[index], [key]: value };
-      next[index].amount = next[index].denomination * next[index].count;
+      const denomination = key === 'denomination' ? value : next[index].denomination;
+      const count = key === 'count' ? value : next[index].count;
+      next[index] = {
+        ...next[index],
+        [key]: value,
+        amount: calculateDenominationAmount(denomination, count),
+      };
       return next;
     });
   };
@@ -436,6 +543,24 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
       if (current) URL.revokeObjectURL(current);
       return file ? URL.createObjectURL(file) : '';
     });
+  };
+
+  const handleSignatureInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
+    event.target.value = '';
+
+    if (!file) {
+      setUploadedSignature(null);
+      return;
+    }
+
+    if (!isValidSignatureFile(file)) {
+      toast.error('Please upload a valid PNG or JPG signature under 2MB.');
+      setUploadedSignature(null);
+      return;
+    }
+
+    setUploadedSignature(file);
   };
 
   const signatureForUpload = () => {
@@ -453,6 +578,10 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
 
     try {
       await uploadBookingSignature.mutateAsync({ id: bookingId, file: signature });
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: ['bookings', bookingId] }),
+        queryClient.refetchQueries({ queryKey: ['documents', 'booking', bookingId] }),
+      ]);
     } catch {
       throw new Error('Booking saved, but signature upload failed.');
     }
@@ -716,11 +845,16 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
                 </Field>
                 <Field label="Total Amount" className="md:col-span-2">
                   <input
-                    value={form.totalAmount}
-                    onChange={(event) => updateForm('totalAmount', event.target.value)}
+                    value={totalAmountForDisplay}
+                    onChange={(event) => updateTotalAmount(event.target.value)}
                     className={`${inputClass} border-gold bg-amber-50`}
                     placeholder="₹ 0.00"
                   />
+                  <p className="mt-1 text-xs font-semibold text-gray-500">
+                    {hasManualTotalAmount
+                      ? `Manual total entered. Calculated total is ${formatCurrency(calculatedTotalAmount)}.`
+                      : `Auto-calculated from cash and denominations: ${formatCurrency(calculatedTotalAmount)}.`}
+                  </p>
                 </Field>
               </div>
             </section>
@@ -788,6 +922,12 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
                   </tbody>
                 </table>
               </div>
+              <div className="mt-4 rounded-sm border border-teal-100 bg-teal-50 px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <span className="text-sm font-extrabold uppercase tracking-wide text-gray-700">Calculated Total Amount</span>
+                  <span className="text-2xl font-extrabold text-teal-700">{formatCurrency(calculatedTotalAmount)}</span>
+                </div>
+              </div>
             </section>
 
             <section>
@@ -804,21 +944,29 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
                       type="file"
                       accept=".png,.jpg,.jpeg"
                       className="sr-only"
-                      onChange={(event) => setUploadedSignature(event.target.files?.[0] ?? null)}
+                      onChange={handleSignatureInputChange}
                     />
                   </label>
-                  {signaturePreviewUrl && (
+                  {(signaturePreviewUrl || existingSignatureUrl) && (
                     <div className="mt-3 rounded-sm border border-stone-200 bg-white p-3">
                       <div className="flex h-20 items-center justify-center">
-                        <img src={signaturePreviewUrl} alt="Uploaded applicant signature" className="max-h-full max-w-full object-contain" />
+                        <img
+                          src={signaturePreviewUrl || existingSignatureUrl}
+                          alt="Uploaded applicant signature"
+                          className="max-h-full max-w-full object-contain"
+                        />
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setUploadedSignature(null)}
-                        className="mt-3 text-xs font-bold text-red-600 hover:text-red-700"
-                      >
-                        Remove signature
-                      </button>
+                      {signaturePreviewUrl ? (
+                        <button
+                          type="button"
+                          onClick={() => setUploadedSignature(null)}
+                          className="mt-3 text-xs font-bold text-red-600 hover:text-red-700"
+                        >
+                          Remove signature
+                        </button>
+                      ) : (
+                        <p className="mt-3 text-xs font-semibold text-gray-500">Existing applicant signature</p>
+                      )}
                     </div>
                   )}
                 </Field>
@@ -889,21 +1037,30 @@ function DetailsCard({
 }
 
 function BookingDetailsModal({ booking, onClose, onDownload, isDownloading }: BookingDetailsModalProps) {
-  const payment = booking.payments?.[0];
+  const { data: bookingDetail, isLoading: isBookingDetailLoading } = useBooking(booking.id);
+  const currentBooking = bookingDetail ?? booking;
+  const payment = currentBooking.payments?.[0];
   const [signatureFailed, setSignatureFailed] = useState(false);
-  const signatureUrl = signatureFailed ? '' : resolveFileUrl(booking.signatureUrl);
-  const detailDenominations = booking.denominations?.length
-    ? booking.denominations
-    : [
-        {
-          id: 'fallback-denomination',
-          bookingId: booking.id,
-          denomination: 2000,
-          count: 0,
-          amount: 0,
-        },
-      ];
-  const totalAmount = payment?.totalAmount ?? 150000;
+  const directSignatureUrl = resolveFileUrl(getBookingSignaturePath(currentBooking));
+  const { data: bookingDocuments = [] } = useDocuments('booking', currentBooking.id);
+  const signatureDocument = useMemo(
+    () =>
+      [...bookingDocuments]
+        .reverse()
+        .find((document) => document.documentType === 'BOOKING_DOCUMENT') ?? bookingDocuments[bookingDocuments.length - 1],
+    [bookingDocuments],
+  );
+  const { data: signedSignature } = useDocumentUrl(directSignatureUrl ? '' : (signatureDocument?.id ?? ''));
+  const documentSignatureUrl = resolveFileUrl(signedSignature?.signedUrl || signatureDocument?.documentUrl);
+  const signatureUrl = signatureFailed ? '' : directSignatureUrl || documentSignatureUrl;
+  const detailDenominations =
+    currentBooking.denominations?.map((row) => ({
+      ...row,
+      amount: calculateDenominationAmount(row.denomination, row.count),
+    })) ?? [];
+  const detailDenominationTotal = detailDenominations.reduce((total, row) => total + row.amount, 0);
+  const amountReceived = paymentNumber(payment, ['amountReceived', 'receivedAmount', 'amount', 'totalAmount']);
+  const totalAmount = paymentNumber(payment, ['totalAmount']);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]">
@@ -920,65 +1077,76 @@ function BookingDetailsModal({ booking, onClose, onDownload, isDownloading }: Bo
           <div className="flex flex-wrap items-center gap-3 pr-12">
             <h2 className="text-3xl font-bold text-gold">Booking Details</h2>
             <span className="inline-flex rounded-full bg-teal-50 px-3 py-1 text-xs font-extrabold uppercase text-teal-700 ring-1 ring-teal-100">
-              Confirmed
+              {statusLabels[currentBooking.status]}
             </span>
           </div>
           <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm font-semibold text-gray-600">
             <span>
-              Booking ID: <strong className="font-mono text-gray-900">{booking.bookingId}</strong>
+              Booking ID: <strong className="font-mono text-gray-900">{currentBooking.bookingId}</strong>
             </span>
             <span>
-              Created date: <strong className="text-gray-900">{formatDate(booking.createdAt || booking.bookingDate)}</strong>
+              Created date: <strong className="text-gray-900">{formatDate(currentBooking.createdAt || currentBooking.bookingDate)}</strong>
             </span>
+            {isBookingDetailLoading && <span>Loading latest booking details...</span>}
           </div>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
             <DetailsCard title="Applicant Details" icon={<User className="h-4 w-4" />}>
-              <DetailRow label="Applicant Name" value={booking.applicantName} />
-              <DetailRow label="Phone Number" value={booking.cellNumber} />
-              <DetailRow label="Relationship" value={booking.relation || 'S/o D/o C/o W/o details pending'} />
-              <DetailRow label="Address" value={booking.applicantAddress || 'Street, City, District'} />
-              <DetailRow label="PIN Code" value={booking.pinCode || '600001'} />
+              <DetailRow label="Applicant Name" value={currentBooking.applicantName} />
+              <DetailRow label="Phone Number" value={currentBooking.cellNumber} />
+              <DetailRow label="Relationship" value={currentBooking.relation || '-'} />
+              <DetailRow label="Address" value={currentBooking.applicantAddress || '-'} />
+              <DetailRow label="PIN Code" value={currentBooking.pinCode || '-'} />
             </DetailsCard>
 
             <DetailsCard title="Property Details" icon={<Building2 className="h-4 w-4" />}>
-              <DetailRow label="Project Name" value={booking.projectName} />
-              <DetailRow label="Plot Number" value={booking.plotNumber} />
+              <DetailRow label="Project Name" value={currentBooking.projectName} />
+              <DetailRow label="Plot Number" value={currentBooking.plotNumber} />
               <DetailRow
                 label="Square Feet"
-                value={booking.squareFeet ? `${booking.squareFeet.toLocaleString('en-IN')} SQFT` : '0.00 SQFT'}
+                value={currentBooking.squareFeet ? `${currentBooking.squareFeet.toLocaleString('en-IN')} SQFT` : '-'}
               />
-              <DetailRow label="Booking Date" value={formatDate(booking.bookingDate)} />
+              <DetailRow label="Booking Date" value={formatDate(currentBooking.bookingDate)} />
               <DetailRow
                 label="Status"
                 value={
                   <span className="inline-flex items-center gap-2 text-teal-700">
                     <span className="h-2 w-2 rounded-full bg-teal-600" />
-                    Confirmed
+                    {statusLabels[currentBooking.status]}
                   </span>
                 }
               />
             </DetailsCard>
 
             <DetailsCard title="Reference Details" icon={<FileText className="h-4 w-4" />}>
-              <DetailRow label="ED/DD/SM/BM" value={booking.edDdSmBmName || 'Referrer Name'} />
-              <DetailRow label="Code Number" value={booking.referenceCode || 'STH-000'} />
-              <DetailRow label="Director Name" value={booking.directorName || 'Director Name'} />
+              <DetailRow label="ED/DD/SM/BM" value={currentBooking.edDdSmBmName || '-'} />
+              <DetailRow label="Code Number" value={currentBooking.referenceCode || '-'} />
+              <DetailRow label="Director Name" value={currentBooking.directorName || '-'} />
             </DetailsCard>
 
             <DetailsCard title="Payment Details" icon={<CreditCard className="h-4 w-4" />}>
-              <DetailRow label="Bank Name" value={payment?.bankName || 'Bank Name'} />
-              <DetailRow label="Favour Of" value={payment?.favourOf || 'Sri Thangam Housing'} />
-              <DetailRow label="Cheque Number" value={payment?.chequeNumber || 'N/A'} />
-              <DetailRow label="Cheque Date" value={payment?.chequeDate ? formatDate(payment.chequeDate) : 'N/A'} />
-              <DetailRow label="GPay Reference" value={payment?.gpayReference || 'N/A'} />
-              <DetailRow label="Cash Amount" value={formatCurrency(payment?.cashAmount ?? 0)} />
+              {payment ? (
+                <>
+                  <DetailRow label="Payment Method" value={formatPaymentMethod(payment.paymentMethod)} />
+                  <DetailRow label="Bank Name" value={payment.bankName || '-'} />
+                  <DetailRow label="Favour Of" value={payment.favourOf || '-'} />
+                  <DetailRow label="Cheque Number" value={payment.chequeNumber || '-'} />
+                  <DetailRow label="Cheque Date" value={payment.chequeDate ? formatDate(payment.chequeDate) : '-'} />
+                  <DetailRow label="GPay Reference" value={payment.gpayReference || '-'} />
+                  <DetailRow label="Cash Amount" value={formatOptionalCurrency(payment.cashAmount)} />
+                  <DetailRow label="Amount Received" value={formatOptionalCurrency(amountReceived)} />
+                </>
+              ) : (
+                <p className="text-sm font-semibold text-gray-600">
+                  Payment details are not available in this booking response.
+                </p>
+              )}
               <div className="mt-4 rounded-sm border border-teal-100 bg-teal-50 px-4 py-3">
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-sm font-extrabold uppercase tracking-wide text-gray-700">Total Amount</span>
-                  <span className="text-2xl font-extrabold text-teal-700">{formatCurrency(totalAmount)}</span>
+                  <span className="text-2xl font-extrabold text-teal-700">{formatOptionalCurrency(totalAmount)}</span>
                 </div>
               </div>
             </DetailsCard>
@@ -994,16 +1162,34 @@ function BookingDetailsModal({ booking, onClose, onDownload, isDownloading }: Bo
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-100 bg-white">
-                    {detailDenominations.map((row) => (
+                    {detailDenominations.length ? (
+                      detailDenominations.map((row) => (
                       <tr key={row.id ?? `${row.denomination}-${row.count}`}>
                         <td className="px-4 py-3 font-bold text-gray-900">₹ {row.denomination}</td>
                         <td className="px-4 py-3 font-semibold text-gray-700">{row.count}</td>
                         <td className="px-4 py-3 font-bold text-teal-700">{formatCurrency(row.amount)}</td>
                       </tr>
-                    ))}
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={3} className="px-4 py-4 text-center font-semibold text-gray-600">
+                          Denomination details are not available in this booking response.
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
+              {detailDenominations.length > 0 && (
+                <div className="mt-4 rounded-sm border border-teal-100 bg-teal-50 px-4 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-extrabold uppercase tracking-wide text-gray-700">
+                      Total Denomination Amount
+                    </span>
+                    <span className="text-2xl font-extrabold text-teal-700">{formatCurrency(detailDenominationTotal)}</span>
+                  </div>
+                </div>
+              )}
             </DetailsCard>
 
             <section className="rounded-md border border-stone-100 bg-white p-5 shadow-sm lg:col-span-2">
@@ -1014,7 +1200,7 @@ function BookingDetailsModal({ booking, onClose, onDownload, isDownloading }: Bo
                     <h3 className="text-xs font-extrabold uppercase tracking-wide text-gold">Applicant Signature Preview</h3>
                   </div>
                   <p className="text-sm font-semibold text-gray-700">
-                    Signature captured for {booking.applicantName}.
+                    {signatureUrl ? 'Uploaded applicant signature' : 'No applicant signature uploaded'}
                   </p>
                 </div>
                 <div className="flex h-24 w-full max-w-xs items-center justify-center rounded-sm border border-dashed border-gold/40 bg-amber-50 text-center">
@@ -1026,10 +1212,7 @@ function BookingDetailsModal({ booking, onClose, onDownload, isDownloading }: Bo
                       className="max-h-20 max-w-full object-contain"
                     />
                   ) : (
-                    <div>
-                      <p className="font-serif text-2xl italic text-teal-800">{booking.applicantName}</p>
-                      <p className="mt-1 text-xs font-bold uppercase tracking-wide text-gray-500">Applicant Signature</p>
-                    </div>
+                    <div className="px-4 text-sm font-semibold text-gray-500">No applicant signature uploaded</div>
                   )}
                 </div>
               </div>
@@ -1047,7 +1230,7 @@ function BookingDetailsModal({ booking, onClose, onDownload, isDownloading }: Bo
           </button>
           <button
             type="button"
-            onClick={() => onDownload(booking)}
+            onClick={() => onDownload(currentBooking)}
             disabled={isDownloading}
             className="inline-flex items-center gap-2 rounded-sm bg-gold px-7 py-3 text-sm font-bold text-white hover:bg-gold-light hover:text-navy disabled:cursor-not-allowed disabled:opacity-60"
           >

@@ -298,11 +298,26 @@ function readString(source: unknown, key: string, fallback = ''): string {
   return String(value);
 }
 
-function readNumber(source: unknown, key: string, fallback = 0): number {
-  const value = (source as Record<string, unknown> | undefined)?.[key];
-  const amount = safeNumber(value);
+function readOptionalNumber(source: unknown, keys: string[]): number | undefined {
+  const record = source as Record<string, unknown> | undefined;
 
-  return amount || fallback;
+  for (const key of keys) {
+    const value = record?.[key];
+    if (value === null || value === undefined || value === '') continue;
+
+    const amount = safeNumber(value);
+    if (Number.isFinite(amount)) return amount;
+  }
+
+  return undefined;
+}
+
+function formatOptionalCurrency(value?: number): string {
+  return value === undefined ? 'â€”' : formatCurrency(value);
+}
+
+function formatPaymentMethod(value: string): string {
+  return value ? value.replace(/_/g, ' ') : 'â€”';
 }
 
 function firstPayment(booking: Booking): Record<string, unknown> | undefined {
@@ -1723,6 +1738,8 @@ function ViewBookingModal({ open, onClose, booking, onEdit }: ViewBookingModalPr
   const { data: detail } = useBooking(booking.id);
   const currentBooking = detail ?? booking;
   const payment = firstPayment(currentBooking);
+  const amountReceived = readOptionalNumber(payment, ['amountReceived', 'receivedAmount', 'amount', 'totalAmount']);
+  const totalAmount = readOptionalNumber(payment, ['totalAmount']);
 
   const [downloading, setDownloading] = useState(false);
 
@@ -1788,19 +1805,33 @@ function ViewBookingModal({ open, onClose, booking, onEdit }: ViewBookingModalPr
           </InfoCard>
 
           <InfoCard icon={<WalletIcon />} title="Payment Details" compact>
+            {payment ? (
+              <>
+            <InfoRow label="Payment Method" value={formatPaymentMethod(readString(payment, 'paymentMethod'))} />
             <InfoRow label="Bank Name" value={readString(payment, 'bankName', '—')} />
-            <InfoRow label="Favour Of" value={readString(payment, 'favourOf', 'Sri Thangam Housing')} />
+            <InfoRow label="Favour Of" value={readString(payment, 'favourOf', '—')} />
             <InfoRow label="Cheque Number" value={readString(payment, 'chequeNumber', '—')} />
+            <InfoRow label="Cheque Date" value={formatDate(readString(payment, 'chequeDate'))} />
             <InfoRow label="GPay Ref Number" value={readString(payment, 'gpayReference', '—')} />
             <InfoRow
               label="Cash Amount"
-              value={formatCurrency(readNumber(payment, 'cashAmount'))}
+              value={formatOptionalCurrency(readOptionalNumber(payment, ['cashAmount']))}
+            />
+            <InfoRow
+              label="Amount Received"
+              value={formatOptionalCurrency(amountReceived)}
             />
             <InfoRow
               label="Total Amount"
-              value={formatCurrency(readNumber(payment, 'totalAmount'))}
+              value={formatOptionalCurrency(totalAmount)}
               highlight
             />
+              </>
+            ) : (
+              <div className="text-[13px] font-semibold text-gray-600 sm:col-span-2">
+                Payment details are not available in this booking response.
+              </div>
+            )}
           </InfoCard>
         </div>
 
