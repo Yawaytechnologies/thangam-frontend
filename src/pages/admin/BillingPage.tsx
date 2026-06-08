@@ -89,6 +89,7 @@ const lifecycleLabels: Record<LifecycleStage, string> = {
 const paymentMethods: { value: PaymentMethod; label: string }[] = [
   { value: 'CHEQUE', label: 'Cheque' },
   { value: 'GPAY', label: 'GPay' },
+  { value: 'UPI', label: 'UPI' },
   { value: 'CASH', label: 'Cash' },
   { value: 'BANK_TRANSFER', label: 'Bank Transfer' },
 ];
@@ -164,6 +165,8 @@ const textareaClass =
   'min-h-24 w-full resize-none border border-stone-100 bg-white px-3 py-3 text-sm font-semibold text-gray-800 outline-none focus:border-gold';
 const signatureMimeTypes = new Set(['image/png', 'image/jpeg']);
 const maxSignatureSizeBytes = 2 * 1024 * 1024;
+const missingSettlementAmountMessage = 'Unable to validate final settlement amount. Required amount is missing.';
+const insufficientSettlementAmountMessage = 'Final settlement cannot be completed until the full amount is received.';
 
 function formatDate(value: string) {
   const date = new Date(value);
@@ -196,8 +199,54 @@ function bookingCode(billing: Billing) {
 
 function methodLabel(method: PaymentMethod) {
   if (method === 'GPAY') return 'GPay';
+  if (method === 'UPI') return 'UPI';
   if (method === 'BANK_TRANSFER') return 'Bank Transfer';
   return method.charAt(0) + method.slice(1).toLowerCase();
+}
+
+function isCashPayment(method: PaymentMethod) {
+  return method === 'CASH';
+}
+
+function isChequePayment(method: PaymentMethod) {
+  return method === 'CHEQUE';
+}
+
+function isOnlinePayment(method: PaymentMethod) {
+  return method === 'GPAY' || method === 'UPI' || method === 'BANK_TRANSFER';
+}
+
+function cleanPaymentFieldsForMethod(form: BillingFormState, paymentMethod: PaymentMethod): BillingFormState {
+  if (isCashPayment(paymentMethod)) {
+    return {
+      ...form,
+      paymentMethod,
+      bankName: '',
+      favourOf: '',
+      chequeNumber: '',
+      chequeDate: '',
+      gpayReference: '',
+    };
+  }
+
+  if (isChequePayment(paymentMethod)) {
+    return {
+      ...form,
+      paymentMethod,
+      cashAmount: '',
+      gpayReference: '',
+    };
+  }
+
+  return {
+    ...form,
+    paymentMethod,
+    bankName: '',
+    favourOf: '',
+    chequeNumber: '',
+    chequeDate: '',
+    cashAmount: '',
+  };
 }
 
 function statusTone(status: BillingStatus) {
@@ -298,6 +347,36 @@ function lifecycleToBookingStatus(stage: LifecycleStage): BookingStatus {
   return stage;
 }
 
+function numberField(source: unknown, fields: string[]) {
+  if (!source || typeof source !== 'object') return null;
+  const record = source as Record<string, unknown>;
+
+  for (const field of fields) {
+    const value = Number(record[field]);
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+
+  return null;
+}
+
+function requiredTotalFromBooking(booking?: Booking | null) {
+  const totalFields = ['settlementAmount', 'finalAmount', 'saleAmount', 'propertyAmount', 'plotAmount', 'totalAmount', 'amount'];
+  const propertyTotalFields = [...totalFields, 'price'];
+
+  return numberField(booking, totalFields) ?? numberField(booking?.property, propertyTotalFields);
+}
+
+function requiredTotalFromBilling(billing?: Billing | null) {
+  if (!billing) return null;
+  const billingTotal = (Number(billing.totalReceived) || 0) + (Number(billing.totalBalance) || 0);
+  if (billingTotal > 0) return billingTotal;
+  return requiredTotalFromBooking(billing.booking);
+}
+
+function requiresFinalSettlementValidation(status: LifecycleStage | BookingStatus | BillingStatus) {
+  return status === 'FINAL_SETTLEMENT' || status === 'FINAL_SETTLEMENT_PENDING' || status === 'COMPLETED';
+}
+
 function Field({ label, children, className = '' }: { label: string; children: React.ReactNode; className?: string }) {
   return (
     <label className={className}>
@@ -318,7 +397,7 @@ function SectionTitle({ children, icon }: { children: React.ReactNode; icon?: Re
 
 function billingToForm(billing?: Billing | null): BillingFormState {
   const amount = billing?.amountInNumbers ? String(billing.amountInNumbers) : '';
-  return {
+  const form: BillingFormState = {
     bookingId: billing?.bookingId ?? '',
     applicantName: billing?.buyerName ?? '',
     applicantPhone: billing?.buyerPhone ?? '',
@@ -326,11 +405,11 @@ function billingToForm(billing?: Billing | null): BillingFormState {
     plotNumber: billing ? plotNumber(billing) : '',
     squareFeet: billing?.booking?.squareFeet ? String(billing.booking.squareFeet) : '',
     paymentMethod: billing?.paymentMethod ?? 'CHEQUE',
-    bankName: '',
-    favourOf: 'Sri Thangam Housing',
-    chequeNumber: '',
-    chequeDate: '',
-    gpayReference: '',
+    bankName: billing?.bankName ?? '',
+    favourOf: billing?.favourOf ?? 'Sri Thangam Housing',
+    chequeNumber: billing?.chequeNumber ?? '',
+    chequeDate: toDateInput(billing?.chequeDate),
+    gpayReference: billing?.gpayReference ?? '',
     cashAmount: billing?.paymentMethod === 'CASH' ? amount : '',
     amountReceived: billing?.amountInNumbers ? String(billing.amountInNumbers) : '',
     lifecycleStage:
@@ -348,6 +427,8 @@ function billingToForm(billing?: Billing | null): BillingFormState {
     settlementNotes: billing?.settlementNotes ?? '',
     billingDate: toDateInput(billing?.billingDate) || new Date().toISOString().split('T')[0],
   };
+
+  return cleanPaymentFieldsForMethod(form, form.paymentMethod);
 }
 
 function enteredBillingAmount(form: BillingFormState) {
@@ -357,12 +438,57 @@ function enteredBillingAmount(form: BillingFormState) {
   return 0;
 }
 
+function hasRequiredPaymentDetails(form: BillingFormState) {
+  if (isCashPayment(form.paymentMethod)) {
+    return form.cashAmount.trim() !== '' || form.amountReceived.trim() !== '';
+  }
+
+  if (isChequePayment(form.paymentMethod)) {
+    return form.chequeNumber.trim() !== '' && form.chequeDate.trim() !== '';
+  }
+
+  if (isOnlinePayment(form.paymentMethod)) {
+    return form.gpayReference.trim() !== '';
+  }
+
+  return true;
+}
+
+function valueOrDash(value?: string | number | null) {
+  const text = String(value ?? '').trim();
+  return text || '-';
+}
+
+function defaultVerificationNote(form: BillingFormState) {
+  const amount = formatCurrency(enteredBillingAmount(form));
+  const bookingId = valueOrDash(form.bookingId);
+  const applicantSuffix = form.applicantName.trim() ? ` Applicant: ${form.applicantName.trim()}.` : '';
+  const lifecycleSuffix = ` Lifecycle: ${lifecycleLabels[form.lifecycleStage]}.`;
+
+  if (requiresFinalSettlementValidation(form.lifecycleStage)) {
+    return `Final settlement payment of ${amount} received for booking ${bookingId}.${applicantSuffix}${lifecycleSuffix}`;
+  }
+
+  if (isCashPayment(form.paymentMethod)) {
+    return `Cash payment of ${amount} received for booking ${bookingId}.${applicantSuffix}${lifecycleSuffix}`;
+  }
+
+  if (isChequePayment(form.paymentMethod)) {
+    return `Cheque payment of ${amount} received for booking ${bookingId}. Cheque No: ${valueOrDash(form.chequeNumber)}.${applicantSuffix}${lifecycleSuffix}`;
+  }
+
+  return `Online payment of ${amount} received for booking ${bookingId}. Reference No: ${valueOrDash(form.gpayReference)}.${applicantSuffix}${lifecycleSuffix}`;
+}
+
+function verificationNotesForSubmit(form: BillingFormState) {
+  return form.paymentNotes.trim() || defaultVerificationNote(form);
+}
+
 function buildPayload(form: BillingFormState): CreateBillingData {
   const amount = enteredBillingAmount(form);
   const totalReceived = Number(form.totalReceived || 0);
   const totalBalance = form.balanceAmount === '' ? undefined : Number(form.balanceAmount);
-
-  return {
+  const payload: CreateBillingData = {
     bookingId: form.bookingId,
     buyerName: form.applicantName,
     buyerPhone: form.applicantPhone,
@@ -371,33 +497,47 @@ function buildPayload(form: BillingFormState): CreateBillingData {
     amountInNumbers: amount,
     totalReceived,
     totalBalance,
-    operationalNotes: form.paymentNotes || undefined,
+    operationalNotes: verificationNotesForSubmit(form),
     settlementNotes: form.settlementNotes || undefined,
-    bankName: form.bankName || undefined,
-    favourOf: form.favourOf || undefined,
-    chequeNumber: form.chequeNumber || undefined,
-    chequeDate: form.chequeDate || undefined,
-    gpayReference: form.gpayReference || undefined,
   };
+
+  if (isChequePayment(form.paymentMethod)) {
+    payload.bankName = form.bankName || undefined;
+    payload.chequeNumber = form.chequeNumber || undefined;
+    payload.chequeDate = form.chequeDate || undefined;
+  }
+
+  if (isOnlinePayment(form.paymentMethod)) {
+    payload.gpayReference = form.gpayReference || undefined;
+  }
+
+  return payload;
 }
 
 function buildUpdatePayload(form: BillingFormState): UpdateBillingData {
   const amount = enteredBillingAmount(form);
   const totalReceived = Number(form.totalReceived || 0);
 
-  return {
+  const payload: UpdateBillingData = {
     paymentMethod: form.paymentMethod,
     amountInNumbers: amount,
     totalReceived,
-    operationalNotes: form.paymentNotes || undefined,
+    operationalNotes: verificationNotesForSubmit(form),
     settlementNotes: form.settlementNotes || undefined,
     status: lifecycleToBillingStatus(form.lifecycleStage),
-    bankName: form.bankName || undefined,
-    favourOf: form.favourOf || undefined,
-    chequeNumber: form.chequeNumber || undefined,
-    chequeDate: form.chequeDate || undefined,
-    gpayReference: form.gpayReference || undefined,
   };
+
+  if (isChequePayment(form.paymentMethod)) {
+    payload.bankName = form.bankName || undefined;
+    payload.chequeNumber = form.chequeNumber || undefined;
+    payload.chequeDate = form.chequeDate || undefined;
+  }
+
+  if (isOnlinePayment(form.paymentMethod)) {
+    payload.gpayReference = form.gpayReference || undefined;
+  }
+
+  return payload;
 }
 
 function isBadRequestValidationError(error: unknown) {
@@ -486,11 +626,7 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
   const [previousReceivedAmount, setPreviousReceivedAmount] = useState(() =>
     billing ? Math.max((Number(billing.totalReceived) || 0) - (Number(billing.amountInNumbers) || 0), 0) : 0,
   );
-  const [bookingTotalAmount, setBookingTotalAmount] = useState<number | null>(() => {
-    if (!billing) return null;
-    const total = (Number(billing.totalReceived) || 0) + (Number(billing.totalBalance) || 0);
-    return total > 0 ? total : null;
-  });
+  const [bookingTotalAmount, setBookingTotalAmount] = useState<number | null>(() => requiredTotalFromBilling(billing));
   const [isLoadingBookingDetails, setIsLoadingBookingDetails] = useState(false);
 
   const title = mode === 'add' ? 'Add Billing' : 'Edit Billing';
@@ -506,9 +642,16 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
     updateBookingStatus.isPending ||
     uploadBillingSignature.isPending ||
     isLoadingBookingDetails;
+  const showCashFields = isCashPayment(form.paymentMethod);
+  const showChequeFields = isChequePayment(form.paymentMethod);
+  const showOnlineFields = isOnlinePayment(form.paymentMethod);
 
   const updateForm = (key: keyof BillingFormState, value: string) => {
     setForm((current) => ({ ...current, [key]: value }));
+  };
+
+  const handlePaymentMethodChange = (paymentMethod: PaymentMethod) => {
+    setForm((current) => cleanPaymentFieldsForMethod(current, paymentMethod));
   };
 
   const handleAmountReceivedChange = (value: string) => {
@@ -587,12 +730,12 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
       const latestKnownTotal = latestBilling
         ? (Number(latestBilling.totalReceived) || 0) + (Number(latestBilling.totalBalance) || 0)
         : 0;
-      const totalAmount = latestKnownTotal > 0 ? latestKnownTotal : null;
+      const totalAmount = latestKnownTotal > 0 ? latestKnownTotal : requiredTotalFromBooking(bookingDetails);
       const previousPayment = latestBilling ?? bookingDetails.payments?.[0];
 
       setPreviousReceivedAmount(previousReceived);
       setBookingTotalAmount(totalAmount);
-      setForm((current) => ({
+      setForm((current) => cleanPaymentFieldsForMethod({
         ...current,
         bookingId: bookingDetails.id,
         applicantName: bookingDetails.applicantName ?? '',
@@ -600,7 +743,7 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
         projectName: bookingDetails.projectName ?? bookingDetails.property?.projectName ?? '',
         plotNumber: bookingDetails.plotNumber ?? bookingDetails.property?.plotNumber ?? '',
         squareFeet: bookingDetails.squareFeet ? String(bookingDetails.squareFeet) : '',
-        paymentMethod: previousPayment?.paymentMethod ?? current.paymentMethod,
+        paymentMethod: (previousPayment?.paymentMethod ?? current.paymentMethod) as PaymentMethod,
         bankName: previousPayment?.bankName ?? '',
         favourOf: previousPayment?.favourOf ?? current.favourOf,
         chequeNumber: previousPayment?.chequeNumber ?? '',
@@ -616,7 +759,7 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
         amountInWords: mode === 'add' ? '' : current.amountInWords,
         paymentNotes: latestBilling?.operationalNotes ?? '',
         settlementNotes: latestBilling?.settlementNotes ?? '',
-      }));
+      }, (previousPayment?.paymentMethod ?? current.paymentMethod) as PaymentMethod));
     } catch {
       toast.error('Unable to load booking details. Please try again.');
     } finally {
@@ -723,6 +866,10 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
       toast.error('Please select a valid booking.');
       return;
     }
+    if (!hasRequiredPaymentDetails(form)) {
+      toast.error('Please enter required payment details.');
+      return;
+    }
     if (
       !Number.isFinite(amount) ||
       amount <= 0 ||
@@ -730,6 +877,17 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
     ) {
       toast.error('Please enter a valid amount.');
       return;
+    }
+    if (requiresFinalSettlementValidation(form.lifecycleStage)) {
+      if (!bookingTotalAmount) {
+        toast.error(missingSettlementAmountMessage);
+        return;
+      }
+
+      if (previousReceivedAmount + amount < bookingTotalAmount) {
+        toast.error(insufficientSettlementAmountMessage);
+        return;
+      }
     }
 
     try {
@@ -844,7 +1002,7 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
                 <Field label="Payment Method">
                   <select
                     value={form.paymentMethod}
-                    onChange={(event) => updateForm('paymentMethod', event.target.value as PaymentMethod)}
+                    onChange={(event) => handlePaymentMethodChange(event.target.value as PaymentMethod)}
                     className={inputClass}
                   >
                     {paymentMethods.map((method) => (
@@ -854,20 +1012,14 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
                     ))}
                   </select>
                 </Field>
+                {showChequeFields && (
+                  <>
                 <Field label="Bank Name">
                   <input
                     value={form.bankName}
                     onChange={(event) => updateForm('bankName', event.target.value)}
                     className={inputClass}
                     placeholder="e.g. HDFC Bank"
-                  />
-                </Field>
-                <Field label="Favour Of">
-                  <input
-                    value={form.favourOf}
-                    onChange={(event) => updateForm('favourOf', event.target.value)}
-                    className={inputClass}
-                    placeholder="Sri Thangam Housing"
                   />
                 </Field>
                 <Field label="Cheque Number">
@@ -887,14 +1039,19 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
                     placeholder="dd-mm-yyyy"
                   />
                 </Field>
-                <Field label="GPay Reference Number">
+                  </>
+                )}
+                {showOnlineFields && (
+                <Field label="GPay / UPI / Transaction Reference" className="md:col-span-2">
                   <input
                     value={form.gpayReference}
                     onChange={(event) => updateForm('gpayReference', event.target.value)}
                     className={inputClass}
-                    placeholder="UPI transaction ID"
+                    placeholder="Reference or transaction ID"
                   />
                 </Field>
+                )}
+                {showCashFields && (
                 <Field label="Cash Amount">
                   <input
                     value={form.cashAmount}
@@ -903,6 +1060,7 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
                     placeholder="₹ 0.00"
                   />
                 </Field>
+                )}
                 <Field label="Amount Received" className="md:col-span-2">
                   <input
                     value={form.amountReceived}
