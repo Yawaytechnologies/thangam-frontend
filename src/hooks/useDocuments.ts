@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
 import {
   documentsApi,
   type DocumentType,
@@ -41,6 +42,7 @@ export function useUploadDocument() {
       queryClient.invalidateQueries({
         queryKey: ['documents', variables.entityType, variables.entityId],
       });
+      toast.success('Document uploaded successfully.', { id: 'document-uploaded' });
     },
   });
 }

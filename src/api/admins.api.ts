@@ -44,7 +44,7 @@ export const adminsApi = {
 
   uploadPhoto: (id: string, file: File): Promise<Admin> => {
     const form = new FormData();
-    form.append('photo', file);
+    form.append('file', file);
     return api.post(`/admins/${id}/photo`, form, { skipAuthRedirect: true }).then((r) => r.data.data);
   },
 };

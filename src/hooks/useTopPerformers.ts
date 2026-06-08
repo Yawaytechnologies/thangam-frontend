@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
 import {
   topPerformersApi,
   type CreateTopPerformerData,
@@ -20,6 +21,7 @@ export function useCreateTopPerformer() {
     mutationFn: (data: CreateTopPerformerData) => topPerformersApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['top-performers'] });
+      toast.success('Top performer added successfully.');
     },
   });
 }
@@ -32,6 +34,7 @@ export function useUpdateTopPerformer() {
       topPerformersApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['top-performers'] });
+      toast.success('Top performer updated successfully.');
     },
   });
 }
@@ -43,6 +46,7 @@ export function useRemoveTopPerformer() {
     mutationFn: (id: string) => topPerformersApi.remove(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['top-performers'] });
+      toast.success('Top performer removed successfully.');
     },
   });
 }
@@ -63,8 +67,9 @@ export function useToggleFreeze() {
 
   return useMutation({
     mutationFn: (frozen: boolean) => topPerformersApi.toggleFreeze(frozen),
-    onSuccess: () => {
+    onSuccess: (_data, frozen) => {
       queryClient.invalidateQueries({ queryKey: ['top-performers'] });
+      toast.success(frozen ? 'Top performers list frozen.' : 'Top performers list unfrozen.');
     },
   });
 }

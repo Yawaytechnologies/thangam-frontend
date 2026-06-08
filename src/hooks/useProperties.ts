@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
 import {
   propertiesApi,
   type PropertyParams,
@@ -11,6 +12,27 @@ export function useProperties(params?: PropertyParams) {
   return useQuery({
     queryKey: ['properties', params],
     queryFn: () => propertiesApi.getAll(params),
+  });
+}
+
+export function useAllProperties(params?: Omit<PropertyParams, 'page' | 'limit'>) {
+  return useQuery({
+    queryKey: ['properties', 'all', params],
+    queryFn: async () => {
+      const firstPage = await propertiesApi.getAll({ ...params, page: 1, limit: 100 });
+      const pageSize = firstPage.limit || 100;
+      const totalPages = Math.ceil(firstPage.total / pageSize);
+
+      if (totalPages <= 1) return firstPage.data;
+
+      const remainingPages = await Promise.all(
+        Array.from({ length: totalPages - 1 }, (_, index) =>
+          propertiesApi.getAll({ ...params, page: index + 2, limit: pageSize })
+        )
+      );
+
+      return [firstPage.data, ...remainingPages.map((page) => page.data)].flat();
+    },
   });
 }
 
@@ -45,6 +67,7 @@ export function useCreateProperty() {
     mutationFn: (data: CreatePropertyData) => propertiesApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['properties'] });
+      toast.success('Property created successfully.');
     },
   });
 }
@@ -57,6 +80,7 @@ export function useUpdateProperty() {
       propertiesApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['properties'] });
+      toast.success('Property updated successfully.');
     },
   });
 }
@@ -70,6 +94,7 @@ export function useUpdatePropertyWorkflow() {
     onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: ['properties'] });
       queryClient.invalidateQueries({ queryKey: ['properties', variables.id, 'workflow'] });
+      toast.success('Property workflow updated successfully.');
     },
   });
 }
@@ -83,6 +108,7 @@ export function useUploadPropertyImages() {
     onSuccess: (_data, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['properties', id] });
       queryClient.invalidateQueries({ queryKey: ['properties'] });
+      toast.success('Property images uploaded successfully.', { id: 'property-images-uploaded' });
     },
   });
 }

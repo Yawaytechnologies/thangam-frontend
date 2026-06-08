@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
 import { bookingsApi, type BookingParams, type CreateBookingData, type UpdateBookingData } from '../api/bookings.api';
 import type { BookingStatus } from '../types';
 
@@ -47,6 +48,7 @@ export function useDeleteBooking() {
     mutationFn: (id: string) => bookingsApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bookings'] });
+      toast.success('Booking deleted successfully.');
     },
   });
 }
@@ -57,8 +59,9 @@ export function useUpdateBookingStatus() {
   return useMutation({
     mutationFn: ({ id, status }: { id: string; status: BookingStatus }) =>
       bookingsApi.updateStatus(id, status),
-    onSuccess: () => {
+    onSuccess: (_data, { status }) => {
       queryClient.invalidateQueries({ queryKey: ['bookings'] });
+      toast.success(`Booking status changed to ${status.replaceAll('_', ' ').toLowerCase()}.`);
     },
   });
 }

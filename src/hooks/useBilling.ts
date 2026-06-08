@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
 import { billingApi, type BillingParams, type CreateBillingData, type UpdateBillingData } from '../api/billing.api';
 import type { BillingStatus } from '../types';
 
@@ -47,6 +48,7 @@ export function useDeleteBilling() {
     mutationFn: (id: string) => billingApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['billing'] });
+      toast.success('Billing record deleted successfully.');
     },
   });
 }
@@ -57,8 +59,9 @@ export function useUpdateBillingStatus() {
   return useMutation({
     mutationFn: ({ id, status }: { id: string; status: BillingStatus }) =>
       billingApi.updateStatus(id, status),
-    onSuccess: () => {
+    onSuccess: (_data, { status }) => {
       queryClient.invalidateQueries({ queryKey: ['billing'] });
+      toast.success(`Billing status changed to ${status.replaceAll('_', ' ').toLowerCase()}.`);
     },
   });
 }

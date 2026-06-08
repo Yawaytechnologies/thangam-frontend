@@ -705,6 +705,21 @@ function CreatePropertyModal({ open, onClose }: { open: boolean; onClose: () => 
   );
 }
 
+function documentTypeLabel(documentType: string) {
+  const labels: Record<string, string> = {
+    PROPERTY_IMAGE: 'Property Image',
+    LAYOUT_DOCUMENT: 'Document',
+  };
+
+  return (
+    labels[documentType] ??
+    documentType
+      .toLowerCase()
+      .replaceAll('_', ' ')
+      .replace(/\b\w/g, (letter) => letter.toUpperCase())
+  );
+}
+
 function DocumentPreviewButton({
   doc,
 }: {
@@ -719,7 +734,7 @@ function DocumentPreviewButton({
       onClick={() => window.open(resolveFileUrl(fileUrl), '_blank', 'noopener,noreferrer')}
       className="flex w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-700 hover:bg-gray-50"
     >
-      <span className="min-w-0 truncate pr-2">{doc.documentType}</span>
+      <span className="min-w-0 truncate pr-2">{documentTypeLabel(doc.documentType)}</span>
       <span className="shrink-0 text-gold font-semibold">View</span>
     </button>
   );

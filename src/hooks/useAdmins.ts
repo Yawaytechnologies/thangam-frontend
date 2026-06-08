@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
 import { adminsApi, type AdminParams, type CreateAdminData, type UpdateAdminData } from '../api/admins.api';
 import type { UserStatus } from '../types';
 
@@ -31,6 +32,7 @@ export function useCreateAdmin() {
     mutationFn: (data: CreateAdminData) => adminsApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admins'] });
+      toast.success('Admin created successfully.');
     },
   });
 }
@@ -43,6 +45,7 @@ export function useUpdateAdmin() {
       adminsApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admins'] });
+      toast.success('Admin updated successfully.');
     },
   });
 }
@@ -53,8 +56,9 @@ export function useUpdateAdminStatus() {
   return useMutation({
     mutationFn: ({ id, status }: { id: string; status: UserStatus }) =>
       adminsApi.updateStatus(id, status),
-    onSuccess: () => {
+    onSuccess: (_data, { status }) => {
       queryClient.invalidateQueries({ queryKey: ['admins'] });
+      toast.success(`Admin marked ${status.toLowerCase()}.`);
     },
   });
 }
@@ -66,6 +70,7 @@ export function useDeleteAdmin() {
     mutationFn: (id: string) => adminsApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admins'] });
+      toast.success('Admin deleted successfully.');
     },
   });
 }
@@ -79,6 +84,7 @@ export function useUploadAdminPhoto() {
     onSuccess: (_data, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['admins', id] });
       queryClient.invalidateQueries({ queryKey: ['admins'] });
+      toast.success('Admin photo uploaded successfully.');
     },
   });
 }

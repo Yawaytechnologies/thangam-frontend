@@ -4,9 +4,11 @@ import {
   useBooking,
   useCreateBooking,
   useUpdateBooking,
+  useUpdateBookingStatus,
+  useUploadBookingSignature,
   useDeleteBooking,
 } from '../../hooks/useBookings';
-import { useProperties } from '../../hooks/useProperties';
+import { useAllProperties } from '../../hooks/useProperties';
 import { useBranches } from '../../hooks/useBranches';
 import { Pagination } from '../../components/ui/Pagination';
 import { Modal } from '../../components/ui/Modal';
@@ -634,6 +636,7 @@ interface BookingForm {
   edDdSmBmName: string;
   codeNumber: string;
   directorName: string;
+  signatureUrl: string;
   paymentMethod: string;
   bankName: string;
   favourOf: string;
@@ -672,6 +675,7 @@ const emptyForm: BookingForm = {
   edDdSmBmName: '',
   codeNumber: '',
   directorName: '',
+  signatureUrl: '',
   paymentMethod: '',
   bankName: '',
   favourOf: 'Sri Thangam Housing',
@@ -699,16 +703,31 @@ interface CreateBookingModalProps {
 
 function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps) {
   const create = useCreateBooking();
-  const propertiesQuery = useProperties({ limit: 100 });
+  const uploadSignature = useUploadBookingSignature();
+  const propertiesQuery = useAllProperties();
+  const branchesQuery = useBranches({ limit: 100 });
 
-  const properties = propertiesQuery.data?.data ?? [];
+  const properties = propertiesQuery.data ?? [];
+  const branches = branchesQuery.data?.data ?? [];
 
   const [form, setForm] = useState<BookingForm>(emptyForm);
   const [denomRows, setDenomRows] = useState<DenomRow[]>([
     { id: 1, denomination: 2000, count: 0 },
   ]);
+  const [signatureFile, setSignatureFile] = useState<File | null>(null);
+  const [signaturePreviewUrl, setSignaturePreviewUrl] = useState('');
+  const [submitError, setSubmitError] = useState('');
 
   const nextDenomId = useRef(2);
+  const signaturePreviewUrlRef = useRef('');
+
+  useEffect(() => {
+    return () => {
+      if (signaturePreviewUrlRef.current) {
+        URL.revokeObjectURL(signaturePreviewUrlRef.current);
+      }
+    };
+  }, []);
 
   const denomTotal = useMemo(
     () => denomRows.reduce((sum, row) => sum + row.denomination * row.count, 0),
@@ -729,7 +748,34 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
   function resetForm() {
     setForm(emptyForm);
     setDenomRows([{ id: 1, denomination: 2000, count: 0 }]);
+    setSignatureFile(null);
+    if (signaturePreviewUrlRef.current) {
+      URL.revokeObjectURL(signaturePreviewUrlRef.current);
+      signaturePreviewUrlRef.current = '';
+    }
+    setSignaturePreviewUrl('');
+    setSubmitError('');
     nextDenomId.current = 2;
+  }
+
+  function handleClose() {
+    resetForm();
+    onClose();
+  }
+
+  function selectSignature(file: File | null) {
+    if (file && file.size > 2 * 1024 * 1024) {
+      setSubmitError('Signature image must be 2 MB or smaller.');
+      return;
+    }
+
+    setSubmitError('');
+    setSignatureFile(file);
+    if (signaturePreviewUrlRef.current) {
+      URL.revokeObjectURL(signaturePreviewUrlRef.current);
+    }
+    signaturePreviewUrlRef.current = file ? URL.createObjectURL(file) : '';
+    setSignaturePreviewUrl(signaturePreviewUrlRef.current);
   }
 
   function addDenomRow() {
@@ -766,8 +812,9 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
     );
   }
 
-  function handleSubmit(event: React.FormEvent) {
+  async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
+    setSubmitError('');
 
     const validDenoms: DenomData[] = denomRows
       .filter((row) => row.count > 0)
@@ -783,8 +830,8 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
       Boolean(form.chequeNumber.trim()) ||
       Boolean(form.gpayReference.trim());
 
-    create.mutate(
-      {
+    try {
+      const newBooking = await create.mutateAsync({
         propertyId: form.propertyId,
         applicantName: form.applicantName,
         relation: form.relationship || undefined,
@@ -800,6 +847,7 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
         edDdSmBmName: form.edDdSmBmName || undefined,
         referenceCode: form.codeNumber || undefined,
         directorName: form.directorName || undefined,
+        signatureUrl: form.signatureUrl || undefined,
         branchId: form.branchId || undefined,
         payments: hasPayment
           ? [
@@ -816,24 +864,27 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
             ]
           : undefined,
         denominations: validDenoms.length > 0 ? validDenoms : undefined,
-      },
-      {
-        onSuccess: () => {
-          onSaved(
-            'Booking created successfully',
-            `Reference ID: ${form.codeNumber || form.plotNumber || 'Booking saved'}`
-          );
-          resetForm();
-          onClose();
-        },
+      });
+
+      if (signatureFile) {
+        await uploadSignature.mutateAsync({ id: newBooking.id, file: signatureFile });
       }
-    );
+
+      onSaved(
+        'Booking created successfully',
+        `Reference ID: ${form.codeNumber || form.plotNumber || 'Booking saved'}`
+      );
+      resetForm();
+      onClose();
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : 'Failed to save booking.');
+    }
   }
 
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={handleClose}
       title="Book Property"
       subtitle="Create a property booking record using Sri Thangam Housing booking form details."
       size="3xl"
@@ -867,7 +918,7 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
                     <option value="">Select Project</option>
                     {properties.map((property) => (
                       <option key={property.id} value={String(property.id)}>
-                        {property.projectName}
+                        {property.projectName} - Plot {property.plotNumber}
                       </option>
                     ))}
                   </select>
@@ -902,6 +953,21 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
                     onChange={(event) => setField('bookingDate', event.target.value)}
                     className={inputClass}
                   />
+                </FormField>
+
+                <FormField label="Branch">
+                  <select
+                    value={form.branchId}
+                    onChange={(event) => setField('branchId', event.target.value)}
+                    className={inputClass}
+                  >
+                    <option value="">Select Branch</option>
+                    {branches.map((branch) => (
+                      <option key={branch.id} value={String(branch.id)}>
+                        {branch.name}
+                      </option>
+                    ))}
+                  </select>
                 </FormField>
               </div>
             </section>
@@ -1020,6 +1086,16 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
                     placeholder="Managing Director"
                   />
                 </FormField>
+
+                <FormField label="Signature URL">
+                  <input
+                    type="url"
+                    value={form.signatureUrl}
+                    onChange={(event) => setField('signatureUrl', event.target.value)}
+                    className={inputClass}
+                    placeholder="https://..."
+                  />
+                </FormField>
               </div>
             </section>
 
@@ -1113,47 +1189,64 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
               <SectionTitle icon={<PencilIcon />} title="Authorization" />
 
               <div className="grid min-w-0 grid-cols-1 gap-5 md:grid-cols-2">
-                <div className="flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-[#d9ccb3] bg-white p-6 text-center transition hover:border-gold">
-                  <UploadIcon />
-                  <p className="mt-2 text-[13px] font-bold text-gray-600">Upload Applicant Signature</p>
-                  <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                    PNG, JPG, GIF up to 2MB
-                  </p>
-                </div>
-
-                <div className="rounded-xl border border-[#ded6c7] bg-white p-4">
-                  <div className="flex items-center justify-between">
-                    <p className="text-[10px] font-bold uppercase tracking-wide text-gray-600">
-                      Draw Signature Below
+                <div>
+                  <label className="flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-[#d9ccb3] bg-white p-6 text-center transition hover:border-gold">
+                    <UploadIcon />
+                    <p className="mt-2 text-[13px] font-bold text-gray-600">
+                      Upload Applicant Signature
                     </p>
-                    <button
-                      type="button"
-                      className="text-[10px] font-bold uppercase tracking-wide text-[#9c7a10]"
-                    >
-                      Clear
-                    </button>
-                  </div>
+                    <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                      PNG or JPG up to 2MB
+                    </p>
+                    <input
+                      type="file"
+                      accept=".png,.jpg,.jpeg"
+                      className="sr-only"
+                      onChange={(event) => selectSignature(event.target.files?.[0] ?? null)}
+                    />
+                  </label>
 
-                  <div className="mt-3 flex h-28 items-center justify-center rounded-lg border border-dashed border-[#ded6c7] bg-[#fafafa]">
-                    <p className="text-[12px] italic text-[#d2c2a3]">Signature Pad Placeholder</p>
-                  </div>
+                  {signaturePreviewUrl && (
+                    <div className="mt-3 rounded-lg border border-[#eee8dc] bg-white p-3">
+                      <img
+                        src={signaturePreviewUrl}
+                        alt="Selected applicant signature"
+                        className="mx-auto h-20 max-w-full object-contain"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => selectSignature(null)}
+                        className="mt-2 text-[11px] font-bold text-red-600"
+                      >
+                        Remove signature
+                      </button>
+                    </div>
+                  )}
                 </div>
+
               </div>
             </section>
           </div>
         </div>
 
         <div className="-mx-6 flex flex-col gap-3 border-t border-[#eee8dc] bg-white px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-[12px] font-medium text-gray-500">Draft saved at {draftTime()}</p>
+          <div>
+            <p className="text-[12px] font-medium text-gray-500">Draft saved at {draftTime()}</p>
+            {submitError && <p className="mt-1 text-[11px] font-semibold text-red-600">{submitError}</p>}
+          </div>
 
           <div className="flex flex-col gap-3 sm:flex-row">
-            <button type="button" onClick={onClose} className={secondaryButtonClass}>
+            <button type="button" onClick={handleClose} className={secondaryButtonClass}>
               Cancel
             </button>
 
-            <button type="submit" disabled={create.isPending} className={primaryButtonClass}>
+            <button
+              type="submit"
+              disabled={create.isPending || uploadSignature.isPending}
+              className={primaryButtonClass}
+            >
               <BookmarkIcon />
-              {create.isPending ? 'Saving...' : 'Save Booking'}
+              {create.isPending || uploadSignature.isPending ? 'Saving...' : 'Save Booking'}
             </button>
           </div>
         </div>
@@ -1199,6 +1292,7 @@ function buildEditForm(booking: Booking): BookingForm {
     edDdSmBmName: booking.edDdSmBmName ?? '',
     codeNumber: booking.referenceCode ?? '',
     directorName: booking.directorName ?? '',
+    signatureUrl: booking.signatureUrl ?? '',
     branchId: booking.branchId ?? '',
     paymentMethod: readString(payment, 'paymentMethod', 'BANK_TRANSFER'),
     bankName: readString(payment, 'bankName'),
@@ -1219,10 +1313,12 @@ function buildEditForm(booking: Booking): BookingForm {
 
 function EditBookingModal({ open, onClose, booking, onSaved }: EditBookingModalProps) {
   const update = useUpdateBooking();
-  const propertiesQuery = useProperties({ limit: 100 });
+  const updateStatus = useUpdateBookingStatus();
+  const { data: bookingDetail, isLoading: isLoadingBooking } = useBooking(booking.id);
+  const propertiesQuery = useAllProperties();
   const branchesQuery = useBranches({ limit: 100 });
 
-  const properties = propertiesQuery.data?.data ?? [];
+  const properties = propertiesQuery.data ?? [];
   const branches = branchesQuery.data?.data ?? [];
 
   const [form, setForm] = useState<BookingForm>(() => buildEditForm(booking));
@@ -1233,14 +1329,15 @@ function EditBookingModal({ open, onClose, booking, onSaved }: EditBookingModalP
     if (!open) return;
 
     const timeout = window.setTimeout(() => {
-      const nextRows = getBookingDenominations(booking);
-      setForm(buildEditForm(booking));
+      const currentBooking = bookingDetail ?? booking;
+      const nextRows = getBookingDenominations(currentBooking);
+      setForm(buildEditForm(currentBooking));
       setDenomRows(nextRows);
       nextDenomId.current = nextRows.length + 1;
     }, 0);
 
     return () => window.clearTimeout(timeout);
-  }, [booking, open]);
+  }, [booking, bookingDetail, open]);
 
   const denomTotal = useMemo(
     () => denomRows.reduce((sum, row) => sum + row.denomination * row.count, 0),
@@ -1256,6 +1353,33 @@ function EditBookingModal({ open, onClose, booking, onSaved }: EditBookingModalP
       ...current,
       [field]: value,
     }));
+  }
+
+  function addEditDenomRow() {
+    setDenomRows((rows) => [
+      ...rows,
+      { id: nextDenomId.current++, denomination: 2000, count: 0 },
+    ]);
+  }
+
+  function removeEditDenomRow(id: number) {
+    setDenomRows((rows) => (rows.length === 1 ? rows : rows.filter((row) => row.id !== id)));
+  }
+
+  function changeEditDenomRow(id: number, field: 'denomination' | 'count', value: string) {
+    setDenomRows((rows) =>
+      rows.map((row) =>
+        row.id === id
+          ? {
+              ...row,
+              [field]:
+                field === 'denomination'
+                  ? (safeNumber(value) as DenomValue)
+                  : Math.max(0, safeNumber(value)),
+            }
+          : row
+      )
+    );
   }
 
   function handleSubmit(event: React.FormEvent) {
@@ -1294,8 +1418,8 @@ function EditBookingModal({ open, onClose, booking, onSaved }: EditBookingModalP
           edDdSmBmName: form.edDdSmBmName || undefined,
           referenceCode: form.codeNumber || undefined,
           directorName: form.directorName || undefined,
+          signatureUrl: form.signatureUrl || undefined,
           branchId: form.branchId || undefined,
-          status: form.bookingStatus || undefined,
           payments: hasPayment
             ? [
                 {
@@ -1315,6 +1439,21 @@ function EditBookingModal({ open, onClose, booking, onSaved }: EditBookingModalP
       },
       {
         onSuccess: () => {
+          const currentStatus = bookingDetail?.status ?? booking.status;
+
+          if (form.bookingStatus && form.bookingStatus !== currentStatus) {
+            updateStatus.mutate(
+              { id: booking.id, status: form.bookingStatus },
+              {
+                onSuccess: () => {
+                  onSaved('Booking updated successfully', 'Changes are now live in the system.');
+                  onClose();
+                },
+              }
+            );
+            return;
+          }
+
           onSaved('Booking updated successfully', 'Changes are now live in the system.');
           onClose();
         },
@@ -1331,6 +1470,11 @@ function EditBookingModal({ open, onClose, booking, onSaved }: EditBookingModalP
       size="3xl"
     >
       <form onSubmit={handleSubmit} className="flex max-h-[calc(100vh-145px)] min-w-0 flex-col">
+        {isLoadingBooking && (
+          <p className="mb-3 rounded-lg bg-[#fbf5df] px-3 py-2 text-[12px] font-semibold text-[#9c7a10]">
+            Loading complete booking details...
+          </p>
+        )}
         <div className="min-w-0 overflow-y-auto pr-1">
           <div className="space-y-7 pb-6">
             <section>
@@ -1355,13 +1499,12 @@ function EditBookingModal({ open, onClose, booking, onSaved }: EditBookingModalP
                   />
                 </FormField>
 
-                <FormField label="Email">
+                <FormField label="S/o D/o C/o W/o">
                   <input
-                    type="email"
-                    value={form.email}
-                    onChange={(event) => setField('email', event.target.value)}
+                    type="text"
+                    value={form.relationship}
+                    onChange={(event) => setField('relationship', event.target.value)}
                     className={inputClass}
-                    placeholder="email@example.com"
                   />
                 </FormField>
 
@@ -1374,20 +1517,20 @@ function EditBookingModal({ open, onClose, booking, onSaved }: EditBookingModalP
                   />
                 </FormField>
 
-                <FormField label="City">
+                <FormField label="Date of Birth">
                   <input
-                    type="text"
-                    value={form.city}
-                    onChange={(event) => setField('city', event.target.value)}
+                    type="date"
+                    value={form.dateOfBirth}
+                    onChange={(event) => setField('dateOfBirth', event.target.value)}
                     className={inputClass}
                   />
                 </FormField>
 
-                <FormField label="State">
+                <FormField label="Wedding Day">
                   <input
-                    type="text"
-                    value={form.state}
-                    onChange={(event) => setField('state', event.target.value)}
+                    type="date"
+                    value={form.weddingDay}
+                    onChange={(event) => setField('weddingDay', event.target.value)}
                     className={inputClass}
                   />
                 </FormField>
@@ -1401,14 +1544,6 @@ function EditBookingModal({ open, onClose, booking, onSaved }: EditBookingModalP
                   />
                 </FormField>
 
-                <FormField label="PAN / Aadhaar">
-                  <input
-                    type="text"
-                    value={form.panAadhaar}
-                    onChange={(event) => setField('panAadhaar', event.target.value)}
-                    className={inputClass}
-                  />
-                </FormField>
               </div>
             </section>
 
@@ -1440,7 +1575,7 @@ function EditBookingModal({ open, onClose, booking, onSaved }: EditBookingModalP
                       <option value="">Select Project</option>
                       {properties.map((property) => (
                         <option key={property.id} value={String(property.id)}>
-                          {property.projectName}
+                          {property.projectName} - Plot {property.plotNumber}
                         </option>
                       ))}
                     </select>
@@ -1488,6 +1623,15 @@ function EditBookingModal({ open, onClose, booking, onSaved }: EditBookingModalP
                       ))}
                     </select>
                   </FormField>
+
+                  <FormField label="Booking Date">
+                    <input
+                      type="date"
+                      value={form.bookingDate}
+                      onChange={(event) => setField('bookingDate', event.target.value)}
+                      className={inputClass}
+                    />
+                  </FormField>
                 </div>
               </section>
 
@@ -1519,6 +1663,16 @@ function EditBookingModal({ open, onClose, booking, onSaved }: EditBookingModalP
                       value={form.codeNumber}
                       onChange={(event) => setField('codeNumber', event.target.value)}
                       className={inputClass}
+                    />
+                  </FormField>
+
+                  <FormField label="Signature URL">
+                    <input
+                      type="url"
+                      value={form.signatureUrl}
+                      onChange={(event) => setField('signatureUrl', event.target.value)}
+                      className={inputClass}
+                      placeholder="https://..."
                     />
                   </FormField>
                 </div>
@@ -1555,39 +1709,68 @@ function EditBookingModal({ open, onClose, booking, onSaved }: EditBookingModalP
                   />
                 </FormField>
 
-                <FormField label="Payment Status">
-                  <select
-                    value={form.paymentStatus}
-                    onChange={(event) => setField('paymentStatus', event.target.value)}
-                    className={`${inputClass} font-semibold text-[#1d7663]`}
-                  >
-                    <option value="Verified">Verified</option>
-                    <option value="Pending">Pending</option>
-                    <option value="Rejected">Rejected</option>
-                  </select>
-                </FormField>
-
-                <FormField label="Amount in Words" className="md:col-span-2">
+                <FormField label="Cash Amount">
                   <input
                     type="text"
-                    value={form.amountInWords}
-                    onChange={(event) => setField('amountInWords', event.target.value)}
-                    className={`${inputClass} italic`}
-                    placeholder="Two Lakh Fifteen Thousand Rupees Only"
+                    value={form.cashAmount}
+                    onChange={(event) => setField('cashAmount', event.target.value)}
+                    className={inputClass}
                   />
                 </FormField>
 
-                <FormField label="Payment Reference">
+                <FormField label="Bank Name">
                   <input
                     type="text"
-                    value={form.paymentReference}
-                    onChange={(event) => setField('paymentReference', event.target.value)}
+                    value={form.bankName}
+                    onChange={(event) => setField('bankName', event.target.value)}
                     className={inputClass}
-                    placeholder="TXN-BK-2023-8829"
+                  />
+                </FormField>
+
+                <FormField label="Favour Of">
+                  <input
+                    type="text"
+                    value={form.favourOf}
+                    onChange={(event) => setField('favourOf', event.target.value)}
+                    className={inputClass}
+                  />
+                </FormField>
+
+                <FormField label="Cheque Number">
+                  <input
+                    type="text"
+                    value={form.chequeNumber}
+                    onChange={(event) => setField('chequeNumber', event.target.value)}
+                    className={inputClass}
+                  />
+                </FormField>
+
+                <FormField label="Cheque Date">
+                  <input
+                    type="date"
+                    value={form.chequeDate}
+                    onChange={(event) => setField('chequeDate', event.target.value)}
+                    className={inputClass}
+                  />
+                </FormField>
+
+                <FormField label="GPay Reference">
+                  <input
+                    type="text"
+                    value={form.gpayReference}
+                    onChange={(event) => setField('gpayReference', event.target.value)}
+                    className={inputClass}
                   />
                 </FormField>
               </div>
             </section>
+
+            <DenominationTable
+              rows={denomRows}
+              onAdd={addEditDenomRow}
+              onRemove={removeEditDenomRow}
+              onChange={changeEditDenomRow}
+            />
 
             <hr className="border-[#eee8dc]" />
 
@@ -1701,8 +1884,12 @@ function EditBookingModal({ open, onClose, booking, onSaved }: EditBookingModalP
             Cancel
           </button>
 
-          <button type="submit" disabled={update.isPending} className={primaryButtonClass}>
-            {update.isPending ? 'Saving...' : 'Save Changes'}
+          <button
+            type="submit"
+            disabled={update.isPending || updateStatus.isPending || isLoadingBooking}
+            className={primaryButtonClass}
+          >
+            {update.isPending || updateStatus.isPending ? 'Saving...' : 'Save Changes'}
           </button>
         </div>
       </form>

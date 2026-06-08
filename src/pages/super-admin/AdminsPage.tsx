@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   useAdmins,
+  useAdmin,
   useCreateAdmin,
   useUpdateAdmin,
   useUpdateAdminStatus,
@@ -11,6 +12,7 @@ import { useBranches } from '../../hooks/useBranches';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Pagination } from '../../components/ui/Pagination';
 import { Modal } from '../../components/ui/Modal';
+import { resolveFileUrl } from '../../lib/file-url';
 import type { CreateAdminData, UpdateAdminData } from '../../api/admins.api';
 import type { Admin, UserStatus } from '../../types';
 
@@ -262,15 +264,13 @@ function formatDate(iso: string): string {
 }
 
 function getAdminPhoto(admin: Admin): string {
-  const raw = admin as unknown as Record<string, unknown>;
-
-  return (
-    (typeof raw.photo === 'string' && raw.photo) ||
-    (typeof raw.photoUrl === 'string' && raw.photoUrl) ||
-    (typeof raw.profilePhoto === 'string' && raw.profilePhoto) ||
-    (typeof raw.profileImage === 'string' && raw.profileImage) ||
-    (typeof raw.avatar === 'string' && raw.avatar) ||
-    ''
+  return resolveFileUrl(
+    admin.photo ||
+      admin.photoUrl ||
+      admin.profilePhoto ||
+      admin.profilePhotoUrl ||
+      admin.profileImage ||
+      admin.avatar
   );
 }
 
@@ -310,8 +310,10 @@ interface ViewAdminModalProps {
 }
 
 function ViewAdminModal({ open, onClose, admin }: ViewAdminModalProps) {
-  const initials = getInitials(admin.fullName);
-  const photo = getAdminPhoto(admin);
+  const { data: fetchedAdmin } = useAdmin(admin.id);
+  const displayedAdmin = fetchedAdmin ?? admin;
+  const initials = getInitials(displayedAdmin.fullName);
+  const photo = getAdminPhoto(displayedAdmin);
 
   return (
     <Modal open={open} onClose={onClose} title="Admin Details" size="lg">
@@ -321,7 +323,7 @@ function ViewAdminModal({ open, onClose, admin }: ViewAdminModalProps) {
             {photo ? (
               <img
                 src={photo}
-                alt={admin.fullName}
+                alt={displayedAdmin.fullName}
                 className="h-full w-full object-cover"
               />
             ) : (
@@ -331,21 +333,23 @@ function ViewAdminModal({ open, onClose, admin }: ViewAdminModalProps) {
 
           <div>
             <h3 className="text-base font-bold text-gray-900">
-              {admin.fullName}
+              {displayedAdmin.fullName}
             </h3>
-            <p className="font-mono text-xs text-gray-400">{admin.adminId}</p>
+            <p className="font-mono text-xs text-gray-400">
+              {displayedAdmin.adminId}
+            </p>
             <div className="mt-1">
-              <StatusBadge status={admin.status} />
+              <StatusBadge status={displayedAdmin.status} />
             </div>
           </div>
         </div>
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {[
-            { label: 'Phone', value: admin.phone },
-            { label: 'Email', value: admin.email ?? '—' },
-            { label: 'Branch', value: admin.branch?.name ?? '—' },
-            { label: 'Created', value: formatDate(admin.createdAt) },
+            { label: 'Phone', value: displayedAdmin.phone },
+            { label: 'Email', value: displayedAdmin.email ?? '—' },
+            { label: 'Branch', value: displayedAdmin.branch?.name ?? '—' },
+            { label: 'Created', value: formatDate(displayedAdmin.createdAt) },
           ].map(({ label, value }) => (
             <div key={label} className="rounded-lg bg-gray-50 p-3">
               <p className="mb-1 text-xs uppercase tracking-wide text-gray-400">
@@ -616,7 +620,6 @@ function EditAdminModal({ open, onClose, admin }: EditAdminModalProps) {
 
 function EditAdminModalContent({ open, onClose, admin }: EditAdminModalProps) {
   const update = useUpdateAdmin();
-  const updateStatus = useUpdateAdminStatus();
   const uploadAdminPhoto = useUploadAdminPhoto();
   const branchesQuery = useBranches();
   const branches = branchesQuery.data?.data ?? [];
@@ -632,44 +635,35 @@ function EditAdminModalContent({ open, onClose, admin }: EditAdminModalProps) {
     onClose();
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
-    const statusChanged = form.status !== admin.status;
-
-    update.mutate(
-      {
+    try {
+      await update.mutateAsync({
         id: admin.id,
         data: {
           fullName: form.fullName,
           phone: form.phone,
           branchId: form.branchId,
           email: form.email || undefined,
+          status: form.status,
         },
-      },
-      {
-        onSuccess: () => {
-          if (editPhotoFile) {
-            uploadAdminPhoto.mutate({
-              id: admin.id,
-              file: editPhotoFile,
-            });
-          }
+      });
 
-          if (statusChanged) {
-            updateStatus.mutate(
-              { id: admin.id, status: form.status },
-              { onSuccess: handleClose }
-            );
-          } else {
-            handleClose();
-          }
-        },
+      if (editPhotoFile) {
+        await uploadAdminPhoto.mutateAsync({
+          id: admin.id,
+          file: editPhotoFile,
+        });
       }
-    );
+
+      handleClose();
+    } catch {
+      // Mutation errors remain available through the hooks while the modal stays open.
+    }
   }
 
-  const isPending = update.isPending || updateStatus.isPending;
+  const isPending = update.isPending || uploadAdminPhoto.isPending;
   const initials = getInitials(admin.fullName);
   const photo = getAdminPhoto(admin);
 

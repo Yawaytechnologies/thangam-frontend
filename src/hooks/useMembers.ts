@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
 import { membersApi, type MemberParams, type CreateMemberData, type UpdateMemberData } from '../api/members.api';
 import type { UserStatus } from '../types';
 
@@ -39,6 +40,7 @@ export function useCreateMember() {
     mutationFn: (data: CreateMemberData) => membersApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['members'] });
+      toast.success('Member created successfully.');
     },
   });
 }
@@ -51,6 +53,7 @@ export function useUpdateMember() {
       membersApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['members'] });
+      toast.success('Member updated successfully.');
     },
   });
 }
@@ -61,8 +64,9 @@ export function useUpdateMemberStatus() {
   return useMutation({
     mutationFn: ({ id, status }: { id: string; status: UserStatus }) =>
       membersApi.updateStatus(id, status),
-    onSuccess: () => {
+    onSuccess: (_data, { status }) => {
       queryClient.invalidateQueries({ queryKey: ['members'] });
+      toast.success(`Member marked ${status.toLowerCase()}.`);
     },
   });
 }
@@ -76,6 +80,7 @@ export function useUploadMemberPhoto() {
     onSuccess: (_data, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['members', id] });
       queryClient.invalidateQueries({ queryKey: ['members'] });
+      toast.success('Member photo uploaded successfully.');
     },
   });
 }

@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
 import { notificationsApi, type NotificationParams, type SendMessageData } from '../api/notifications.api';
 
 export function useNotifications(params?: NotificationParams) {
@@ -48,6 +49,7 @@ export function useMarkAllRead() {
     mutationFn: () => notificationsApi.markAllRead(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      toast.success('All notifications marked as read.');
     },
   });
 }
@@ -55,5 +57,8 @@ export function useMarkAllRead() {
 export function useSendMessage() {
   return useMutation({
     mutationFn: (data: SendMessageData) => notificationsApi.sendMessage(data),
+    onSuccess: () => {
+      toast.success('Message sent successfully.');
+    },
   });
 }

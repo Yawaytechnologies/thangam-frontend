@@ -82,6 +82,12 @@ export interface Admin {
   fullName: string;
   phone: string;
   email?: string;
+  photo?: string;
+  photoUrl?: string;
+  profilePhoto?: string;
+  profilePhotoUrl?: string;
+  profileImage?: string;
+  avatar?: string;
   branchId: string;
   branch?: Branch;
   status: UserStatus;
