@@ -241,10 +241,18 @@ export interface Notification {
   message: string;
   type: NotificationType;
   priority: string;
+  status?: NotificationStatus;
+  isRead?: boolean;
+  read?: boolean;
+  readAt?: string;
+  relatedEntityId?: string;
+  relatedEntityType?: string;
+  metadata?: Record<string, unknown>;
   bookingId?: string;
   billingId?: string;
   propertyId?: string;
   branchId?: string;
+  updatedAt?: string;
   createdAt: string;
   recipients?: NotificationRecipient[];
 }
