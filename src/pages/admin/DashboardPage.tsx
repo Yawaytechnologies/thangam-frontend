@@ -1,6 +1,6 @@
 import React from 'react';
 import { AlertCircle, CalendarDays, CalendarRange, UserCheck, UserPlus, Users } from 'lucide-react';
-import { useAdminStats } from '../../hooks/useDashboard';
+import { useAdminMemberActivity, useAdminStats } from '../../hooks/useDashboard';
 import { useTeam } from '../../hooks/useMembers';
 import type { Member, Role } from '../../types';
 
@@ -15,6 +15,16 @@ interface PerformerGroup {
   title: string;
   roles: Role[];
   colorClass: string;
+}
+
+interface PerformerMember {
+  id: string;
+  memberId: string;
+  fullName: string;
+  role: Role | string;
+  status: string;
+  createdAt: string;
+  branch?: Member['branch'];
 }
 
 const performerGroups: PerformerGroup[] = [
@@ -32,6 +42,16 @@ const performerGroups: PerformerGroup[] = [
     title: 'Senior Managers',
     roles: ['SENIOR_MANAGER'],
     colorClass: 'text-orange-700',
+  },
+  {
+    title: 'Business Managers',
+    roles: ['BUSINESS_MANAGER'],
+    colorClass: 'text-teal-700',
+  },
+  {
+    title: 'Agents',
+    roles: ['AGENT'],
+    colorClass: 'text-gray-700',
   },
 ];
 
@@ -57,14 +77,14 @@ function normalizeRole(value: unknown): Role | null {
   return null;
 }
 
-function membersFromTeamResponse(response: unknown): Member[] {
-  if (Array.isArray(response)) return response as Member[];
+function membersFromResponse(response: unknown): PerformerMember[] {
+  if (Array.isArray(response)) return response as PerformerMember[];
   if (!response || typeof response !== 'object') return [];
 
   const record = response as Record<string, unknown>;
-  if (Array.isArray(record.data)) return record.data as Member[];
-  if (Array.isArray(record.members)) return record.members as Member[];
-  if (Array.isArray(record.teamMembers)) return record.teamMembers as Member[];
+  if (Array.isArray(record.data)) return record.data as PerformerMember[];
+  if (Array.isArray(record.members)) return record.members as PerformerMember[];
+  if (Array.isArray(record.teamMembers)) return record.teamMembers as PerformerMember[];
 
   return [];
 }
@@ -92,7 +112,7 @@ const Avatar: React.FC<{ name: string }> = ({ name }) => (
   </div>
 );
 
-const PerformerCard: React.FC<{ member: Member; index: number }> = ({ member, index }) => {
+const PerformerCard: React.FC<{ member: PerformerMember; index: number }> = ({ member, index }) => {
   const teamPercentage = 0;
   const role = normalizeRole(member.role);
 
@@ -154,12 +174,12 @@ const getWeekStart = (date: Date) => {
   return start;
 };
 
-const parseCreatedAt = (member: Member) => {
+const parseCreatedAt = (member: PerformerMember) => {
   const date = new Date(member.createdAt);
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
-const sortPerformers = (a: Member, b: Member) => {
+const sortPerformers = (a: PerformerMember, b: PerformerMember) => {
   if (a.status !== b.status) return a.status === 'ACTIVE' ? -1 : 1;
   return a.fullName.localeCompare(b.fullName);
 };
@@ -167,8 +187,13 @@ const sortPerformers = (a: Member, b: Member) => {
 const AdminDashboardPage: React.FC = () => {
   const { data: dashboardStats, isLoading: isStatsLoading } = useAdminStats();
   const { data: membersResponse, isLoading: isTeamLoading } = useTeam({ limit: 1000 });
-  const members = membersFromTeamResponse(membersResponse).filter((member) => normalizeRole(member.role) !== 'SUPER_ADMIN');
-  const isLoading = isStatsLoading || isTeamLoading;
+  const { data: memberActivity, isLoading: isActivityLoading } = useAdminMemberActivity();
+  const teamResponseMembers = membersFromResponse(membersResponse);
+  const activityMembers = membersFromResponse(memberActivity);
+  const members = (teamResponseMembers.length ? teamResponseMembers : activityMembers).filter(
+    (member) => normalizeRole(member.role) !== 'SUPER_ADMIN',
+  );
+  const isLoading = isStatsLoading || isTeamLoading || isActivityLoading;
   const today = new Date();
   const weekStart = getWeekStart(today);
 
@@ -193,6 +218,17 @@ const AdminDashboardPage: React.FC = () => {
   const pendingActions = members.filter((member) => member.status === 'PENDING' || member.status === 'INACTIVE').length;
   const statsTotalMembers = Number(dashboardStats?.totalMembers);
   const teamMembers = Number.isFinite(statsTotalMembers) ? statsTotalMembers : members.length;
+  const groupedPerformers = performerGroups.map((group) => ({
+    ...group,
+    performers: members
+      .filter((member) => {
+        const role = normalizeRole(member.role);
+        return role ? group.roles.includes(role) : false;
+      })
+      .sort(sortPerformers)
+      .slice(0, 3),
+  }));
+  const hasAnyPerformers = groupedPerformers.some((group) => group.performers.length > 0);
 
   const stats: StatCardProps[] = [
     { title: 'Members Today', value: isLoading ? '-' : joinedToday, accentClass: 'border-t-2 border-t-gold', icon: <UserPlus className="h-4 w-4" /> },
@@ -214,10 +250,14 @@ const AdminDashboardPage: React.FC = () => {
       <section className="mt-5 rounded-lg border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
         <div className="mb-6">
           <h1 className="text-xl font-bold text-gray-900">Hierarchy Top Performers</h1>
-          <p className="mt-1 text-sm text-gray-600">
-            Role-wise top active members under this admin network.
-          </p>
+          <p className="mt-1 text-sm text-gray-600">Role-wise top members under this admin network.</p>
         </div>
+
+        {!isLoading && !hasAnyPerformers && teamMembers > 0 && (
+          <div className="mb-6 rounded-lg border border-amber-100 bg-amber-50/70 p-4 text-sm font-semibold text-gray-700">
+            Team members exist, but none match the configured top performer role groups.
+          </div>
+        )}
 
         <div className="space-y-7">
           {performerGroups.map((group) => {

@@ -16,6 +16,7 @@ export function useNotificationSocket() {
     });
 
     socket.on('notification:new', () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
       queryClient.invalidateQueries({ queryKey: ['notifications', 'unread-count'] });
       queryClient.invalidateQueries({ queryKey: ['notifications', 'latest'] });
     });

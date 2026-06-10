@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react';
-import { useForm, useWatch } from 'react-hook-form';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useForm, useWatch, type FieldErrors } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import toast from 'react-hot-toast';
 import {
   CheckCircle2,
   ChevronDown,
@@ -21,6 +22,14 @@ import { SearchableSelect, type SearchableSelectOption } from '../../components/
 import { resolveFileUrl } from '../../lib/file-url';
 import { extractEntityId } from '../../lib/upload-helpers';
 import type { Branch, Member, Role, UserStatus } from '../../types';
+
+const parentRolesByRole: Partial<Record<Role, Role[]>> = {
+  EXECUTIVE_DIRECTOR: ['DIRECTOR'],
+  DEPUTY_DIRECTOR: ['EXECUTIVE_DIRECTOR'],
+  SENIOR_MANAGER: ['DEPUTY_DIRECTOR'],
+  BUSINESS_MANAGER: ['SENIOR_MANAGER'],
+  AGENT: ['BUSINESS_MANAGER'],
+};
 
 const memberSchema = z.object({
   introNo: z.string().optional(),
@@ -48,6 +57,14 @@ const memberSchema = z.object({
   reportsToId: z.string().optional(),
   addressLine1: z.string().optional(),
   addressLine2: z.string().optional(),
+}).superRefine((data, ctx) => {
+  if (data.role !== 'DIRECTOR' && !data.reportsToId) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['reportsToId'],
+      message: 'Please select reporting member.',
+    });
+  }
 });
 
 type MemberFormData = z.infer<typeof memberSchema>;
@@ -216,13 +233,46 @@ const CreateMemberModal: React.FC<{
     control,
     name: 'reportsToId',
   }) ?? '';
+  const selectedRole = useWatch({
+    control,
+    name: 'role',
+  });
+  const selectedBranchId = useWatch({
+    control,
+    name: 'branchId',
+  }) ?? defaultBranchId;
+
+  const eligibleReportsToMembers = useMemo(() => {
+    const allowedRoles = parentRolesByRole[selectedRole] ?? [];
+    if (!allowedRoles.length) return [];
+
+    return reportsToMembers.filter((member) => {
+      const sameBranch = !selectedBranchId || member.branchId === selectedBranchId;
+      return sameBranch && allowedRoles.includes(member.role);
+    });
+  }, [reportsToMembers, selectedBranchId, selectedRole]);
+
   const reportsToOptions = useMemo<SearchableSelectOption[]>(() => {
-    return reportsToMembers.map((member) => ({
+    return eligibleReportsToMembers.map((member) => ({
       value: member.id,
       label: memberOptionLabel(member),
       searchText: memberSearchText(member),
     }));
-  }, [reportsToMembers]);
+  }, [eligibleReportsToMembers]);
+
+  useEffect(() => {
+    if (selectedRole === 'DIRECTOR') {
+      if (selectedReportsToId) setValue('reportsToId', '', { shouldDirty: true, shouldValidate: true });
+      return;
+    }
+
+    if (
+      selectedReportsToId &&
+      !eligibleReportsToMembers.some((member) => member.id === selectedReportsToId)
+    ) {
+      setValue('reportsToId', '', { shouldDirty: true, shouldValidate: true });
+    }
+  }, [eligibleReportsToMembers, selectedReportsToId, selectedRole, setValue]);
 
   const isSaving = isSubmitting || createMember.isPending || uploadPhoto.isPending || uploadDocument.isPending;
 
@@ -236,6 +286,12 @@ const CreateMemberModal: React.FC<{
 
   const onSubmit = async (data: MemberFormData) => {
     setSubmitError('');
+
+    if (data.role !== 'DIRECTOR' && !data.reportsToId) {
+      toast.error('Please select reporting member.');
+      setSubmitError('Please select reporting member.');
+      return;
+    }
 
     try {
       const address = [data.addressLine1, data.addressLine2].filter(Boolean).join(', ');
@@ -297,6 +353,13 @@ const CreateMemberModal: React.FC<{
     }
   };
 
+  const onInvalidSubmit = (formErrors: FieldErrors<MemberFormData>) => {
+    if (formErrors.reportsToId?.message) {
+      toast.error('Please select reporting member.');
+      setSubmitError('Please select reporting member.');
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[1px]">
       <div className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
@@ -318,7 +381,7 @@ const CreateMemberModal: React.FC<{
           </button>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="flex min-h-0 flex-1 flex-col">
+        <form onSubmit={handleSubmit(onSubmit, onInvalidSubmit)} className="flex min-h-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
             <div className="grid grid-cols-1 gap-x-8 gap-y-5 md:grid-cols-2 lg:grid-cols-3">
               <Field label="Intro No">
@@ -407,12 +470,19 @@ const CreateMemberModal: React.FC<{
                   ))}
                 </select>
               </SelectField>
-              <Field label="Reports To">
+              <Field label={selectedRole === 'DIRECTOR' ? 'Reports To' : 'Reports To *'} error={errors.reportsToId?.message}>
                 <SearchableSelect
                   value={selectedReportsToId}
                   options={reportsToOptions}
                   loading={reportsToLoading}
-                  placeholder="Search or select reporting member"
+                  placeholder={
+                    selectedRole === 'DIRECTOR'
+                      ? 'Not required for Director'
+                      : reportsToOptions.length
+                        ? 'Search or select reporting member'
+                        : 'No eligible reporting members found'
+                  }
+                  disabled={selectedRole === 'DIRECTOR'}
                   onChange={(value) => setValue('reportsToId', value, { shouldDirty: true, shouldValidate: true })}
                 />
                 <input type="hidden" {...register('reportsToId')} />

@@ -11,6 +11,7 @@ import type {
 export interface NotificationParams {
   page?: number;
   limit?: number;
+  search?: string;
   type?: NotificationType;
   status?: NotificationStatus;
   branchId?: string;
