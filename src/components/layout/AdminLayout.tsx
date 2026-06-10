@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/auth.store';
 import { useLogout } from '../../hooks/useAuth';
 import { useUnreadCount } from '../../hooks/useNotifications';
+import { useNotificationSocket } from '../../hooks/useSocket';
 import { useGlobalSearch } from '../../hooks/useSearch';
 import type { SearchHit } from '../../api/search.api';
 
@@ -84,6 +85,7 @@ const navItems = [
 ];
 
 const AdminLayout: React.FC = () => {
+  useNotificationSocket();
   const user = useAuthStore((s) => s.user);
   const logout = useLogout();
   const location = useLocation();
