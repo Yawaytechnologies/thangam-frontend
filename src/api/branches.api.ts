@@ -48,8 +48,24 @@ export const branchesApi = {
     }).then((r) => r.data.data);
   },
 
-  update: (id: string, data: UpdateBranchData): Promise<Branch> =>
-    api.put(`/branches/${id}`, data).then((r) => r.data.data),
+  update: (id: string, data: UpdateBranchData): Promise<Branch> => {
+    const formData = new FormData();
+    Object.entries(data).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        if (key === 'images' && Array.isArray(value)) {
+          value.forEach((file: File) => {
+            formData.append('images', file);
+          });
+        } else if (!(value instanceof File)) {
+          formData.append(key, String(value));
+        }
+      }
+    });
+
+    return api.put(`/branches/${id}`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then((r) => r.data.data);
+  },
 
   updateStatus: (id: string, status: BranchStatus): Promise<Branch> =>
     api.patch(`/branches/${id}/status`, { status }).then((r) => r.data.data),

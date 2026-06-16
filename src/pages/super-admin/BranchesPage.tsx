@@ -1,7 +1,8 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useBranches, useCreateBranch, useUpdateBranch, useUpdateBranchStatus } from '../../hooks/useBranches';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Modal } from '../../components/ui/Modal';
+import { useAuthStore } from '../../stores/auth.store';
 import type { CreateBranchData, UpdateBranchData } from '../../api/branches.api';
 import type { Branch, BranchStatus } from '../../types';
 
@@ -58,6 +59,16 @@ function branchLocation(b: Branch): string {
 
 // ─── CreateBranchModal ────────────────────────────────────────────────────────
 
+function getBranchImageUrl(branch: Branch): string | undefined {
+  const latestImage = branch.images?.at(-1) as unknown;
+  if (!latestImage) return undefined;
+  if (typeof latestImage === 'string') return latestImage;
+  if (typeof latestImage === 'object' && 'url' in latestImage) {
+    return String((latestImage as { url?: unknown }).url ?? '') || undefined;
+  }
+  return undefined;
+}
+
 interface CreateBranchModalProps {
   open: boolean;
   onClose: () => void;
@@ -65,16 +76,24 @@ interface CreateBranchModalProps {
 
 function CreateBranchModal({ open, onClose }: CreateBranchModalProps) {
   const create = useCreateBranch();
+  const adminId = useAuthStore((state) => state.user?.admin?.id ?? state.user?.id);
   const [form, setForm] = useState<CreateBranchData>({ name: '' });
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [imageFiles, setImageFiles] = useState<File[]>([]);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    create.mutate(form, {
+    create.mutate({
+      ...form,
+      adminId,
+    }, {
       onSuccess: () => {
         onClose();
         setForm({ name: '' });
+        setImageFiles([]);
+        if (imageInputRef.current) {
+          imageInputRef.current.value = '';
+        }
       },
     });
   }
@@ -136,18 +155,6 @@ function CreateBranchModal({ open, onClose }: CreateBranchModalProps) {
               />
             </div>
           </div>
-        </div>
-
-        {/* Admin ID */}
-        <div>
-          <label className={labelClass}>Admin ID</label>
-          <input
-            type="text"
-            placeholder="UUID"
-            value={form.adminId ?? ''}
-            onChange={(e) => field('adminId', e.target.value)}
-            className={inputClass}
-          />
         </div>
 
         {/* Branch Images upload */}
@@ -293,6 +300,7 @@ interface EditBranchModalProps {
 
 function EditBranchModal({ open, onClose, branch }: EditBranchModalProps) {
   const update = useUpdateBranch();
+  const existingImageUrl = getBranchImageUrl(branch);
   const [form, setForm] = useState<UpdateBranchData>({
     name: branch.name,
     branchType: branch.branchType,
@@ -306,9 +314,33 @@ function EditBranchModal({ open, onClose, branch }: EditBranchModalProps) {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
 
-  function handleSubmit(e: React.FormEvent) {
+  useEffect(() => {
+    setForm({
+      name: branch.name,
+      branchType: branch.branchType,
+      phone: branch.phone,
+      address: branch.address,
+      city: branch.city,
+      district: branch.district,
+      state: branch.state,
+      pincode: branch.pincode,
+    });
+    setImageFile(null);
+    if (imageInputRef.current) {
+      imageInputRef.current.value = '';
+    }
+  }, [branch]);
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    update.mutate({ id: branch.id, data: form }, { onSuccess: onClose });
+    await update.mutateAsync({
+      id: branch.id,
+      data: {
+        ...form,
+        images: imageFile ? [imageFile] : undefined,
+      },
+    });
+    onClose();
   }
 
   function field<K extends keyof UpdateBranchData>(key: K, value: string) {
@@ -410,7 +442,7 @@ function EditBranchModal({ open, onClose, branch }: EditBranchModalProps) {
           >
             <input
               type="file"
-              accept="image/*"
+              accept="image/jpeg,image/png,image/webp"
               ref={imageInputRef}
               className="hidden"
               onChange={(e) => {
@@ -418,11 +450,19 @@ function EditBranchModal({ open, onClose, branch }: EditBranchModalProps) {
                 if (file) setImageFile(file);
               }}
             />
-            <UploadIcon />
+            {existingImageUrl && !imageFile ? (
+              <img
+                src={existingImageUrl}
+                alt={`${branch.name} branch`}
+                className="h-32 w-full max-w-sm rounded-lg object-cover"
+              />
+            ) : (
+              <UploadIcon />
+            )}
             <p className="text-sm font-medium text-gray-600">
-              {imageFile ? 'Replace selected branch image' : 'Choose a new branch image'}
+              {imageFile ? 'New branch image selected' : existingImageUrl ? 'Current branch image' : 'Choose a new branch image'}
             </p>
-            <p className="text-xs text-gray-400">PNG, JPG up to 10MB</p>
+            <p className="text-xs text-gray-400">JPEG, PNG, WebP up to 5 MB</p>
             {imageFile && <p className="text-xs text-gray-500">{imageFile.name}</p>}
             <button
               type="button"
@@ -463,6 +503,7 @@ interface ViewBranchModalProps {
 }
 
 function ViewBranchModal({ open, onClose, branch }: ViewBranchModalProps) {
+  const branchImageUrl = getBranchImageUrl(branch);
 
   return (
     <Modal open={open} onClose={onClose} title="Branch Details" size="xl">
@@ -470,12 +511,12 @@ function ViewBranchModal({ open, onClose, branch }: ViewBranchModalProps) {
       <div
         className="rounded-xl overflow-hidden relative h-48 mb-6 flex items-end"
         style={
-          branch.images && branch.images.length > 0
-            ? { backgroundImage: `url(${branch.images[0]})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+          branchImageUrl
+            ? { backgroundImage: `url(${branchImageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' }
             : undefined
         }
       >
-        {!branch.images?.length && (
+        {!branchImageUrl && (
           <div className="absolute inset-0 bg-gray-800 flex items-center justify-center">
             <BuildingIcon />
           </div>
@@ -555,18 +596,20 @@ interface BranchCardProps {
 }
 
 function BranchCard({ branch, onView, onEdit, onToggleStatus }: BranchCardProps) {
+  const branchImageUrl = getBranchImageUrl(branch);
+
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
       {/* Image area */}
       <div
         className="h-40 relative flex items-center justify-center overflow-hidden"
         style={
-          branch.images && branch.images.length > 0
-            ? { backgroundImage: `url(${branch.images[0]})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+          branchImageUrl
+            ? { backgroundImage: `url(${branchImageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' }
             : undefined
         }
       >
-        {!branch.images?.length && (
+        {!branchImageUrl && (
           <div className="absolute inset-0 bg-gray-200 flex items-center justify-center">
             <BuildingIcon />
           </div>

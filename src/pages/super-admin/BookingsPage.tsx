@@ -13,7 +13,7 @@ import { useBranches } from '../../hooks/useBranches';
 import { Pagination } from '../../components/ui/Pagination';
 import { Modal } from '../../components/ui/Modal';
 import { bookingsApi } from '../../api/bookings.api';
-import type { BookingStatus, Booking } from '../../types';
+import type { BookingStatus, Booking, PaymentMethod } from '../../types';
 
 // ─── Style constants ──────────────────────────────────────────────────────────
 
@@ -371,8 +371,8 @@ function statusPillClass(status?: string): string {
   return 'border-[#f1dfa9] bg-[#fff7df] text-[#9a7100]';
 }
 
-function inferPaymentMethod(form: BookingForm, validDenoms: DenomData[]): string {
-  if (form.paymentMethod) return form.paymentMethod;
+function inferPaymentMethod(form: BookingForm, validDenoms: DenomData[]): PaymentMethod {
+  if (form.paymentMethod) return form.paymentMethod as PaymentMethod;
 
   if (form.gpayReference.trim()) return 'UPI';
   if (form.chequeNumber.trim()) return 'CHEQUE';
@@ -849,6 +849,7 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
         directorName: form.directorName || undefined,
         signatureUrl: form.signatureUrl || undefined,
         branchId: form.branchId || undefined,
+        status: form.bookingStatus || undefined,
         payments: hasPayment
           ? [
               {

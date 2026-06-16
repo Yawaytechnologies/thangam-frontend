@@ -1,6 +1,6 @@
 import api from '../lib/axios';
 import { downloadResponseFile } from '../lib/download-file';
-import type { Booking, BookingStatus, PaginatedResponse } from '../types';
+import type { Booking, BookingStatus, PaginatedResponse, PaymentMethod } from '../types';
 
 export interface BookingParams {
   page?: number;
@@ -21,7 +21,7 @@ export interface BookingPaymentData {
   gpayReference?: string;
   cashAmount?: number;
   totalAmount: number;
-  paymentMethod: string;
+  paymentMethod: PaymentMethod;
 }
 
 export interface BookingDenominationData {
