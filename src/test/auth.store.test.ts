@@ -11,7 +11,7 @@ const mockUser: User = {
 
 describe('useAuthStore', () => {
   beforeEach(() => {
-    useAuthStore.setState({ user: null, accessToken: null });
+    useAuthStore.setState({ user: null, accessToken: null, refreshToken: null });
   });
 
   it('starts with null user and null accessToken', () => {
@@ -35,11 +35,15 @@ describe('useAuthStore', () => {
     expect(accessToken).toBe('new-token');
   });
 
-  it('logout clears both user and accessToken', () => {
-    useAuthStore.getState().setAuth(mockUser, 'test-token');
+  it('logout clears user, tokens, and persisted auth storage', () => {
+    useAuthStore.getState().setAuth(mockUser, 'test-token', 'test-refresh-token');
+    sessionStorage.setItem('sth-auth', 'stale-session');
     useAuthStore.getState().logout();
-    const { user, accessToken } = useAuthStore.getState();
+    const { user, accessToken, refreshToken } = useAuthStore.getState();
     expect(user).toBeNull();
     expect(accessToken).toBeNull();
+    expect(refreshToken).toBeNull();
+    expect(localStorage.getItem('sth-auth')).toBeNull();
+    expect(sessionStorage.getItem('sth-auth')).toBeNull();
   });
 });

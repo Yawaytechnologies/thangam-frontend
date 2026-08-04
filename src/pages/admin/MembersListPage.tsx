@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useForm, useWatch, type FieldErrors } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { useQuery } from '@tanstack/react-query';
 import { z } from 'zod';
 import toast from 'react-hot-toast';
 import {
@@ -17,6 +18,7 @@ import { useBranches } from '../../hooks/useBranches';
 import { useCreateMember, useMembers, useUploadMemberPhoto } from '../../hooks/useMembers';
 import { useUploadDocument } from '../../hooks/useDocuments';
 import { useAuthStore } from '../../stores/auth.store';
+import { authApi } from '../../api/auth.api';
 import { Pagination } from '../../components/ui/Pagination';
 import { SearchableSelect, type SearchableSelectOption } from '../../components/ui/SearchableSelect';
 import { resolveFileUrl } from '../../lib/file-url';
@@ -31,33 +33,171 @@ const parentRolesByRole: Partial<Record<Role, Role[]>> = {
   AGENT: ['BUSINESS_MANAGER'],
 };
 
+const mobileRegex = /^[6-9][0-9]{9}$/;
+const mobileValidationMessage = 'Enter a valid 10-digit mobile number starting with 6, 7, 8, or 9.';
+const nameRegex = /^[A-Za-z .]+$/;
+const alphaSpaceRegex = /^[A-Za-z ]+$/;
+const qualificationRegex = /^[A-Za-z0-9 .,-]+$/;
+const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
+const aadhaarRegex = /^[0-9]{12}$/;
+const pincodeRegex = /^[1-9][0-9]{5}$/;
+const maxUploadSize = 2 * 1024 * 1024;
+const photoTypes = ['image/jpeg', 'image/png'];
+const idProofTypes = ['application/pdf', 'image/jpeg', 'image/png'];
+const photoExtensions = ['.jpg', '.jpeg', '.png'];
+const idProofExtensions = ['.pdf', '.jpg', '.jpeg', '.png'];
+const bloodGroups = ['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-'];
+
+function optionalTrimmedString() {
+  return z.string().transform((value) => value.trim()).optional();
+}
+
+function optionalPattern(regex: RegExp, message: string, minLength?: number) {
+  return z.string().transform((value) => value.trim()).refine((value) => {
+    if (!value) return true;
+    if (minLength && value.length < minLength) return false;
+    return regex.test(value);
+  }, message);
+}
+
+function parseDDMMYYYY(value: string) {
+  const parts = value.trim().split('-');
+  if (parts.length !== 3) return null;
+
+  const [first, second, third] = parts;
+  const isIsoDate = first.length === 4;
+  const yearPart = isIsoDate ? first : third;
+  const monthPart = second;
+  const dayPart = isIsoDate ? third : first;
+
+  if (yearPart.length !== 4 || !/^\d+$/.test(dayPart + monthPart + yearPart)) return null;
+
+  const day = Number(dayPart);
+  const month = Number(monthPart);
+  const year = Number(yearPart);
+  const date = new Date(year, month - 1, day);
+
+  if (
+    Number.isNaN(date.getTime()) ||
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return date;
+}
+
+function ageFromDate(dob: Date) {
+  const today = new Date();
+  let age = today.getFullYear() - dob.getFullYear();
+  const monthDiff = today.getMonth() - dob.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) age -= 1;
+  return age;
+}
+
+function dateInputValue(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 const memberSchema = z.object({
-  introNo: z.string().optional(),
-  introName: z.string().optional(),
-  fullName: z.string().min(2, 'Full name is required'),
-  city: z.string().optional(),
-  district: z.string().optional(),
-  state: z.string().optional(),
-  pincode: z.string().optional(),
-  mobile1: z.string().min(10, 'Mobile 1 is required'),
-  mobile2: z.string().optional(),
-  dateOfBirth: z.string().optional(),
-  weddingDate: z.string().optional(),
-  bloodGroup: z.string().optional(),
-  email: z.string().email('Invalid email').optional().or(z.literal('')),
-  qualification: z.string().optional(),
-  nomineeName: z.string().optional(),
-  relationship: z.string().optional(),
-  experience: z.string().optional(),
-  panNo: z.string().optional(),
-  aadhaarNo: z.string().optional(),
-  parentGuardianName: z.string().optional(),
+  introNo: optionalPattern(/^[0-9]+$/, 'Intro No must contain only numbers.').refine(
+    (value) => !value || value.length <= 10,
+    'Intro No must be 10 digits or fewer.',
+  ),
+  introName: optionalPattern(nameRegex, 'Intro Name must contain only alphabets, spaces, and dots.', 2),
+  fullName: z.string().transform((value) => value.trim()).pipe(
+    z.string()
+      .min(2, 'Enter a valid full name.')
+      .regex(nameRegex, 'Enter a valid full name.'),
+  ),
+  city: optionalPattern(alphaSpaceRegex, 'City must contain only alphabets and spaces.'),
+  district: optionalPattern(alphaSpaceRegex, 'District must contain only alphabets and spaces.'),
+  state: optionalPattern(alphaSpaceRegex, 'State must contain only alphabets and spaces.'),
+  pincode: optionalPattern(pincodeRegex, 'Enter a valid 6-digit pincode.'),
+  mobile1: z.string().regex(mobileRegex, mobileValidationMessage),
+  mobile2: z.string().optional().refine((value) => !value || mobileRegex.test(value), {
+    message: mobileValidationMessage,
+  }),
+  dateOfBirth: z.string().transform((value) => value.trim()).pipe(
+    z.string().min(1, 'Enter a valid Date of Birth.'),
+  ),
+  weddingDate: optionalTrimmedString(),
+  bloodGroup: z.string().refine((value) => !value || bloodGroups.includes(value), 'Select a valid blood group.').optional(),
+  email: z.string().transform((value) => value.trim()).refine(
+    (value) => !value || z.string().email().safeParse(value).success,
+    'Enter a valid email address.',
+  ),
+  qualification: optionalPattern(
+    qualificationRegex,
+    'Qualification can contain only letters, numbers, spaces, dots, commas, and hyphen.',
+  ).refine((value) => !value || value.length <= 100, 'Qualification must be 100 characters or fewer.'),
+  nomineeName: optionalPattern(nameRegex, 'Nominee Name must contain only alphabets, spaces, and dots.', 2),
+  relationship: optionalPattern(alphaSpaceRegex, 'Relationship must contain only alphabets and spaces.'),
+  experience: optionalPattern(/^[0-9]+$/, 'Experience must contain only numbers.').refine((value) => {
+    if (!value) return true;
+    const years = Number(value);
+    return years >= 0 && years <= 60;
+  }, 'Experience must be between 0 and 60 years.'),
+  panNo: z.string().transform((value) => value.trim().toUpperCase()).refine(
+    (value) => !value || panRegex.test(value),
+    'Enter a valid PAN number.',
+  ),
+  aadhaarNo: optionalPattern(aadhaarRegex, 'Enter a valid 12-digit Aadhaar number.'),
+  parentGuardianName: optionalPattern(nameRegex, 'Parent/Guardian Name must contain only alphabets, spaces, and dots.', 2),
   role: z.enum(['DIRECTOR', 'EXECUTIVE_DIRECTOR', 'DEPUTY_DIRECTOR', 'SENIOR_MANAGER', 'BUSINESS_MANAGER', 'AGENT'] as const),
   branchId: z.string().min(1, 'Branch is required'),
   reportsToId: z.string().optional(),
-  addressLine1: z.string().optional(),
-  addressLine2: z.string().optional(),
+  addressLine1: z.string().transform((value) => value.trim()).refine(
+    (value) => !value || (value.length >= 3 && value.length <= 150),
+    'Address Line 1 must be between 3 and 150 characters.',
+  ),
+  addressLine2: z.string().transform((value) => value.trim()).refine(
+    (value) => !value || value.length <= 150,
+    'Address Line 2 must be 150 characters or fewer.',
+  ),
 }).superRefine((data, ctx) => {
+  if (data.mobile2 && data.mobile1 === data.mobile2) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['mobile2'],
+      message: 'Alternate mobile must be different from Primary mobile.',
+    });
+  }
+
+  if (data.dateOfBirth) {
+    const dateOfBirth = parseDDMMYYYY(data.dateOfBirth);
+    if (!dateOfBirth) {
+      ctx.addIssue({ code: 'custom', path: ['dateOfBirth'], message: 'Enter a valid Date of Birth.' });
+    } else if (dateOfBirth > new Date()) {
+      ctx.addIssue({ code: 'custom', path: ['dateOfBirth'], message: 'Date of Birth cannot be a future date.' });
+    } else if (ageFromDate(dateOfBirth) < 18) {
+      ctx.addIssue({ code: 'custom', path: ['dateOfBirth'], message: 'Member must be at least 18 years old.' });
+    }
+  }
+
+  if (data.weddingDate) {
+    const weddingDate = parseDDMMYYYY(data.weddingDate);
+    if (!weddingDate) {
+      ctx.addIssue({ code: 'custom', path: ['weddingDate'], message: 'Enter a valid Wedding Date.' });
+    } else if (weddingDate > new Date()) {
+      ctx.addIssue({ code: 'custom', path: ['weddingDate'], message: 'Wedding Date cannot be a future date.' });
+    } else if (data.dateOfBirth) {
+      const dob = parseDDMMYYYY(data.dateOfBirth);
+      if (!dob) return;
+
+      if (weddingDate <= dob) {
+        ctx.addIssue({ code: 'custom', path: ['weddingDate'], message: 'Wedding date must be after Date of Birth.' });
+      } else if (weddingDate.getFullYear() <= dob.getFullYear()) {
+        ctx.addIssue({ code: 'custom', path: ['weddingDate'], message: 'Wedding year must be greater than Date of Birth year.' });
+      }
+    }
+  }
+
   if (data.role !== 'DIRECTOR' && !data.reportsToId) {
     ctx.addIssue({
       code: 'custom',
@@ -181,8 +321,9 @@ const FileDrop: React.FC<{
   icon: React.ReactNode;
   file: File | null;
   accept: string;
+  error?: string;
   onChange: (file: File | null) => void;
-}> = ({ label, helper, icon, file, accept, onChange }) => (
+}> = ({ label, helper, icon, file, accept, error, onChange }) => (
   <label className="flex min-h-28 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-amber-200 bg-white px-4 py-5 text-center transition hover:border-gold hover:bg-amber-50/40">
     <input
       type="file"
@@ -193,6 +334,7 @@ const FileDrop: React.FC<{
     <span className="text-gray-500">{icon}</span>
     <span className="mt-2 text-sm font-bold text-teal-700">{label}</span>
     <span className="mt-1 text-xs text-gray-500">{file ? file.name : helper}</span>
+    {error && <span className="mt-1 text-xs font-semibold text-red-600">{error}</span>}
   </label>
 );
 
@@ -204,16 +346,23 @@ const CreateMemberModal: React.FC<{
   const createMember = useCreateMember();
   const uploadPhoto = useUploadMemberPhoto();
   const uploadDocument = useUploadDocument();
-  const { data: reportsToResponse, isLoading: reportsToLoading } = useMembers({ limit: 1000 });
+  const { data: reportsToResponse, isLoading: reportsToLoading } = useMembers({
+    limit: 1000,
+    branchId: defaultBranchId || undefined,
+  });
   const [photo, setPhoto] = useState<File | null>(null);
   const [idProof, setIdProof] = useState<File | null>(null);
+  const [photoError, setPhotoError] = useState('');
+  const [idProofError, setIdProofError] = useState('');
   const [submitError, setSubmitError] = useState('');
 
   const {
     register,
     handleSubmit,
+    getValues,
     reset,
     setValue,
+    setFocus,
     control,
     formState: { errors, isSubmitting },
   } = useForm<MemberFormData>({
@@ -237,10 +386,19 @@ const CreateMemberModal: React.FC<{
     control,
     name: 'role',
   });
-  const selectedBranchId = useWatch({
+  const watchedBranchId = useWatch({
     control,
     name: 'branchId',
-  }) ?? defaultBranchId;
+  }) ?? '';
+  const selectedBranchId = defaultBranchId || watchedBranchId;
+  const selectedBranch = branches.find((branch) => branch.id === selectedBranchId);
+  const todayMaxDate = dateInputValue(new Date());
+
+  useEffect(() => {
+    if (defaultBranchId && watchedBranchId !== defaultBranchId) {
+      setValue('branchId', defaultBranchId, { shouldValidate: true });
+    }
+  }, [defaultBranchId, watchedBranchId, setValue]);
 
   const eligibleReportsToMembers = useMemo(() => {
     const allowedRoles = parentRolesByRole[selectedRole] ?? [];
@@ -276,16 +434,92 @@ const CreateMemberModal: React.FC<{
 
   const isSaving = isSubmitting || createMember.isPending || uploadPhoto.isPending || uploadDocument.isPending;
 
+  const restrictDigits = (field: keyof MemberFormData, maxLength: number) => (event: React.ChangeEvent<HTMLInputElement>) => {
+    const digitsOnly = event.target.value.replace(/\D/g, '').slice(0, maxLength);
+    event.target.value = digitsOnly;
+    setValue(field, digitsOnly, { shouldDirty: true, shouldValidate: true });
+  };
+
+  const restrictMobileInput = (field: 'mobile1' | 'mobile2') => (event: React.ChangeEvent<HTMLInputElement>) => {
+    const digitsOnly = event.target.value.replace(/\D/g, '').slice(0, 10);
+    if (digitsOnly && !/^[6-9]/.test(digitsOnly)) {
+      event.target.value = getValues(field) ?? '';
+      return;
+    }
+
+    event.target.value = digitsOnly;
+    setValue(field, digitsOnly, { shouldDirty: true, shouldValidate: true });
+  };
+
+  const normalizePanInput = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const pan = event.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase();
+    event.target.value = pan;
+    setValue('panNo', pan, { shouldDirty: true, shouldValidate: true });
+  };
+
+  const validateUpload = (
+    file: File,
+    allowedTypes: string[],
+    allowedExtensions: string[],
+    label: string,
+  ) => {
+    const fileName = file.name.toLowerCase();
+    const hasAllowedType = allowedTypes.includes(file.type);
+    const hasAllowedExtension = allowedExtensions.some((extension) => fileName.endsWith(extension));
+    if (!hasAllowedType && !hasAllowedExtension) {
+      return `${label} must be ${allowedExtensions.join(', ')}.`;
+    }
+    if (file.size > maxUploadSize) {
+      return `${label} must be 2MB or smaller.`;
+    }
+    return '';
+  };
+
+  const handlePhotoChange = (file: File | null) => {
+    if (!file) {
+      setPhoto(null);
+      setPhotoError('');
+      return;
+    }
+
+    const error = validateUpload(file, photoTypes, photoExtensions, 'Photo');
+    setPhotoError(error);
+    setPhoto(error ? null : file);
+    if (error) toast.error(error);
+  };
+
+  const handleIdProofChange = (file: File | null) => {
+    if (!file) {
+      setIdProof(null);
+      setIdProofError('');
+      return;
+    }
+
+    const error = validateUpload(file, idProofTypes, idProofExtensions, 'ID Proof');
+    setIdProofError(error);
+    setIdProof(error ? null : file);
+    if (error) toast.error(error);
+  };
+
   const discardDraft = () => {
     reset({ role: 'AGENT', branchId: defaultBranchId, reportsToId: '' });
     setPhoto(null);
     setIdProof(null);
+    setPhotoError('');
+    setIdProofError('');
     setSubmitError('');
     onClose();
   };
 
   const onSubmit = async (data: MemberFormData) => {
     setSubmitError('');
+    const assignedBranchId = defaultBranchId;
+
+    if (!assignedBranchId || !branches.some((branch) => branch.id === assignedBranchId)) {
+      toast.error('Assigned branch not found.');
+      setSubmitError('Assigned branch not found.');
+      return;
+    }
 
     if (data.role !== 'DIRECTOR' && !data.reportsToId) {
       toast.error('Please select reporting member.');
@@ -293,29 +527,55 @@ const CreateMemberModal: React.FC<{
       return;
     }
 
+    if (data.role !== 'DIRECTOR' && !eligibleReportsToMembers.length) {
+      toast.error('No eligible reporting members found.');
+      setSubmitError('No eligible reporting members found.');
+      return;
+    }
+
+    if (
+      data.role !== 'DIRECTOR' &&
+      !eligibleReportsToMembers.some((member) => member.id === data.reportsToId)
+    ) {
+      toast.error('Selected reporting member is not eligible for this role.');
+      setSubmitError('Selected reporting member is not eligible for this role.');
+      return;
+    }
+
+    if (photoError || idProofError) {
+      const fileError = photoError || idProofError;
+      toast.error(fileError);
+      setSubmitError(fileError);
+      return;
+    }
+
     try {
       const address = [data.addressLine1, data.addressLine2].filter(Boolean).join(', ');
+      const primaryMobile = data.mobile1.replace(/\D/g, '');
+      const alternateMobile = data.mobile2?.replace(/\D/g, '') || undefined;
+      const aadhaarNumber = data.aadhaarNo.replace(/\D/g, '') || undefined;
+      const pincode = data.pincode.replace(/\D/g, '') || undefined;
       const member = await createMember.mutateAsync({
-        fullName: data.fullName,
-        phone: data.mobile1,
-        email: data.email || undefined,
+        fullName: data.fullName.trim(),
+        phone: primaryMobile,
+        email: data.email.trim() || undefined,
         role: data.role,
-        branchId: data.branchId,
+        branchId: assignedBranchId,
         reportsToId: data.reportsToId || undefined,
-        codeNumber: data.introNo || undefined,
-        password: generateTempPassword(data.fullName, data.mobile1),
+        codeNumber: data.introNo.replace(/\D/g, '') || undefined,
+        password: generateTempPassword(data.fullName.trim(), primaryMobile),
         dateOfBirth: data.dateOfBirth || undefined,
         bloodGroup: data.bloodGroup || undefined,
         qualification: data.qualification || undefined,
-        experience: data.experience || undefined,
-        alternatePhone: data.mobile2 || undefined,
+        experience: data.experience.replace(/\D/g, '') || undefined,
+        alternatePhone: alternateMobile,
         address: address || undefined,
         city: data.city || undefined,
         district: data.district || undefined,
         state: data.state || undefined,
-        pincode: data.pincode || undefined,
+        pincode,
         panNumber: data.panNo || undefined,
-        aadhaarNumber: data.aadhaarNo || undefined,
+        aadhaarNumber,
         introName: data.introName || undefined,
         nomineeName: data.nomineeName || undefined,
         nomineeRelation: data.relationship || undefined,
@@ -354,9 +614,59 @@ const CreateMemberModal: React.FC<{
   };
 
   const onInvalidSubmit = (formErrors: FieldErrors<MemberFormData>) => {
+    const fieldOrder: Array<keyof MemberFormData> = [
+      'introNo',
+      'city',
+      'district',
+      'introName',
+      'state',
+      'pincode',
+      'fullName',
+      'mobile1',
+      'mobile2',
+      'dateOfBirth',
+      'weddingDate',
+      'bloodGroup',
+      'email',
+      'qualification',
+      'nomineeName',
+      'relationship',
+      'experience',
+      'panNo',
+      'aadhaarNo',
+      'parentGuardianName',
+      'role',
+      'branchId',
+      'reportsToId',
+      'addressLine1',
+      'addressLine2',
+    ];
+    const firstInvalidField = fieldOrder.find((field) => formErrors[field]);
+    if (firstInvalidField) setFocus(firstInvalidField);
+
+    if (formErrors.mobile1?.message || formErrors.mobile2?.message) {
+      toast.error(mobileValidationMessage);
+      setSubmitError(mobileValidationMessage);
+      return;
+    }
+
     if (formErrors.reportsToId?.message) {
+      if (selectedRole !== 'DIRECTOR' && !eligibleReportsToMembers.length) {
+        const message = 'No eligible reporting members found.';
+        toast.error(message);
+        setSubmitError(message);
+        return;
+      }
+
       toast.error('Please select reporting member.');
       setSubmitError('Please select reporting member.');
+      return;
+    }
+
+    const firstError = Object.values(formErrors).find((error) => error?.message);
+    if (firstError?.message && typeof firstError.message === 'string') {
+      toast.error(firstError.message);
+      setSubmitError(firstError.message);
     }
   };
 
@@ -385,42 +695,74 @@ const CreateMemberModal: React.FC<{
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
             <div className="grid grid-cols-1 gap-x-8 gap-y-5 md:grid-cols-2 lg:grid-cols-3">
               <Field label="Intro No">
-                <input {...register('introNo')} className={inputClass} placeholder="001" />
+                <input
+                  {...register('introNo')}
+                  className={inputClass}
+                  placeholder="001"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={10}
+                  onChange={restrictDigits('introNo', 10)}
+                />
               </Field>
-              <Field label="City">
+              <Field label="City" error={errors.city?.message}>
                 <input {...register('city')} className={inputClass} placeholder="Chennai" />
               </Field>
-              <Field label="District">
+              <Field label="District" error={errors.district?.message}>
                 <input {...register('district')} className={inputClass} placeholder="Chennai" />
               </Field>
-              <Field label="Intro Name">
+              <Field label="Intro Name" error={errors.introName?.message}>
                 <input {...register('introName')} className={inputClass} placeholder="Introduced by" />
               </Field>
-              <Field label="State">
+              <Field label="State" error={errors.state?.message}>
                 <input {...register('state')} className={inputClass} placeholder="Tamil Nadu" />
               </Field>
-              <Field label="Pincode">
-                <input {...register('pincode')} className={inputClass} placeholder="600032" maxLength={6} />
+              <Field label="Pincode" error={errors.pincode?.message}>
+                <input
+                  {...register('pincode')}
+                  className={inputClass}
+                  placeholder="600032"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={6}
+                  onChange={restrictDigits('pincode', 6)}
+                />
               </Field>
               <Field label="Full Name" error={errors.fullName?.message}>
                 <input {...register('fullName')} className={inputClass} placeholder="Member name" />
               </Field>
               <Field label="Mobile 1" error={errors.mobile1?.message}>
-                <input {...register('mobile1')} className={inputClass} placeholder="Primary mobile" />
+                <input
+                  {...register('mobile1')}
+                  className={inputClass}
+                  placeholder="Primary mobile"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={10}
+                  onChange={restrictMobileInput('mobile1')}
+                />
               </Field>
-              <Field label="Mobile 2">
-                <input {...register('mobile2')} className={inputClass} placeholder="Alternate mobile" />
+              <Field label="Mobile 2" error={errors.mobile2?.message}>
+                <input
+                  {...register('mobile2')}
+                  className={inputClass}
+                  placeholder="Alternate mobile"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={10}
+                  onChange={restrictMobileInput('mobile2')}
+                />
               </Field>
-              <Field label="Date of Birth">
-                <input type="date" {...register('dateOfBirth')} className={inputClass} />
+              <Field label="Date of Birth" error={errors.dateOfBirth?.message}>
+                <input type="date" {...register('dateOfBirth')} className={inputClass} max={todayMaxDate} />
               </Field>
-              <Field label="Wedding Date">
-                <input type="date" {...register('weddingDate')} className={inputClass} />
+              <Field label="Wedding Date" error={errors.weddingDate?.message}>
+                <input type="date" {...register('weddingDate')} className={inputClass} max={todayMaxDate} />
               </Field>
-              <SelectField label="Blood Group">
+              <SelectField label="Blood Group" error={errors.bloodGroup?.message}>
                 <select {...register('bloodGroup')} className={selectClass}>
                   <option value="">Select blood group</option>
-                  {['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-'].map((group) => (
+                  {bloodGroups.map((group) => (
                     <option key={group} value={group}>
                       {group}
                     </option>
@@ -430,25 +772,41 @@ const CreateMemberModal: React.FC<{
               <Field label="Email" error={errors.email?.message}>
                 <input type="email" {...register('email')} className={inputClass} placeholder="name@example.com" />
               </Field>
-              <Field label="Qualification">
-                <input {...register('qualification')} className={inputClass} placeholder="B.Sc Computer Science" />
+              <Field label="Qualification" error={errors.qualification?.message}>
+                <input {...register('qualification')} className={inputClass} placeholder="B.Sc Computer Science" maxLength={100} />
               </Field>
-              <Field label="Nominee Name">
+              <Field label="Nominee Name" error={errors.nomineeName?.message}>
                 <input {...register('nomineeName')} className={inputClass} placeholder="Nominee name" />
               </Field>
-              <Field label="Relationship">
+              <Field label="Relationship" error={errors.relationship?.message}>
                 <input {...register('relationship')} className={inputClass} placeholder="Relationship" />
               </Field>
-              <Field label="Experience (Years)">
-                <input {...register('experience')} className={inputClass} placeholder="5" />
+              <Field label="Experience (Years)" error={errors.experience?.message}>
+                <input
+                  {...register('experience')}
+                  className={inputClass}
+                  placeholder="5"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={2}
+                  onChange={restrictDigits('experience', 2)}
+                />
               </Field>
-              <Field label="PAN No">
-                <input {...register('panNo')} className={inputClass} placeholder="ABCDE1234F" maxLength={10} />
+              <Field label="PAN No" error={errors.panNo?.message}>
+                <input {...register('panNo')} className={inputClass} placeholder="ABCDE1234F" maxLength={10} onChange={normalizePanInput} />
               </Field>
-              <Field label="Aadhaar No">
-                <input {...register('aadhaarNo')} className={inputClass} placeholder="12 digit Aadhaar" maxLength={12} />
+              <Field label="Aadhaar No" error={errors.aadhaarNo?.message}>
+                <input
+                  {...register('aadhaarNo')}
+                  className={inputClass}
+                  placeholder="12 digit Aadhaar"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={12}
+                  onChange={restrictDigits('aadhaarNo', 12)}
+                />
               </Field>
-              <Field label="Parent/Guardian Name">
+              <Field label="Parent/Guardian Name" error={errors.parentGuardianName?.message}>
                 <input {...register('parentGuardianName')} className={inputClass} placeholder="Parent or guardian" />
               </Field>
               <SelectField label="Role" error={errors.role?.message}>
@@ -460,16 +818,34 @@ const CreateMemberModal: React.FC<{
                   ))}
                 </select>
               </SelectField>
-              <SelectField label="Branch" error={errors.branchId?.message}>
-                <select {...register('branchId')} className={selectClass}>
-                  <option value="">Select Branch</option>
-                  {branches.map((branch) => (
-                    <option key={branch.id} value={branch.id}>
-                      {branch.name}
-                    </option>
-                  ))}
-                </select>
-              </SelectField>
+              {branches.length <= 1 ? (
+                <Field label="Branch" error={errors.branchId?.message}>
+                  <input
+                    value={selectedBranch?.name ?? ''}
+                    className={inputClass}
+                    placeholder="Assigned branch not found"
+                    readOnly
+                    disabled
+                  />
+                  <input type="hidden" {...register('branchId')} />
+                </Field>
+              ) : (
+                <SelectField label="Branch" error={errors.branchId?.message}>
+                  <select
+                    value={selectedBranchId}
+                    onChange={(event) => setValue('branchId', event.target.value, { shouldDirty: true, shouldValidate: true })}
+                    className={selectClass}
+                  >
+                    <option value="">Select Branch</option>
+                    {branches.map((branch) => (
+                      <option key={branch.id} value={branch.id}>
+                        {branch.name}
+                      </option>
+                    ))}
+                  </select>
+                  <input type="hidden" {...register('branchId')} />
+                </SelectField>
+              )}
               <Field label={selectedRole === 'DIRECTOR' ? 'Reports To' : 'Reports To *'} error={errors.reportsToId?.message}>
                 <SearchableSelect
                   value={selectedReportsToId}
@@ -487,10 +863,10 @@ const CreateMemberModal: React.FC<{
                 />
                 <input type="hidden" {...register('reportsToId')} />
               </Field>
-              <Field label="Address Line 1">
+              <Field label="Address Line 1" error={errors.addressLine1?.message}>
                 <input {...register('addressLine1')} className={inputClass} placeholder="Door No, Street" />
               </Field>
-              <Field label="Address Line 2">
+              <Field label="Address Line 2" error={errors.addressLine2?.message}>
                 <input {...register('addressLine2')} className={inputClass} placeholder="Area, Landmark" />
               </Field>
             </div>
@@ -502,7 +878,8 @@ const CreateMemberModal: React.FC<{
                 icon={<ImagePlus className="h-7 w-7" />}
                 file={photo}
                 accept=".jpg,.jpeg,.png"
-                onChange={setPhoto}
+                error={photoError}
+                onChange={handlePhotoChange}
               />
               <FileDrop
                 label="Upload ID Proof"
@@ -510,7 +887,8 @@ const CreateMemberModal: React.FC<{
                 icon={<Upload className="h-7 w-7" />}
                 file={idProof}
                 accept=".jpg,.jpeg,.png,.pdf"
-                onChange={setIdProof}
+                error={idProofError}
+                onChange={handleIdProofChange}
               />
             </div>
 
@@ -596,15 +974,27 @@ const AdminMembersListPage: React.FC = () => {
   const [createOpen, setCreateOpen] = useState(false);
 
   const { data: branchesResponse } = useBranches({ limit: 100 });
+  const shouldFetchMe =
+    user?.role === 'ADMIN' && (!user.admin?.branchId || !user.admin?.branch);
+  const { data: me } = useQuery({
+    queryKey: ['auth', 'me', 'admin-branch'],
+    queryFn: authApi.getMe,
+    enabled: shouldFetchMe,
+  });
+  const admin = me?.admin ?? user?.admin;
+  const assignedBranchId = admin?.branchId ?? admin?.branch?.id ?? '';
   const branches = useMemo(() => {
     const list = branchesResponse?.data ?? [];
-    const adminBranch = user?.admin?.branch;
-    if (!adminBranch || list.some((branch) => branch.id === adminBranch.id)) return list;
-    return [adminBranch, ...list];
-  }, [branchesResponse?.data, user?.admin?.branch]);
+    if (!assignedBranchId) return [];
 
-  const defaultBranchId = user?.admin?.branchId ?? branches[0]?.id ?? '';
-  const activeBranchId = branchId || undefined;
+    const adminBranch = admin?.branch ?? list.find((branch) => branch.id === assignedBranchId);
+    return adminBranch ? [adminBranch] : list.filter((branch) => branch.id === assignedBranchId);
+  }, [admin?.branch, assignedBranchId, branchesResponse?.data]);
+
+  const defaultBranchId = assignedBranchId && branches.some((branch) => branch.id === assignedBranchId)
+    ? assignedBranchId
+    : '';
+  const activeBranchId = branchId || defaultBranchId || undefined;
 
   const { data, isLoading, refetch } = useMembers({
     page,

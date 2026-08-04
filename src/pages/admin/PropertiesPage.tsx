@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import {
   Check,
   ClipboardCheck,
-  Download,
   ExternalLink,
   FileText,
   GitBranch,
@@ -18,15 +17,17 @@ import type { WorkflowDocument, WorkflowHistoryEntry } from '../../api/propertie
 import type { Property, PropertyType, WorkflowStatus } from '../../types';
 
 type PropertyDisplayStatus = 'Available' | 'In Progress' | 'Completed';
+type PropertyWorkflowValue = WorkflowStatus | 'BOOKED' | '';
 
-const workflowLabels: Record<WorkflowStatus, string> = {
+const workflowLabels: Record<WorkflowStatus | 'BOOKED', string> = {
   AVAILABLE: 'Available',
-  BOOKING_INITIATED: 'Booking Initiated',
+  BOOKING_INITIATED: 'Booking In Progress',
   TOKEN_RECEIVED: 'Token Received',
   ADVANCE_PAYMENT: 'Advance Payment',
   REGISTRATION_PENDING: 'Registration Pending',
   FINAL_SETTLEMENT_PENDING: 'Final Settlement Pending',
   COMPLETED: 'Completed',
+  BOOKED: 'Completed',
 };
 
 function stringField(value: unknown) {
@@ -59,16 +60,26 @@ function displayName(property: Property) {
   return property.propertyName || property.projectName || '-';
 }
 
-function statusKind(status: WorkflowStatus) {
-  if (status === 'COMPLETED') return 'complete';
+function propertyWorkflowStatus(property: Property): PropertyWorkflowValue {
+  const extra = property as Property & { status?: string; workflow_status?: string };
+  return (property.workflowStatus || extra.status || extra.workflow_status || '') as PropertyWorkflowValue;
+}
+
+function workflowLabel(status: PropertyWorkflowValue) {
+  return status ? (workflowLabels[status as WorkflowStatus | 'BOOKED'] ?? readableEnum(status)) : '-';
+}
+
+function statusKind(status: PropertyWorkflowValue) {
+  if (status === 'COMPLETED' || status === 'BOOKED') return 'complete';
   if (status === 'FINAL_SETTLEMENT_PENDING') return 'danger';
   if (status === 'AVAILABLE') return 'active';
   return 'progress';
 }
 
 function displayStatus(property: Property): PropertyDisplayStatus {
-  if (property.workflowStatus === 'COMPLETED') return 'Completed';
-  if (property.workflowStatus === 'AVAILABLE') return 'Available';
+  const status = propertyWorkflowStatus(property);
+  if (status === 'COMPLETED' || status === 'BOOKED') return 'Completed';
+  if (status === 'AVAILABLE') return 'Available';
   return 'In Progress';
 }
 
@@ -112,7 +123,9 @@ function PropertyCard({
   property: Property;
   onDetails: () => void;
 }) {
-  const kind = statusKind(property.workflowStatus);
+  const status = propertyWorkflowStatus(property);
+  const statusLabel = workflowLabel(status);
+  const kind = statusKind(status);
   const [imageFailed, setImageFailed] = useState(false);
   const imageUrl = imageFailed ? '' : firstPropertyImageUrl(property);
 
@@ -130,7 +143,7 @@ function PropertyCard({
         <div className="absolute inset-0 bg-black/10" />
         <div className="absolute left-4 top-4 flex gap-2">
           <Pill tone={kind === 'active' ? 'green' : kind === 'danger' ? 'red' : 'gold'}>
-            {workflowLabels[property.workflowStatus]}
+            {statusLabel}
           </Pill>
           <Pill tone="gold">{typeLabel(property.propertyType)}</Pill>
         </div>
@@ -146,21 +159,12 @@ function PropertyCard({
 
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div className="flex items-center gap-2">
-            <GitBranch className="h-4 w-4 text-gold" />
-            <span className="font-semibold text-gray-800">{workflowLabels[property.workflowStatus]}</span>
-          </div>
-          <div className="flex items-center gap-2">
             <Home className="h-4 w-4 text-teal-700" />
             <span className="font-semibold text-gray-800">Plot: {property.plotNumber || '-'}</span>
           </div>
           <div className="flex items-center gap-2">
             <FileText className="h-4 w-4 text-gold" />
             <span className="font-semibold text-gray-800">Property ID: {property.propertyId || '-'}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Pill tone={kind === 'complete' ? 'green' : kind === 'danger' ? 'red' : 'gold'}>
-              {workflowLabels[property.workflowStatus]}
-            </Pill>
           </div>
         </div>
 
@@ -216,6 +220,10 @@ function lifecycleState(status: WorkflowStatus, requiredStatus: WorkflowStatus):
   if (currentIndex < requiredIndex) return 'pending';
   if (currentIndex === requiredIndex && status !== 'COMPLETED') return 'current';
   return 'done';
+}
+
+function lifecycleWorkflowStatus(status: PropertyWorkflowValue): WorkflowStatus {
+  return status === 'BOOKED' || status === 'COMPLETED' ? 'COMPLETED' : (status || 'AVAILABLE') as WorkflowStatus;
 }
 
 function formatWorkflowDate(value: string) {
@@ -309,23 +317,50 @@ function cleanWorkflowHistory(entries: WorkflowHistoryEntry[]) {
   });
 }
 
-function documentUrl(document: WorkflowDocument) {
+function documentRawUrl(document: WorkflowDocument) {
   const extra = document as WorkflowDocument & {
     url?: string;
     fileUrl?: string;
+    file_url?: string;
+    path?: string;
+    filePath?: string;
+    file_path?: string;
+    storagePath?: string;
+    storage_path?: string;
     signedUrl?: string;
+    signed_url?: string;
+    downloadUrl?: string;
+    download_url?: string;
   };
-  const path = extra.signedUrl || extra.fileUrl || extra.url || document.documentUrl;
+  const path =
+    extra.signedUrl ||
+    extra.signed_url ||
+    extra.downloadUrl ||
+    extra.download_url ||
+    extra.fileUrl ||
+    extra.file_url ||
+    extra.url ||
+    extra.path ||
+    extra.filePath ||
+    extra.file_path ||
+    extra.storagePath ||
+    extra.storage_path ||
+    document.documentUrl;
   if (!path || ['-', 'null', 'undefined'].includes(path.trim().toLowerCase())) return '';
-  return resolveFileUrl(path);
+  return path;
 }
 
 function documentFileName(document: WorkflowDocument) {
-  const extra = document as WorkflowDocument & { fileName?: string; originalName?: string; name?: string };
-  const explicitName = extra.originalName || extra.fileName || extra.name;
+  const extra = document as WorkflowDocument & {
+    filename?: string;
+    fileName?: string;
+    originalName?: string;
+    name?: string;
+  };
+  const explicitName = extra.originalName || extra.fileName || extra.filename || extra.name;
   if (explicitName) return explicitName;
 
-  const path = document.documentUrl?.split('?')[0];
+  const path = documentRawUrl(document).split('?')[0];
   const finalSegment = path?.split('/').filter(Boolean).at(-1);
   if (!finalSegment) return 'Uploaded';
   try {
@@ -335,14 +370,56 @@ function documentFileName(document: WorkflowDocument) {
   }
 }
 
+function filenameFromUrl(url: string, fallback: string) {
+  const path = url.split('?')[0];
+  const finalSegment = path.split('/').filter(Boolean).at(-1);
+  if (!finalSegment) return fallback;
+  try {
+    return decodeURIComponent(finalSegment);
+  } catch {
+    return fallback;
+  }
+}
+
+type ViewablePropertyFile = {
+  id: string;
+  typeLabel: string;
+  fileName: string;
+  uploadedAt?: string;
+  url: string;
+};
+
 function PropertyDetailModal({ property, onClose }: { property: Property; onClose: () => void }) {
   const { data: latestProperty, isLoading: isPropertyLoading } = useProperty(property.id);
   const { data: workflowHistory = [], isLoading: isWorkflowLoading } = usePropertyWorkflow(property.id);
   const { data: documents = [], isLoading: isDocumentsLoading } = usePropertyDocuments(property.id);
   const detailedProperty = latestProperty ?? property;
+  const detailedStatus = propertyWorkflowStatus(detailedProperty);
+  const lifecycleStatus = lifecycleWorkflowStatus(detailedStatus);
   const visibleWorkflowHistory = cleanWorkflowHistory(workflowHistory);
   const [imageFailed, setImageFailed] = useState(false);
   const imageUrl = imageFailed ? '' : firstPropertyImageUrl(detailedProperty);
+  const propertyImageFile: ViewablePropertyFile | null = imageUrl
+    ? {
+        id: `${detailedProperty.id}-property-image`,
+        typeLabel: 'Property Image',
+        fileName: filenameFromUrl(imageUrl, `${detailedProperty.propertyId || detailedProperty.id}-property-image`),
+        uploadedAt: detailedProperty.images?.[0]?.uploadedAt,
+        url: imageUrl,
+      }
+    : null;
+  const documentFiles: ViewablePropertyFile[] = documents.map((document) => {
+    const rawUrl = documentRawUrl(document);
+    const resolvedUrl = rawUrl ? resolveFileUrl(rawUrl) : '';
+    return {
+      id: document.id,
+      typeLabel: readableEnum(document.documentType),
+      fileName: resolvedUrl ? documentFileName(document) : 'File not available',
+      uploadedAt: document.uploadedAt,
+      url: resolvedUrl,
+    };
+  });
+  const files = propertyImageFile ? [propertyImageFile, ...documentFiles] : documentFiles;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[1px]">
@@ -379,7 +456,7 @@ function PropertyDetailModal({ property, onClose }: { property: Property; onClos
                 <div className="rounded-sm border border-white/80 bg-white px-4 py-3 text-gray-900 shadow-lg">
                   <p className="text-[10px] font-black uppercase tracking-wide text-teal-700">Workflow Status</p>
                   <p className="mt-1 text-base font-black uppercase">
-                    {workflowLabels[detailedProperty.workflowStatus]}
+                    {workflowLabel(detailedStatus)}
                   </p>
                 </div>
                 <div className="rounded-sm border border-gold bg-white px-4 py-3 text-gray-900 shadow-lg">
@@ -398,16 +475,16 @@ function PropertyDetailModal({ property, onClose }: { property: Property; onClos
                   <h3 className="text-lg font-bold text-gray-900">Property Lifecycle</h3>
                 </div>
                 <p className="mb-5 text-sm font-semibold text-gray-700">
-                  Current status: {workflowLabels[detailedProperty.workflowStatus]}
+                  Current status: {workflowLabel(detailedStatus)}
                 </p>
                 <div className="grid grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr] items-center gap-3">
-                  <LifecycleStep label="Token" state={lifecycleState(detailedProperty.workflowStatus, 'TOKEN_RECEIVED')} />
+                  <LifecycleStep label="Token" state={lifecycleState(lifecycleStatus, 'TOKEN_RECEIVED')} />
                   <div className="h-px bg-stone-200" />
-                  <LifecycleStep label="Advance" state={lifecycleState(detailedProperty.workflowStatus, 'ADVANCE_PAYMENT')} />
+                  <LifecycleStep label="Advance" state={lifecycleState(lifecycleStatus, 'ADVANCE_PAYMENT')} />
                   <div className="h-px bg-stone-200" />
-                  <LifecycleStep label="Registration" state={lifecycleState(detailedProperty.workflowStatus, 'REGISTRATION_PENDING')} />
+                  <LifecycleStep label="Registration" state={lifecycleState(lifecycleStatus, 'REGISTRATION_PENDING')} />
                   <div className="h-px bg-stone-200" />
-                  <LifecycleStep label="Final Settlement" state={lifecycleState(detailedProperty.workflowStatus, 'FINAL_SETTLEMENT_PENDING')} />
+                  <LifecycleStep label="Final Settlement" state={lifecycleState(lifecycleStatus, 'FINAL_SETTLEMENT_PENDING')} />
                 </div>
               </section>
 
@@ -437,52 +514,50 @@ function PropertyDetailModal({ property, onClose }: { property: Property; onClos
                 </div>
                 {isDocumentsLoading ? (
                   <p className="text-sm text-gray-500">Loading documents...</p>
-                ) : documents.length ? (
+                ) : files.length ? (
                   <div className="overflow-hidden rounded border border-gray-100">
                     <div className="grid grid-cols-[1.1fr_1.4fr_auto] gap-3 bg-stone-50 px-4 py-2 text-xs font-bold uppercase text-gray-500">
                       <span>Document Type</span>
                       <span>File / Status</span>
                       <span>Action</span>
                     </div>
-                    {documents.map((document) => {
-                      const fileUrl = documentUrl(document);
+                    {files.map((file) => {
                       return (
                         <div
-                          key={document.id}
+                          key={file.id}
                           className="grid grid-cols-[1.1fr_1.4fr_auto] items-center gap-3 border-t border-gray-100 px-4 py-3"
                         >
                           <div className="flex items-center gap-2">
                             <FileText className="h-4 w-4 shrink-0 text-teal-700" />
-                            <p className="text-sm font-bold text-gray-900">{readableEnum(document.documentType)}</p>
+                            <p className="text-sm font-bold text-gray-900">{file.typeLabel}</p>
                           </div>
                           <div className="min-w-0">
                             <p className="truncate text-sm font-semibold text-gray-800">
-                              {fileUrl ? documentFileName(document) : 'Not uploaded'}
+                              {file.url ? file.fileName : 'File not available'}
                             </p>
-                            {fileUrl && (
-                              <p className="text-xs text-gray-500">Uploaded {formatWorkflowDate(document.uploadedAt)}</p>
+                            {file.url && file.uploadedAt && (
+                              <p className="text-xs text-gray-500">Uploaded {formatWorkflowDate(file.uploadedAt)}</p>
                             )}
                           </div>
-                          {fileUrl ? (
+                          {file.url ? (
                             <div className="flex items-center gap-2">
                               <a
-                                href={fileUrl}
+                                href={file.url}
                                 target="_blank"
                                 rel="noreferrer"
                                 className="inline-flex items-center gap-1 text-xs font-bold text-gold hover:underline"
                               >
                                 View <ExternalLink className="h-3.5 w-3.5" />
                               </a>
-                              <a
-                                href={fileUrl}
-                                download
-                                className="inline-flex items-center gap-1 text-xs font-bold text-teal-700 hover:underline"
-                              >
-                                Download <Download className="h-3.5 w-3.5" />
-                              </a>
                             </div>
                           ) : (
-                            <span className="text-sm text-gray-400">-</span>
+                            <button
+                              type="button"
+                              disabled
+                              className="inline-flex items-center gap-1 text-xs font-bold text-gray-400"
+                            >
+                              File not available
+                            </button>
                           )}
                         </div>
                       );

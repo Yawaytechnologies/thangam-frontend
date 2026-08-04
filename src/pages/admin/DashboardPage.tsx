@@ -17,7 +17,7 @@ interface PerformerGroup {
   colorClass: string;
 }
 
-interface PerformerMember {
+interface DashboardMember {
   id: string;
   memberId: string;
   fullName: string;
@@ -28,31 +28,11 @@ interface PerformerMember {
 }
 
 const performerGroups: PerformerGroup[] = [
-  {
-    title: 'Directors and Executive Directors',
-    roles: ['DIRECTOR', 'EXECUTIVE_DIRECTOR'],
-    colorClass: 'text-amber-700',
-  },
-  {
-    title: 'Deputy Directors',
-    roles: ['DEPUTY_DIRECTOR'],
-    colorClass: 'text-blue-700',
-  },
-  {
-    title: 'Senior Managers',
-    roles: ['SENIOR_MANAGER'],
-    colorClass: 'text-orange-700',
-  },
-  {
-    title: 'Business Managers',
-    roles: ['BUSINESS_MANAGER'],
-    colorClass: 'text-teal-700',
-  },
-  {
-    title: 'Agents',
-    roles: ['AGENT'],
-    colorClass: 'text-gray-700',
-  },
+  { title: 'Directors and Executive Directors', roles: ['DIRECTOR', 'EXECUTIVE_DIRECTOR'], colorClass: 'text-amber-700' },
+  { title: 'Deputy Directors', roles: ['DEPUTY_DIRECTOR'], colorClass: 'text-blue-700' },
+  { title: 'Senior Managers', roles: ['SENIOR_MANAGER'], colorClass: 'text-orange-700' },
+  { title: 'Business Managers', roles: ['BUSINESS_MANAGER'], colorClass: 'text-teal-700' },
+  { title: 'Agents', roles: ['AGENT'], colorClass: 'text-gray-700' },
 ];
 
 const roleLabels: Record<Role, string> = {
@@ -72,20 +52,16 @@ function normalizeRole(value: unknown): Role | null {
     .replace(/([a-z])([A-Z])/g, '$1_$2')
     .replace(/[\s-]+/g, '_')
     .toUpperCase();
-
-  if (normalized in roleLabels) return normalized as Role;
-  return null;
+  return normalized in roleLabels ? normalized as Role : null;
 }
 
-function membersFromResponse(response: unknown): PerformerMember[] {
-  if (Array.isArray(response)) return response as PerformerMember[];
+function membersFromResponse(response: unknown): DashboardMember[] {
+  if (Array.isArray(response)) return response as DashboardMember[];
   if (!response || typeof response !== 'object') return [];
-
   const record = response as Record<string, unknown>;
-  if (Array.isArray(record.data)) return record.data as PerformerMember[];
-  if (Array.isArray(record.members)) return record.members as PerformerMember[];
-  if (Array.isArray(record.teamMembers)) return record.teamMembers as PerformerMember[];
-
+  if (Array.isArray(record.data)) return record.data as DashboardMember[];
+  if (Array.isArray(record.members)) return record.members as DashboardMember[];
+  if (Array.isArray(record.teamMembers)) return record.teamMembers as DashboardMember[];
   return [];
 }
 
@@ -93,9 +69,7 @@ const StatCard: React.FC<StatCardProps> = ({ title, value, accentClass, icon }) 
   <div className={`rounded-lg border border-gray-200 bg-white p-4 shadow-sm ${accentClass}`}>
     <div className="flex items-start justify-between gap-3">
       <p className="text-xs font-bold uppercase tracking-wide text-gray-700">{title}</p>
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-gold">
-        {icon}
-      </div>
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-gold">{icon}</div>
     </div>
     <p className="mt-3 text-2xl font-bold text-gray-900">{value}</p>
   </div>
@@ -112,7 +86,7 @@ const Avatar: React.FC<{ name: string }> = ({ name }) => (
   </div>
 );
 
-const PerformerCard: React.FC<{ member: PerformerMember; index: number }> = ({ member, index }) => {
+const PerformerCard: React.FC<{ member: DashboardMember; index: number }> = ({ member, index }) => {
   const teamPercentage = 0;
   const role = normalizeRole(member.role);
 
@@ -126,9 +100,7 @@ const PerformerCard: React.FC<{ member: PerformerMember; index: number }> = ({ m
               <p className="truncate text-sm font-bold text-gray-900">{member.fullName}</p>
               <p className="mt-0.5 truncate text-xs text-gray-500">{member.memberId}</p>
             </div>
-            <span className="rounded-full bg-gold px-2 py-0.5 text-[10px] font-bold text-navy">
-              #{index + 1}
-            </span>
+            <span className="rounded-full bg-gold px-2 py-0.5 text-[10px] font-bold text-navy">#{index + 1}</span>
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
             <span className="rounded bg-white px-2 py-0.5 font-semibold text-gray-700">
@@ -165,55 +137,49 @@ const isSameDay = (date: Date, compare: Date) =>
   date.getMonth() === compare.getMonth() &&
   date.getDate() === compare.getDate();
 
-const getWeekStart = (date: Date) => {
+function getWeekStart(date: Date) {
   const start = new Date(date);
   const day = start.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  start.setDate(start.getDate() + diff);
+  start.setDate(start.getDate() + (day === 0 ? -6 : 1 - day));
   start.setHours(0, 0, 0, 0);
   return start;
-};
+}
 
-const parseCreatedAt = (member: PerformerMember) => {
+function parseCreatedAt(member: DashboardMember) {
   const date = new Date(member.createdAt);
   return Number.isNaN(date.getTime()) ? null : date;
-};
+}
 
-const sortPerformers = (a: PerformerMember, b: PerformerMember) => {
+function sortPerformers(a: DashboardMember, b: DashboardMember) {
   if (a.status !== b.status) return a.status === 'ACTIVE' ? -1 : 1;
   return a.fullName.localeCompare(b.fullName);
-};
+}
 
 const AdminDashboardPage: React.FC = () => {
   const { data: dashboardStats, isLoading: isStatsLoading } = useAdminStats();
   const { data: membersResponse, isLoading: isTeamLoading } = useTeam({ limit: 1000 });
   const { data: memberActivity, isLoading: isActivityLoading } = useAdminMemberActivity();
+  const today = new Date();
+
   const teamResponseMembers = membersFromResponse(membersResponse);
   const activityMembers = membersFromResponse(memberActivity);
   const members = (teamResponseMembers.length ? teamResponseMembers : activityMembers).filter(
     (member) => normalizeRole(member.role) !== 'SUPER_ADMIN',
   );
   const isLoading = isStatsLoading || isTeamLoading || isActivityLoading;
-  const today = new Date();
   const weekStart = getWeekStart(today);
-
   const joinedToday = members.filter((member) => {
     const joinedAt = parseCreatedAt(member);
     return joinedAt ? isSameDay(joinedAt, today) : false;
   }).length;
-
   const joinedThisWeek = members.filter((member) => {
     const joinedAt = parseCreatedAt(member);
     return joinedAt ? joinedAt >= weekStart && joinedAt <= today : false;
   }).length;
-
   const joinedThisMonth = members.filter((member) => {
     const joinedAt = parseCreatedAt(member);
-    return joinedAt
-      ? joinedAt.getFullYear() === today.getFullYear() && joinedAt.getMonth() === today.getMonth()
-      : false;
+    return joinedAt ? joinedAt.getFullYear() === today.getFullYear() && joinedAt.getMonth() === today.getMonth() : false;
   }).length;
-
   const activeMembers = members.filter((member) => member.status === 'ACTIVE').length;
   const pendingActions = members.filter((member) => member.status === 'PENDING' || member.status === 'INACTIVE').length;
   const statsTotalMembers = Number(dashboardStats?.totalMembers);
@@ -229,7 +195,6 @@ const AdminDashboardPage: React.FC = () => {
       .slice(0, 3),
   }));
   const hasAnyPerformers = groupedPerformers.some((group) => group.performers.length > 0);
-
   const stats: StatCardProps[] = [
     { title: 'Members Today', value: isLoading ? '-' : joinedToday, accentClass: 'border-t-2 border-t-gold', icon: <UserPlus className="h-4 w-4" /> },
     { title: 'Joined This Week', value: isLoading ? '-' : joinedThisWeek, accentClass: 'border-t-2 border-t-teal-700', icon: <CalendarDays className="h-4 w-4" /> },
@@ -242,9 +207,7 @@ const AdminDashboardPage: React.FC = () => {
   return (
     <div className="p-4 sm:p-6">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {stats.map((stat) => (
-          <StatCard key={stat.title} {...stat} />
-        ))}
+        {stats.map((stat) => <StatCard key={stat.title} {...stat} />)}
       </div>
 
       <section className="mt-5 rounded-lg border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
@@ -273,12 +236,8 @@ const AdminDashboardPage: React.FC = () => {
               <div key={group.title}>
                 <div className="mb-4 flex items-center justify-between border-b border-gray-100 pb-3">
                   <div className={`flex items-center gap-2 text-sm font-bold ${group.colorClass}`}>
-                    <span className="flex h-5 w-5 items-center justify-center rounded-full border border-current text-[10px]">
-                      +
-                    </span>
-                    <span>
-                      {group.title} · {performers.length} Members
-                    </span>
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full border border-current text-[10px]">+</span>
+                    <span>{group.title} · {performers.length} Members</span>
                   </div>
                 </div>
 

@@ -1,6 +1,8 @@
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'react-hot-toast';
 import { authApi } from '../api/auth.api';
+import { cancelPendingAuthRefresh } from '../lib/axios';
 import { useAuthStore } from '../stores/auth.store';
 
 export function useLogin() {
@@ -8,6 +10,7 @@ export function useLogin() {
   const navigate = useNavigate();
 
   return useMutation({
+    mutationKey: ['login'],
     mutationFn: authApi.login,
     onSuccess: ({ user, accessToken, refreshToken }) => {
       setAuth(user, accessToken, refreshToken);
@@ -23,16 +26,23 @@ export function useLogin() {
 export function useLogout() {
   const logout = useAuthStore((s) => s.logout);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: authApi.logout,
-    onSuccess: () => {
+    mutationKey: ['logout'],
+    mutationFn: () => {
+      const accessToken = useAuthStore.getState().accessToken;
+
+      // Client logout is deliberately synchronous and never waits for the server.
+      cancelPendingAuthRefresh();
       logout();
-      navigate('/login');
-    },
-    onError: () => {
-      logout();
-      navigate('/login');
+      void queryClient.cancelQueries();
+      queryClient.clear();
+      toast.dismiss();
+      navigate('/login', { replace: true });
+
+      void authApi.logout(accessToken).catch(() => undefined);
+      return Promise.resolve();
     },
   });
 }

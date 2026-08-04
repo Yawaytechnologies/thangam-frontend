@@ -35,12 +35,21 @@ api.interceptors.request.use((config) => {
 
 let isRefreshing = false;
 let hasRedirectedToLogin = false;
+let refreshController: AbortController | null = null;
 let failedQueue: Array<{ resolve: (v: string) => void; reject: (e: unknown) => void }> = [];
 
 const processQueue = (error: unknown, token: string | null = null) => {
   failedQueue.forEach((p) => (error ? p.reject(error) : p.resolve(token!)));
   failedQueue = [];
 };
+
+export function cancelPendingAuthRefresh() {
+  const cancellationError = new axios.CanceledError('Authentication refresh cancelled');
+  refreshController?.abort();
+  refreshController = null;
+  isRefreshing = false;
+  processQueue(cancellationError);
+}
 
 function redirectToLoginOnce() {
   const alreadyOnLogin = window.location.pathname === '/login';
@@ -81,12 +90,22 @@ api.interceptors.response.use(
       }
       original._retry = true;
       isRefreshing = true;
+      const controller = new AbortController();
+      refreshController = controller;
       try {
-        const { data } = await axios.post(REFRESH_URL, { refreshToken }, { withCredentials: true });
+        const { data } = await axios.post(
+          REFRESH_URL,
+          { refreshToken },
+          { withCredentials: true, signal: controller.signal },
+        );
         const newToken = data?.data?.accessToken ?? data?.accessToken;
         const newRefreshToken = data?.data?.refreshToken ?? data?.refreshToken;
         if (!newToken) throw new Error('Refresh response did not include an access token');
-        const currentUser = useAuthStore.getState().user;
+        const currentAuth = useAuthStore.getState();
+        if (currentAuth.refreshToken !== refreshToken) {
+          throw new axios.CanceledError('Authentication session changed during refresh');
+        }
+        const currentUser = currentAuth.user;
         if (currentUser) {
           useAuthStore.getState().setAuth(currentUser, newToken, newRefreshToken ?? refreshToken);
         } else {
@@ -98,6 +117,9 @@ api.interceptors.response.use(
         return api(original);
       } catch (err) {
         processQueue(err, null);
+        if (axios.isCancel(err) || !useAuthStore.getState().refreshToken) {
+          return Promise.reject(err);
+        }
         const refreshStatus = axios.isAxiosError(err) ? err.response?.status : undefined;
         if (refreshStatus === 401 || refreshStatus === 403) {
           const sessionError = new Error('Session expired. Please login again.');
@@ -106,7 +128,10 @@ api.interceptors.response.use(
         }
         return Promise.reject(err);
       } finally {
-        isRefreshing = false;
+        if (refreshController === controller) {
+          refreshController = null;
+          isRefreshing = false;
+        }
       }
     }
     return Promise.reject(error);

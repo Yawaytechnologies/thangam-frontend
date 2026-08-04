@@ -38,6 +38,7 @@ const queryClient = new QueryClient({
   // Global query error handler — only fires when there's no cached data to show
   queryCache: new QueryCache({
     onError: (error, query) => {
+      if (!useAuthStore.getState().user) return;
       if (query.state.data !== undefined) {
         // Background refetch failed — show non-intrusive toast
         toast.error(`Failed to refresh: ${getApiError(error)}`, { id: 'bg-refetch' });
@@ -46,7 +47,9 @@ const queryClient = new QueryClient({
   }),
   // Global mutation error handler — always notify on mutation failure
   mutationCache: new MutationCache({
-    onError: (error) => {
+    onError: (error, _variables, _context, mutation) => {
+      const mutationName = mutation.options.mutationKey?.[0];
+      if (!useAuthStore.getState().user && mutationName !== 'login') return;
       toast.error(getApiError(error));
     },
   }),
