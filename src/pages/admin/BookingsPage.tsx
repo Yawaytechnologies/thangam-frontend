@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import toast from 'react-hot-toast';
@@ -6,7 +7,6 @@ import {
   Building2,
   CalendarDays,
   CreditCard,
-  Download,
   Edit3,
   Eye,
   FileSignature,
@@ -23,8 +23,7 @@ import {
 import { useBooking, useBookings, useCreateBooking, useUpdateBooking, useUploadBookingSignature } from '../../hooks/useBookings';
 import { useProperties } from '../../hooks/useProperties';
 import { useDocuments, useDocumentUrl } from '../../hooks/useDocuments';
-import { bookingsApi } from '../../api/bookings.api';
-import { pdfFilename } from '../../lib/download-file';
+import { propertiesApi } from '../../api/properties.api';
 import { resolveFileUrl } from '../../lib/file-url';
 import { extractEntityId } from '../../lib/upload-helpers';
 import type { Booking, BookingStatus, Property } from '../../types';
@@ -61,6 +60,7 @@ interface BookingModalProps {
   mode: BookingFormMode;
   booking?: Booking | null;
   properties: Property[];
+  initialPropertyId?: string;
   onClose: () => void;
   onSaved: (booking: Booking) => void;
 }
@@ -68,8 +68,6 @@ interface BookingModalProps {
 interface BookingDetailsModalProps {
   booking: Booking;
   onClose: () => void;
-  onDownload: (booking: Booking) => Promise<void>;
-  isDownloading: boolean;
 }
 
 const statusLabels: Record<BookingStatus, string> = {
@@ -221,12 +219,13 @@ function toDateInput(value?: string) {
   return Number.isNaN(date.getTime()) ? value : date.toISOString().split('T')[0];
 }
 
-function bookingToForm(booking?: Booking | null): BookingFormState {
+function bookingToForm(booking?: Booking | null, initialProperty?: Property | null): BookingFormState {
+  const propertyFields = bookingFormFromProperty(initialProperty);
   return {
-    propertyId: booking?.propertyId ?? '',
-    projectName: booking?.projectName ?? '',
-    plotNumber: booking?.plotNumber ?? '',
-    squareFeet: booking?.squareFeet ? String(booking.squareFeet) : '',
+    propertyId: booking?.propertyId ?? propertyFields.propertyId ?? '',
+    projectName: booking?.projectName ?? propertyFields.projectName ?? '',
+    plotNumber: booking?.plotNumber ?? propertyFields.plotNumber ?? '',
+    squareFeet: booking?.squareFeet ? String(booking.squareFeet) : propertyFields.squareFeet ?? '',
     bookingDate: toDateInput(booking?.bookingDate),
     applicantName: booking?.applicantName ?? '',
     relation: booking?.relation ?? '',
@@ -366,14 +365,16 @@ const inputClass =
   'h-10 w-full rounded-sm border border-stone-300 bg-amber-50/40 px-3 text-sm font-semibold text-gray-800 outline-none focus:border-gold focus:bg-white';
 const textareaClass =
   'min-h-20 w-full rounded-sm border border-stone-300 bg-amber-50/40 px-3 py-2 text-sm font-semibold text-gray-800 outline-none focus:border-gold focus:bg-white';
-const unavailablePropertyMessage = 'This property is not available for booking. Please select an available property.';
+const unavailablePropertyMessage = 'This property is already in booking progress.';
+const conflictPropertyMessage = 'This property has already been booked or locked by another branch.';
 const signatureMimeTypes = new Set(['image/png', 'image/jpeg']);
 const maxSignatureSizeBytes = 2 * 1024 * 1024;
+type PropertyBookingStatus = 'AVAILABLE' | 'BOOKING_INITIATED' | 'TOKEN_RECEIVED' | 'ADVANCE_PAYMENT' | 'REGISTRATION_PENDING' | 'FINAL_SETTLEMENT_PENDING' | 'COMPLETED' | 'BOOKED' | '';
 
 function propertyBookingStatus(property?: Property | null) {
   if (!property) return '';
   const extra = property as Property & { status?: string; workflow_status?: string };
-  return property.workflowStatus ?? extra.status ?? extra.workflow_status ?? '';
+  return (property.workflowStatus ?? extra.status ?? extra.workflow_status ?? '') as PropertyBookingStatus;
 }
 
 function toLocalDateParam(date: Date) {
@@ -386,14 +387,13 @@ function toLocalDateParam(date: Date) {
 function formatStatusLabel(status: string) {
   const labels: Record<string, string> = {
     AVAILABLE: 'Available',
-    BOOKED: 'Booked',
-    BOOKING_INITIATED: 'Booking Initiated',
+    BOOKED: 'Completed / Booked',
+    BOOKING_INITIATED: 'Booking In Progress',
     TOKEN_RECEIVED: 'Token Received',
-    ADVANCE_RECEIVED: 'Advance Received',
-    ADVANCE_PAYMENT: 'Advance Received',
+    ADVANCE_PAYMENT: 'Advance Payment',
     REGISTRATION_PENDING: 'Registration Pending',
     FINAL_SETTLEMENT_PENDING: 'Final Settlement Pending',
-    COMPLETED: 'Completed',
+    COMPLETED: 'Completed / Booked',
   };
 
   return labels[status] ?? status.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (char) => char.toUpperCase());
@@ -401,6 +401,16 @@ function formatStatusLabel(status: string) {
 
 function isBookableProperty(property?: Property | null) {
   return propertyBookingStatus(property) === 'AVAILABLE';
+}
+
+function bookingFormFromProperty(property?: Property | null): Partial<BookingFormState> {
+  if (!property) return {};
+  return {
+    propertyId: property.id,
+    projectName: property.projectName,
+    plotNumber: property.plotNumber,
+    squareFeet: property.squareFeet ? String(property.squareFeet) : '',
+  };
 }
 
 function isValidSignatureFile(file: File) {
@@ -442,25 +452,21 @@ function getBookingSignaturePath(booking: Booking): string {
 
 function bookingSubmitErrorMessage(error: unknown) {
   if (axios.isAxiosError(error)) {
-    const message = error.response?.data?.message;
-    const text = Array.isArray(message) ? message.join(', ') : message;
-
-    if (error.response?.status === 409 && typeof text === 'string' && text.trim()) {
-      const status = text.match(/current status:\s*([A-Z_]+)/i)?.[1];
-      if (status) return `Property is not available for booking. Current status: ${status}`;
-      return text.trim();
-    }
+    if (error.response?.status === 409) return conflictPropertyMessage;
   }
 
   return 'Unable to create booking. Please try again.';
 }
 
-function BookingFormModal({ mode, booking, properties, onClose, onSaved }: BookingModalProps) {
+function BookingFormModal({ mode, booking, properties, initialPropertyId, onClose, onSaved }: BookingModalProps) {
   const queryClient = useQueryClient();
   const createBooking = useCreateBooking();
   const updateBooking = useUpdateBooking();
   const uploadBookingSignature = useUploadBookingSignature();
-  const [form, setForm] = useState<BookingFormState>(() => bookingToForm(booking));
+  const initialProperty = mode === 'add' && initialPropertyId
+    ? properties.find((property) => property.id === initialPropertyId)
+    : null;
+  const [form, setForm] = useState<BookingFormState>(() => bookingToForm(booking, initialProperty));
   const [signatureFile, setSignatureFile] = useState<File | null>(null);
   const [signaturePreviewUrl, setSignaturePreviewUrl] = useState('');
   const [isTotalAmountManual, setIsTotalAmountManual] = useState(Boolean(booking?.payments?.[0]?.totalAmount));
@@ -521,6 +527,22 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
       plotNumber: property?.plotNumber ?? current.plotNumber,
       squareFeet: property?.squareFeet ? String(property.squareFeet) : current.squareFeet,
     }));
+  };
+
+  const latestSelectedProperty = async (propertyId: string) => {
+    if (!propertyId || propertyId.startsWith('fallback-')) {
+      return properties.find((property) => property.id === propertyId) ?? null;
+    }
+
+    try {
+      return await queryClient.fetchQuery({
+        queryKey: ['properties', propertyId],
+        queryFn: () => propertiesApi.getOne(propertyId),
+        staleTime: 0,
+      });
+    } catch {
+      return properties.find((property) => property.id === propertyId) ?? null;
+    }
   };
 
   const updateDenomination = (index: number, key: 'denomination' | 'count', value: number) => {
@@ -590,7 +612,9 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     const payload = buildBookingPayload(form, denominationRows);
-    const selectedProperty = properties.find((property) => property.id === payload.propertyId);
+    const selectedProperty = mode === 'add'
+      ? await latestSelectedProperty(payload.propertyId)
+      : properties.find((property) => property.id === payload.propertyId);
 
     if (mode === 'add' && (!selectedProperty || !isBookableProperty(selectedProperty))) {
       toast.error(unavailablePropertyMessage);
@@ -1036,7 +1060,7 @@ function DetailsCard({
   );
 }
 
-function BookingDetailsModal({ booking, onClose, onDownload, isDownloading }: BookingDetailsModalProps) {
+function BookingDetailsModal({ booking, onClose }: BookingDetailsModalProps) {
   const { data: bookingDetail, isLoading: isBookingDetailLoading } = useBooking(booking.id);
   const currentBooking = bookingDetail ?? booking;
   const payment = currentBooking.payments?.[0];
@@ -1228,15 +1252,6 @@ function BookingDetailsModal({ booking, onClose, onDownload, isDownloading }: Bo
           >
             Close
           </button>
-          <button
-            type="button"
-            onClick={() => onDownload(currentBooking)}
-            disabled={isDownloading}
-            className="inline-flex items-center gap-2 rounded-sm bg-gold px-7 py-3 text-sm font-bold text-white hover:bg-gold-light hover:text-navy disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <Download className={`h-4 w-4 ${isDownloading ? 'animate-pulse' : ''}`} />
-            {isDownloading ? 'Downloading...' : 'Download PDF'}
-          </button>
         </div>
       </div>
     </div>
@@ -1244,16 +1259,20 @@ function BookingDetailsModal({ booking, onClose, onDownload, isDownloading }: Bo
 }
 
 const AdminBookingsPage: React.FC = () => {
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const routeProperty = (location.state as { property?: Property } | null)?.property;
+  const routePropertyId = searchParams.get('propertyId') || routeProperty?.id || '';
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<BookingStatus | ''>('');
   const [propertyId, setPropertyId] = useState('');
   const [bookingDate, setBookingDate] = useState('');
-  const [modalMode, setModalMode] = useState<BookingFormMode | null>(null);
+  const [modalMode, setModalMode] = useState<BookingFormMode | null>(routePropertyId ? 'add' : null);
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
   const [viewingBooking, setViewingBooking] = useState<Booking | null>(null);
   const [localBookings, setLocalBookings] = useState<Booking[]>([]);
-  const [downloadingBookingId, setDownloadingBookingId] = useState('');
+  const [initialBookingPropertyId, setInitialBookingPropertyId] = useState(routePropertyId);
 
   const { data, isLoading, refetch } = useBookings({
     page,
@@ -1294,7 +1313,11 @@ const AdminBookingsPage: React.FC = () => {
     endDate: toLocalDateParam(currentMonthEnd),
   });
   const { data: propertiesData } = useProperties({ limit: 200 });
-  const properties = propertiesData?.data?.length ? propertiesData.data : fallbackProperties;
+  const properties = useMemo(() => {
+    const list = propertiesData?.data?.length ? propertiesData.data : fallbackProperties;
+    if (!routeProperty || list.some((property) => property.id === routeProperty.id)) return list;
+    return [routeProperty, ...list];
+  }, [propertiesData?.data, routeProperty]);
   const apiBookings = useMemo(() => data?.data ?? [], [data?.data]);
   const baseBookings = useMemo(() => (apiBookings.length ? apiBookings : fallbackBookings), [apiBookings]);
   const allBookings = useMemo(() => [...localBookings, ...baseBookings], [localBookings, baseBookings]);
@@ -1359,30 +1382,15 @@ const AdminBookingsPage: React.FC = () => {
     });
     setModalMode(null);
     setEditingBooking(null);
+    setInitialBookingPropertyId('');
+    setSearchParams({}, { replace: true });
     void refetch();
   };
 
   const openEdit = (booking: Booking) => {
     setEditingBooking(booking);
+    setInitialBookingPropertyId('');
     setModalMode('edit');
-  };
-
-  const handleDownloadBooking = async (booking: Booking) => {
-    if (booking.id.startsWith('fallback-') || booking.id.startsWith('local-')) {
-      toast.error('Unable to download PDF. Please try again.');
-      return;
-    }
-
-    const toastId = toast.loading('Downloading PDF...');
-    setDownloadingBookingId(booking.id);
-    try {
-      await bookingsApi.downloadPdf(booking.id, pdfFilename('booking', booking.bookingId, booking.id));
-      toast.success('PDF downloaded successfully', { id: toastId });
-    } catch {
-      toast.error('Unable to download PDF. Please try again.', { id: toastId });
-    } finally {
-      setDownloadingBookingId('');
-    }
   };
 
   return (
@@ -1398,6 +1406,8 @@ const AdminBookingsPage: React.FC = () => {
           type="button"
           onClick={() => {
             setEditingBooking(null);
+            setInitialBookingPropertyId('');
+            setSearchParams({}, { replace: true });
             setModalMode('add');
           }}
           className="inline-flex items-center justify-center gap-2 rounded-sm bg-gold px-6 py-3 text-sm font-bold text-navy shadow-sm transition hover:bg-gold-light"
@@ -1548,15 +1558,6 @@ const AdminBookingsPage: React.FC = () => {
                         >
                           <Edit3 className="h-4 w-4" />
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDownloadBooking(booking)}
-                          disabled={downloadingBookingId === booking.id}
-                          className="rounded-sm p-2 text-gray-700 transition hover:bg-amber-50 hover:text-gold disabled:cursor-not-allowed disabled:opacity-50"
-                          aria-label="Download booking PDF"
-                        >
-                          <Download className="h-4 w-4" />
-                        </button>
                       </div>
                     </td>
                   </tr>
@@ -1595,9 +1596,12 @@ const AdminBookingsPage: React.FC = () => {
           mode={modalMode}
           booking={editingBooking}
           properties={properties}
+          initialPropertyId={initialBookingPropertyId}
           onClose={() => {
             setModalMode(null);
             setEditingBooking(null);
+            setInitialBookingPropertyId('');
+            setSearchParams({}, { replace: true });
           }}
           onSaved={handleSaved}
         />
@@ -1607,8 +1611,6 @@ const AdminBookingsPage: React.FC = () => {
         <BookingDetailsModal
           booking={viewingBooking}
           onClose={() => setViewingBooking(null)}
-          onDownload={handleDownloadBooking}
-          isDownloading={downloadingBookingId === viewingBooking.id}
         />
       )}
     </div>

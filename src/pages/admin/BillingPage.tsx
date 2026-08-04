@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import {
   Building2,
   CheckCircle2,
   CreditCard,
-  Download,
   Edit3,
   Eye,
   FileText,
@@ -23,13 +23,12 @@ import { useBillings, useCreateBilling, useUpdateBilling, useUploadBillingSignat
 import { billingApi, type CreateBillingData, type UpdateBillingData } from '../../api/billing.api';
 import { bookingsApi } from '../../api/bookings.api';
 import { documentsApi } from '../../api/documents.api';
-import { pdfFilename } from '../../lib/download-file';
 import { resolveFileUrl } from '../../lib/file-url';
 import { extractEntityId } from '../../lib/upload-helpers';
 import type { Billing, BillingStatus, Booking, BookingStatus, PaymentMethod } from '../../types';
 
 type BillingFormMode = 'add' | 'edit';
-type LifecycleStage = 'TOKEN_RECEIVED' | 'ADVANCE_PAYMENT' | 'REGISTRATION_PENDING' | 'FINAL_SETTLEMENT' | 'COMPLETED';
+type LifecycleStage = Exclude<BookingStatus, 'CANCELLED' | 'BOOKING_INITIATED'>;
 
 interface BillingFormState {
   bookingId: string;
@@ -66,8 +65,6 @@ interface BillingModalProps {
 interface BillingDetailsModalProps {
   billing: Billing;
   onClose: () => void;
-  onDownload: (billing: Billing) => Promise<void>;
-  isDownloading: boolean;
 }
 
 const statusLabels: Record<BillingStatus, string> = {
@@ -82,7 +79,7 @@ const lifecycleLabels: Record<LifecycleStage, string> = {
   TOKEN_RECEIVED: 'Token Received',
   ADVANCE_PAYMENT: 'Advance Payment',
   REGISTRATION_PENDING: 'Registration Pending',
-  FINAL_SETTLEMENT: 'Final Settlement',
+  FINAL_SETTLEMENT_PENDING: 'Final Settlement Pending',
   COMPLETED: 'Completed',
 };
 
@@ -165,13 +162,29 @@ const textareaClass =
   'min-h-24 w-full resize-none border border-stone-100 bg-white px-3 py-3 text-sm font-semibold text-gray-800 outline-none focus:border-gold';
 const signatureMimeTypes = new Set(['image/png', 'image/jpeg']);
 const maxSignatureSizeBytes = 2 * 1024 * 1024;
-const missingSettlementAmountMessage = 'Unable to validate final settlement amount. Required amount is missing.';
+const missingCompletedSettlementAmountMessage = 'Unable to validate completed settlement amount. Required amount is missing.';
 const insufficientSettlementAmountMessage = 'Final settlement cannot be completed until the full amount is received.';
 
 function formatDate(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value || '-';
   return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function formatDigitalVerificationDateTime(value?: string | null) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = date.getFullYear();
+  const hours24 = date.getHours();
+  const hours12 = hours24 % 12 || 12;
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const amPm = hours24 >= 12 ? 'PM' : 'AM';
+
+  return `${day}-${month}-${year}, ${String(hours12).padStart(2, '0')}:${minutes} ${amPm}`;
 }
 
 function formatCurrency(value?: number | null) {
@@ -323,27 +336,31 @@ function numberToWords(value: number): string {
 function lifecycleFromBookingStatus(status?: BookingStatus): LifecycleStage {
   if (status === 'ADVANCE_PAYMENT') return 'ADVANCE_PAYMENT';
   if (status === 'REGISTRATION_PENDING') return 'REGISTRATION_PENDING';
-  if (status === 'FINAL_SETTLEMENT_PENDING') return 'FINAL_SETTLEMENT';
+  if (status === 'FINAL_SETTLEMENT_PENDING') return 'FINAL_SETTLEMENT_PENDING';
   if (status === 'COMPLETED') return 'COMPLETED';
   return 'TOKEN_RECEIVED';
 }
 
 function lifecycleFromBillingStatus(status?: BillingStatus): LifecycleStage {
   if (status === 'PARTIAL_PAYMENT' || status === 'PAID') return 'ADVANCE_PAYMENT';
-  if (status === 'FINAL_SETTLEMENT') return 'FINAL_SETTLEMENT';
+  if (status === 'FINAL_SETTLEMENT') return 'FINAL_SETTLEMENT_PENDING';
   if (status === 'COMPLETED') return 'COMPLETED';
   return 'TOKEN_RECEIVED';
 }
 
 function lifecycleToBillingStatus(stage: LifecycleStage): BillingStatus {
   if (stage === 'ADVANCE_PAYMENT') return 'PARTIAL_PAYMENT';
-  if (stage === 'FINAL_SETTLEMENT') return 'FINAL_SETTLEMENT';
+  if (stage === 'FINAL_SETTLEMENT_PENDING') return 'FINAL_SETTLEMENT';
   if (stage === 'COMPLETED') return 'COMPLETED';
   return 'PENDING';
 }
 
+function billingStatusForUpdate(stage: LifecycleStage): BillingStatus | undefined {
+  if (stage === 'REGISTRATION_PENDING') return undefined;
+  return lifecycleToBillingStatus(stage);
+}
+
 function lifecycleToBookingStatus(stage: LifecycleStage): BookingStatus {
-  if (stage === 'FINAL_SETTLEMENT') return 'FINAL_SETTLEMENT_PENDING';
   return stage;
 }
 
@@ -373,8 +390,26 @@ function requiredTotalFromBilling(billing?: Billing | null) {
   return requiredTotalFromBooking(billing.booking);
 }
 
-function requiresFinalSettlementValidation(status: LifecycleStage | BookingStatus | BillingStatus) {
-  return status === 'FINAL_SETTLEMENT' || status === 'FINAL_SETTLEMENT_PENDING' || status === 'COMPLETED';
+function formNumber(value: string) {
+  if (value.trim() === '') return null;
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount : null;
+}
+
+function requiredTotalFromForm(form: BillingFormState) {
+  const totalReceived = formNumber(form.totalReceived);
+  const balanceAmount = formNumber(form.balanceAmount);
+  if (totalReceived === null || balanceAmount === null) return null;
+  const requiredAmount = totalReceived + balanceAmount;
+  return requiredAmount > 0 ? requiredAmount : null;
+}
+
+function requiredTotalForCompletedSettlement(form: BillingFormState, apiRequiredTotal: number | null) {
+  return apiRequiredTotal ?? requiredTotalFromForm(form);
+}
+
+function requiresCompletedSettlementValidation(status: LifecycleStage | BookingStatus | BillingStatus) {
+  return status === 'COMPLETED';
 }
 
 function Field({ label, children, className = '' }: { label: string; children: React.ReactNode; className?: string }) {
@@ -413,13 +448,9 @@ function billingToForm(billing?: Billing | null): BillingFormState {
     cashAmount: billing?.paymentMethod === 'CASH' ? amount : '',
     amountReceived: billing?.amountInNumbers ? String(billing.amountInNumbers) : '',
     lifecycleStage:
-      billing?.status === 'COMPLETED'
-        ? 'COMPLETED'
-        : billing?.status === 'FINAL_SETTLEMENT'
-          ? 'FINAL_SETTLEMENT'
-          : billing?.status === 'PARTIAL_PAYMENT'
-            ? 'ADVANCE_PAYMENT'
-            : 'TOKEN_RECEIVED',
+      billing?.booking?.status
+        ? lifecycleFromBookingStatus(billing.booking.status)
+        : lifecycleFromBillingStatus(billing?.status),
     totalReceived: billing?.totalReceived ? String(billing.totalReceived) : '',
     balanceAmount: billing?.totalBalance ? String(billing.totalBalance) : '',
     amountInWords: billing?.amountInWords ?? '',
@@ -454,36 +485,6 @@ function hasRequiredPaymentDetails(form: BillingFormState) {
   return true;
 }
 
-function valueOrDash(value?: string | number | null) {
-  const text = String(value ?? '').trim();
-  return text || '-';
-}
-
-function defaultVerificationNote(form: BillingFormState) {
-  const amount = formatCurrency(enteredBillingAmount(form));
-  const bookingId = valueOrDash(form.bookingId);
-  const applicantSuffix = form.applicantName.trim() ? ` Applicant: ${form.applicantName.trim()}.` : '';
-  const lifecycleSuffix = ` Lifecycle: ${lifecycleLabels[form.lifecycleStage]}.`;
-
-  if (requiresFinalSettlementValidation(form.lifecycleStage)) {
-    return `Final settlement payment of ${amount} received for booking ${bookingId}.${applicantSuffix}${lifecycleSuffix}`;
-  }
-
-  if (isCashPayment(form.paymentMethod)) {
-    return `Cash payment of ${amount} received for booking ${bookingId}.${applicantSuffix}${lifecycleSuffix}`;
-  }
-
-  if (isChequePayment(form.paymentMethod)) {
-    return `Cheque payment of ${amount} received for booking ${bookingId}. Cheque No: ${valueOrDash(form.chequeNumber)}.${applicantSuffix}${lifecycleSuffix}`;
-  }
-
-  return `Online payment of ${amount} received for booking ${bookingId}. Reference No: ${valueOrDash(form.gpayReference)}.${applicantSuffix}${lifecycleSuffix}`;
-}
-
-function verificationNotesForSubmit(form: BillingFormState) {
-  return form.paymentNotes.trim() || defaultVerificationNote(form);
-}
-
 function buildPayload(form: BillingFormState): CreateBillingData {
   const amount = enteredBillingAmount(form);
   const totalReceived = Number(form.totalReceived || 0);
@@ -497,8 +498,8 @@ function buildPayload(form: BillingFormState): CreateBillingData {
     amountInNumbers: amount,
     totalReceived,
     totalBalance,
-    operationalNotes: verificationNotesForSubmit(form),
-    settlementNotes: form.settlementNotes || undefined,
+    operationalNotes: form.paymentNotes,
+    settlementNotes: form.settlementNotes,
   };
 
   if (isChequePayment(form.paymentMethod)) {
@@ -517,15 +518,16 @@ function buildPayload(form: BillingFormState): CreateBillingData {
 function buildUpdatePayload(form: BillingFormState): UpdateBillingData {
   const amount = enteredBillingAmount(form);
   const totalReceived = Number(form.totalReceived || 0);
+  const status = billingStatusForUpdate(form.lifecycleStage);
 
   const payload: UpdateBillingData = {
     paymentMethod: form.paymentMethod,
     amountInNumbers: amount,
     totalReceived,
-    operationalNotes: verificationNotesForSubmit(form),
-    settlementNotes: form.settlementNotes || undefined,
-    status: lifecycleToBillingStatus(form.lifecycleStage),
+    operationalNotes: form.paymentNotes,
+    settlementNotes: form.settlementNotes,
   };
+  if (status) payload.status = status;
 
   if (isChequePayment(form.paymentMethod)) {
     payload.bankName = form.bankName || undefined;
@@ -542,6 +544,17 @@ function buildUpdatePayload(form: BillingFormState): UpdateBillingData {
 
 function isBadRequestValidationError(error: unknown) {
   return axios.isAxiosError(error) && error.response?.status === 400;
+}
+
+function apiErrorMessage(error: unknown) {
+  if (axios.isAxiosError(error)) {
+    const data = error.response?.data as { message?: unknown; error?: unknown } | undefined;
+    if (typeof data?.message === 'string' && data.message.trim()) return data.message;
+    if (Array.isArray(data?.message) && data.message.length) return data.message.join(', ');
+    if (typeof data?.error === 'string' && data.error.trim()) return data.error;
+  }
+
+  return error instanceof Error ? error.message : '';
 }
 
 function isApiBackedBilling(billing?: Billing | null) {
@@ -574,7 +587,19 @@ function getBillingSignaturePath(billing: Billing): string {
   );
 }
 
+function billingTimestamp(billing: Billing) {
+  const record = billing as Billing & { updatedAt?: string };
+  return record.updatedAt || billing.createdAt || '';
+}
+
+function billingLifecycleStage(billing: Billing): LifecycleStage {
+  return billing.booking?.status
+    ? lifecycleFromBookingStatus(billing.booking.status)
+    : lifecycleFromBillingStatus(billing.status);
+}
+
 function payloadToBilling(payload: CreateBillingData, form: BillingFormState, existing?: Billing | null): Billing {
+  const bookingStatus = lifecycleToBookingStatus(form.lifecycleStage);
   const booking: Booking = {
     id: payload.bookingId || 'local-booking',
     bookingId: existing?.booking?.bookingId ?? payload.bookingId,
@@ -585,7 +610,7 @@ function payloadToBilling(payload: CreateBillingData, form: BillingFormState, ex
     plotNumber: form.plotNumber,
     squareFeet: form.squareFeet ? Number(form.squareFeet) : undefined,
     bookingDate: existing?.booking?.bookingDate ?? new Date().toISOString(),
-    status: 'ADVANCE_PAYMENT',
+    status: bookingStatus,
     createdAt: existing?.booking?.createdAt ?? new Date().toISOString(),
   };
 
@@ -609,13 +634,44 @@ function payloadToBilling(payload: CreateBillingData, form: BillingFormState, ex
     chequeNumber: payload.chequeNumber,
     chequeDate: payload.chequeDate,
     gpayReference: payload.gpayReference,
-    status: existing?.status ?? (form.lifecycleStage === 'ADVANCE_PAYMENT' ? 'PARTIAL_PAYMENT' : 'PENDING'),
+    status: lifecycleToBillingStatus(form.lifecycleStage),
     billingDate: payload.billingDate,
     createdAt: existing?.createdAt ?? new Date().toISOString(),
   };
 }
 
+function updatePayloadToBilling(payload: UpdateBillingData, form: BillingFormState, existing: Billing): Billing {
+  const bookingStatus = lifecycleToBookingStatus(form.lifecycleStage);
+  return {
+    ...existing,
+    booking: existing.booking ? { ...existing.booking, status: bookingStatus } : existing.booking,
+    paymentMethod: payload.paymentMethod ?? existing.paymentMethod,
+    amountInNumbers: payload.amountInNumbers ?? existing.amountInNumbers,
+    totalReceived: payload.totalReceived ?? existing.totalReceived,
+    totalBalance: form.balanceAmount === '' ? existing.totalBalance : Number(form.balanceAmount),
+    amountInWords: form.amountInWords,
+    operationalNotes: payload.operationalNotes ?? existing.operationalNotes,
+    settlementNotes: payload.settlementNotes ?? existing.settlementNotes,
+    bankName: payload.bankName,
+    favourOf: payload.favourOf,
+    chequeNumber: payload.chequeNumber,
+    chequeDate: payload.chequeDate,
+    gpayReference: payload.gpayReference,
+    status: payload.status ?? existing.status,
+  };
+}
+
+function billingWithSelectedLifecycle(billing: Billing, lifecycleStage: LifecycleStage): Billing {
+  const bookingStatus = lifecycleToBookingStatus(lifecycleStage);
+  return {
+    ...billing,
+    booking: billing.booking ? { ...billing.booking, status: bookingStatus } : billing.booking,
+    status: lifecycleToBillingStatus(lifecycleStage),
+  };
+}
+
 function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: BillingModalProps) {
+  const queryClient = useQueryClient();
   const createBilling = useCreateBilling();
   const updateBilling = useUpdateBilling();
   const updateBookingStatus = useUpdateBookingStatus();
@@ -652,6 +708,23 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
 
   const handlePaymentMethodChange = (paymentMethod: PaymentMethod) => {
     setForm((current) => cleanPaymentFieldsForMethod(current, paymentMethod));
+  };
+
+  const bookingIdForStatusUpdate = () => {
+    const candidates = [
+      billing?.booking?.id,
+      form.bookingId,
+      billing?.bookingId,
+      billing?.booking?.bookingId,
+    ].filter(Boolean);
+
+    for (const candidate of candidates) {
+      const match = bookings.find((item) => item.id === candidate || item.bookingId === candidate);
+      if (match && !match.id.startsWith('fallback-')) return match.id;
+    }
+
+    const directId = billing?.booking?.id || form.bookingId || billing?.bookingId || '';
+    return directId && !directId.startsWith('fallback-') ? directId : '';
   };
 
   const handleAmountReceivedChange = (value: string) => {
@@ -757,8 +830,8 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
         amountReceived: '',
         cashAmount: '',
         amountInWords: mode === 'add' ? '' : current.amountInWords,
-        paymentNotes: latestBilling?.operationalNotes ?? '',
-        settlementNotes: latestBilling?.settlementNotes ?? '',
+        paymentNotes: current.paymentNotes,
+        settlementNotes: current.settlementNotes,
       }, (previousPayment?.paymentMethod ?? current.paymentMethod) as PaymentMethod));
     } catch {
       toast.error('Unable to load booking details. Please try again.');
@@ -768,6 +841,14 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
   };
 
   const saveFallback = () => {
+    if (mode === 'edit' && billing) {
+      const payload = buildUpdatePayload(form);
+      const nextBilling = updatePayloadToBilling(payload, form, billing);
+      toast.success(successText);
+      onSaved(nextBilling);
+      return;
+    }
+
     const payload = buildPayload(form);
     const nextBilling = payloadToBilling(payload, form, billing);
     toast.success(successText);
@@ -819,6 +900,11 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
 
     try {
       await uploadBillingSignature.mutateAsync({ id: billingId, file: signature });
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: ['billing', billingId] }),
+        queryClient.refetchQueries({ queryKey: ['billing'] }),
+        queryClient.refetchQueries({ queryKey: ['documents', 'billing', billingId] }),
+      ]);
     } catch {
       throw new Error(uploadErrorMessage);
     }
@@ -826,6 +912,7 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
 
   const finishApiSave = async (savedBilling: Billing, bookingId?: string, billingIdOverride?: string) => {
     let workflowResult: 'success' | 'failed' | 'missing' = 'missing';
+    let workflowErrorMessage = '';
 
     if (bookingId) {
       try {
@@ -833,23 +920,31 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
           id: bookingId,
           status: lifecycleToBookingStatus(form.lifecycleStage),
         });
+        await Promise.all([
+          queryClient.refetchQueries({ queryKey: ['bookings', bookingId] }),
+          queryClient.refetchQueries({ queryKey: ['bookings'] }),
+          queryClient.refetchQueries({ queryKey: ['billing', billingIdOverride || savedBilling.id] }),
+          queryClient.refetchQueries({ queryKey: ['billing'] }),
+        ]);
         workflowResult = 'success';
-      } catch {
+      } catch (error) {
+        workflowErrorMessage = apiErrorMessage(error);
         workflowResult = 'failed';
       }
     }
 
     await uploadSignatureIfSelected(savedBilling, billingIdOverride);
 
-    await onSaved(savedBilling);
+    await onSaved(billingWithSelectedLifecycle(savedBilling, form.lifecycleStage));
 
     if (workflowResult === 'missing') {
       toast.error('Billing saved, but booking reference is missing.');
     } else if (workflowResult === 'failed') {
       toast.error(
-        mode === 'add'
-          ? 'Billing saved, but property workflow update failed.'
-          : 'Billing updated, but property workflow update failed.',
+        workflowErrorMessage ||
+          (mode === 'add'
+            ? 'Billing saved, but property workflow update failed.'
+            : 'Billing updated, but property workflow update failed.'),
       );
     } else {
       toast.success(successText);
@@ -878,13 +973,19 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
       toast.error('Please enter a valid amount.');
       return;
     }
-    if (requiresFinalSettlementValidation(form.lifecycleStage)) {
-      if (!bookingTotalAmount) {
-        toast.error(missingSettlementAmountMessage);
+    if (requiresCompletedSettlementValidation(form.lifecycleStage)) {
+      const requiredAmount = requiredTotalForCompletedSettlement(form, bookingTotalAmount);
+      const totalReceived = formNumber(form.totalReceived);
+      const balanceAmount = formNumber(form.balanceAmount);
+
+      if (!requiredAmount || totalReceived === null) {
+        toast.error(missingCompletedSettlementAmountMessage);
         return;
       }
 
-      if (previousReceivedAmount + amount < bookingTotalAmount) {
+      const effectiveBalanceAmount = balanceAmount ?? Math.max(requiredAmount - totalReceived, 0);
+
+      if (totalReceived < requiredAmount || effectiveBalanceAmount > 0) {
         toast.error(insufficientSettlementAmountMessage);
         return;
       }
@@ -894,7 +995,7 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
       if (mode === 'edit' && billing) {
         if (isApiBackedBilling(billing)) {
           const updated = await updateBilling.mutateAsync({ id: billing.id, data: buildUpdatePayload(form) });
-          await finishApiSave(updated, billing.booking?.id || billing.bookingId, billing.id);
+          await finishApiSave(updated, bookingIdForStatusUpdate(), billing.id);
           return;
         }
 
@@ -912,8 +1013,10 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
       saveFallback();
     } catch (error) {
       const message =
-        mode === 'edit' && isBadRequestValidationError(error)
-          ? 'Invalid billing update data. Please check the form details.'
+        mode === 'edit' && apiErrorMessage(error)
+          ? apiErrorMessage(error)
+          : mode === 'edit' && isBadRequestValidationError(error)
+            ? 'Invalid billing update data. Please check the form details.'
           : mode === 'edit' && error instanceof Error && error.message === 'Billing updated, but signature upload failed.'
             ? error.message
             : mode === 'edit'
@@ -1238,9 +1341,10 @@ function DetailsCard({
   );
 }
 
-function BillingDetailsModal({ billing, onClose, onDownload, isDownloading }: BillingDetailsModalProps) {
+function BillingDetailsModal({ billing, onClose }: BillingDetailsModalProps) {
   const booking = billing.booking;
   const [signatureUrl, setSignatureUrl] = useState('');
+  const [signatureTimestamp, setSignatureTimestamp] = useState('');
   const buyerAddress = billing.buyerAddress || booking?.applicantAddress || 'Anna Nagar, Chennai, Tamil Nadu - 600040';
   const squareFeet = booking?.squareFeet ? `${booking.squareFeet.toLocaleString('en-IN')} SQFT` : '1,200 SQFT';
   const bankName = billing.bankName || 'N/A';
@@ -1249,14 +1353,8 @@ function BillingDetailsModal({ billing, onClose, onDownload, isDownloading }: Bi
   const chequeDate = billing.chequeDate ? formatDate(billing.chequeDate) : 'N/A';
   const gpayReference = billing.gpayReference || 'N/A';
   const cashPortion = billing.paymentMethod === 'CASH' ? formatCurrency(billing.amountInNumbers) : '₹ 0';
-  const lifecycleStage =
-    billing.status === 'COMPLETED'
-      ? 'Settlement Completed'
-      : billing.status === 'FINAL_SETTLEMENT'
-        ? 'Final Settlement'
-        : billing.status === 'PARTIAL_PAYMENT'
-          ? 'Advance Payment'
-          : 'Token Received';
+  const lifecycleStage = lifecycleLabels[billingLifecycleStage(billing)];
+  const verificationTimestamp = formatDigitalVerificationDateTime(signatureTimestamp || billingTimestamp(billing));
 
   useEffect(() => {
     let isCurrent = true;
@@ -1265,11 +1363,13 @@ function BillingDetailsModal({ billing, onClose, onDownload, isDownloading }: Bi
       const directSignatureUrl = resolveFileUrl(getBillingSignaturePath(billing));
       if (directSignatureUrl) {
         setSignatureUrl(directSignatureUrl);
+        setSignatureTimestamp(billingTimestamp(billing));
         return;
       }
 
       if (!isApiBackedBilling(billing)) {
         setSignatureUrl('');
+        setSignatureTimestamp(billingTimestamp(billing));
         return;
       }
 
@@ -1283,17 +1383,27 @@ function BillingDetailsModal({ billing, onClose, onDownload, isDownloading }: Bi
 
         if (!signatureDocument) {
           setSignatureUrl('');
+          setSignatureTimestamp(billingTimestamp(billing));
           return;
         }
 
         try {
           const signed = await documentsApi.getUrl(signatureDocument.id);
-          if (isCurrent) setSignatureUrl(resolveFileUrl(signed.signedUrl || signatureDocument.documentUrl));
+          if (isCurrent) {
+            setSignatureUrl(resolveFileUrl(signed.signedUrl || signatureDocument.documentUrl));
+            setSignatureTimestamp(signatureDocument.uploadedAt || billingTimestamp(billing));
+          }
         } catch {
-          if (isCurrent) setSignatureUrl(resolveFileUrl(signatureDocument.documentUrl));
+          if (isCurrent) {
+            setSignatureUrl(resolveFileUrl(signatureDocument.documentUrl));
+            setSignatureTimestamp(signatureDocument.uploadedAt || billingTimestamp(billing));
+          }
         }
       } catch {
-        if (isCurrent) setSignatureUrl('');
+        if (isCurrent) {
+          setSignatureUrl('');
+          setSignatureTimestamp(billingTimestamp(billing));
+        }
       }
     }
 
@@ -1386,13 +1496,13 @@ function BillingDetailsModal({ billing, onClose, onDownload, isDownloading }: Bi
                 <div>
                   <p className="text-xs font-extrabold uppercase tracking-wide text-gray-500">Payment Notes</p>
                   <p className="mt-2 rounded-sm bg-amber-50 p-3 text-sm font-semibold text-gray-800">
-                    {billing.operationalNotes || 'First installment received via cheque'}
+                    {billing.operationalNotes ?? ''}
                   </p>
                 </div>
                 <div>
                   <p className="text-xs font-extrabold uppercase tracking-wide text-gray-500">Settlement Notes</p>
                   <p className="mt-2 rounded-sm bg-amber-50 p-3 text-sm font-semibold text-gray-800">
-                    {billing.settlementNotes || 'Verified by branch head'}
+                    {billing.settlementNotes ?? ''}
                   </p>
                 </div>
               </div>
@@ -1406,7 +1516,7 @@ function BillingDetailsModal({ billing, onClose, onDownload, isDownloading }: Bi
                     <h3 className="text-xs font-extrabold uppercase tracking-wide text-gold">Authorized Signatory</h3>
                   </div>
                   <p className="text-sm font-semibold text-gray-700">
-                    Digitally verified on {formatDate(billing.billingDate)} at 10:45 AM
+                    {verificationTimestamp ? `Digitally verified on ${verificationTimestamp}` : 'Digitally verified'}
                   </p>
                 </div>
                 <div className="flex h-24 w-full max-w-xs items-center justify-center rounded-sm border border-dashed border-gold/40 bg-amber-50 text-center">
@@ -1436,15 +1546,6 @@ function BillingDetailsModal({ billing, onClose, onDownload, isDownloading }: Bi
           >
             Close
           </button>
-          <button
-            type="button"
-            onClick={() => onDownload(billing)}
-            disabled={isDownloading}
-            className="inline-flex items-center gap-2 rounded-sm bg-gold px-7 py-3 text-sm font-bold text-white hover:bg-gold-light hover:text-navy disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <Download className={`h-4 w-4 ${isDownloading ? 'animate-pulse' : ''}`} />
-            {isDownloading ? 'Downloading...' : 'Download PDF'}
-          </button>
         </div>
       </div>
     </div>
@@ -1460,7 +1561,6 @@ const AdminBillingPage: React.FC = () => {
   const [editingBilling, setEditingBilling] = useState<Billing | null>(null);
   const [viewingBilling, setViewingBilling] = useState<Billing | null>(null);
   const [localBillings, setLocalBillings] = useState<Billing[]>([]);
-  const [downloadingBillingId, setDownloadingBillingId] = useState('');
 
   const { data, isLoading, refetch } = useBillings({
     page,
@@ -1507,7 +1607,10 @@ const AdminBillingPage: React.FC = () => {
 
   const handleSaved = async (billing: Billing) => {
     if (isApiBackedBilling(billing)) {
-      setLocalBillings((current) => current.filter((item) => item.id !== billing.id));
+      setLocalBillings((current) => {
+        const next = current.filter((item) => item.id !== billing.id);
+        return [billing, ...next];
+      });
       await refetch();
       setModalMode(null);
       setEditingBilling(null);
@@ -1536,24 +1639,6 @@ const AdminBillingPage: React.FC = () => {
     setEditingBilling(billing);
     setModalMode('edit');
   };
-
-  async function handleDownload(billing: Billing) {
-    if (billing.id.startsWith('fallback-') || billing.id.startsWith('local-')) {
-      toast.error('Unable to download PDF. Please try again.');
-      return;
-    }
-
-    const toastId = toast.loading('Downloading PDF...');
-    setDownloadingBillingId(billing.id);
-    try {
-      await billingApi.downloadPdf(billing.id, pdfFilename('billing', billing.billingId, billing.id));
-      toast.success('PDF downloaded successfully', { id: toastId });
-    } catch {
-      toast.error('Unable to download PDF. Please try again.', { id: toastId });
-    } finally {
-      setDownloadingBillingId('');
-    }
-  }
 
   return (
     <div className="space-y-6 p-4 sm:p-6">
@@ -1698,15 +1783,6 @@ const AdminBillingPage: React.FC = () => {
                         >
                           <Edit3 className="h-4 w-4" />
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDownload(billing)}
-                          disabled={downloadingBillingId === billing.id}
-                          className="rounded-full p-2 text-teal-700 hover:bg-teal-50 disabled:cursor-not-allowed disabled:opacity-50"
-                          aria-label="Download billing"
-                        >
-                          <Download className="h-4 w-4" />
-                        </button>
                       </div>
                     </td>
                   </tr>
@@ -1757,8 +1833,6 @@ const AdminBillingPage: React.FC = () => {
         <BillingDetailsModal
           billing={viewingBilling}
           onClose={() => setViewingBilling(null)}
-          onDownload={handleDownload}
-          isDownloading={downloadingBillingId === viewingBilling.id}
         />
       )}
     </div>
