@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
   AlertTriangle,
@@ -14,7 +14,7 @@ import {
   UserPlus,
   X,
 } from 'lucide-react';
-import { useMarkRead, useNotification, useNotifications } from '../../hooks/useNotifications';
+import { useMarkAllRead, useMarkRead, useNotification, useNotifications } from '../../hooks/useNotifications';
 import type { Notification, NotificationRecipient, NotificationStatus, NotificationType } from '../../types';
 
 type NotificationItem = NotificationRecipient | Notification;
@@ -103,6 +103,26 @@ const typeStyles: Record<NotificationType, { accent: string; box: string; badge:
   },
 };
 
+function createDemoNotification(): NotificationRecipient {
+  return {
+    id: 'demo-admin-notification',
+    notificationId: 'demo-admin-notification',
+    userId: 'demo-admin-user',
+    status: 'UNREAD',
+    notification: {
+      id: 'demo-admin-notification',
+      title: 'New Booking Activity',
+      message:
+        'A booking update was recorded for Emerald Heights, Plot #14A. Review the activity details and follow up if required.',
+      type: 'BOOKING_ACTIVITY',
+      priority: 'MEDIUM',
+      bookingId: 'BK-DEMO-001',
+      branchId: 'demo-branch',
+      createdAt: new Date().toISOString(),
+    },
+  };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object';
 }
@@ -162,18 +182,46 @@ function metadataPairs(notification: Notification) {
     .map(([key, value]) => [key, typeof value === 'object' ? JSON.stringify(value) : String(value)] as const);
 }
 
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.trim());
+}
+
+function readableCodeFromText(value?: string) {
+  if (!value) return '';
+  const match = value.match(/\b(?:STH-)?(?:BK|BILL|PROP|MEM|ADM)-\d{3,}\b/i);
+  return match?.[0] ?? '';
+}
+
+function cleanReferenceValue(value?: string) {
+  const text = value?.trim() ?? '';
+  if (!text || isUuid(text)) return '';
+  return text;
+}
+
 function referenceText(notification: Notification) {
   const metadata = isRecord(notification.metadata) ? notification.metadata : {};
-  return [
-    notification.bookingId,
-    notification.billingId,
-    notification.propertyId,
-    notification.relatedEntityId,
-    notification.relatedEntityType,
-    stringField(metadata, ['bookingId', 'billingId', 'propertyId', 'referenceId', 'reference', 'entityId']),
-  ]
-    .filter(Boolean)
-    .join(' ');
+  const bookingReference =
+    readableCodeFromText(notification.message) ||
+    readableCodeFromText(notification.title) ||
+    cleanReferenceValue(stringField(metadata, ['bookingCode', 'bookingNumber', 'bookingNo', 'bookingId'])) ||
+    cleanReferenceValue(notification.bookingId);
+  const billingReference =
+    cleanReferenceValue(stringField(metadata, ['billingCode', 'billingNumber', 'billingNo', 'billingId'])) ||
+    cleanReferenceValue(notification.billingId);
+  const propertyReference =
+    cleanReferenceValue(stringField(metadata, ['propertyCode', 'propertyNumber', 'propertyNo', 'plotNumber', 'propertyId'])) ||
+    cleanReferenceValue(notification.propertyId);
+  const generalReference = cleanReferenceValue(stringField(metadata, ['referenceCode', 'referenceNumber', 'referenceNo', 'reference']));
+
+  if (bookingReference) return `Booking: ${bookingReference}`;
+  if (billingReference) return `Billing: ${billingReference}`;
+  if (propertyReference) return `Property: ${propertyReference}`;
+  if (generalReference) return generalReference;
+
+  const relatedType = cleanReferenceValue(notification.relatedEntityType);
+  const relatedId = cleanReferenceValue(notification.relatedEntityId);
+  if (relatedType && relatedId) return `${relatedType.replace(/_/g, ' ')}: ${relatedId}`;
+  return relatedType;
 }
 
 function formatListDate(value?: string) {
@@ -389,6 +437,14 @@ const AdminNotificationsPage: React.FC = () => {
   const selectedNotificationId = selected ? notificationIdFor(selected) : '';
   const { data: selectedDetail, isLoading: isDetailLoading } = useNotification(selectedNotificationId, !!selectedNotificationId);
   const markRead = useMarkRead();
+  const markAllRead = useMarkAllRead();
+
+  useEffect(() => {
+    localStorage.setItem('admin-demo-notification-viewed', 'true');
+    window.dispatchEvent(new Event('admin-demo-notification-viewed'));
+    markAllRead.mutate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const filteredNotifications = useMemo(() => {
     const notifications = (data?.data ?? []) as NotificationItem[];
@@ -416,6 +472,8 @@ const AdminNotificationsPage: React.FC = () => {
       return true;
     });
   }, [data?.data, filters]);
+  const isDemoMode = !isLoading && (data?.data?.length ?? 0) === 0;
+  const notificationsToDisplay = filteredNotifications.length ? filteredNotifications : isDemoMode ? [createDemoNotification()] : [];
 
   const applyFilters = () => {
     setFilters({
@@ -428,6 +486,11 @@ const AdminNotificationsPage: React.FC = () => {
   };
 
   const markNotificationRead = (item: NotificationItem) => {
+    if (itemKey(item) === 'demo-admin-notification') {
+      toast('Demo notification only');
+      return;
+    }
+
     const notificationId = notificationIdFor(item);
     setLocalReadIds((current) => new Set(current).add(notificationId));
     markRead.mutate(notificationId, {
@@ -522,8 +585,14 @@ const AdminNotificationsPage: React.FC = () => {
           <div className="rounded-md border border-stone-100 bg-white px-5 py-10 text-center text-gray-500 shadow-sm">
             Loading notifications...
           </div>
-        ) : filteredNotifications.length ? (
-          filteredNotifications.map((item) => {
+        ) : notificationsToDisplay.length ? (
+          <>
+            {isDemoMode && (
+              <div className="rounded-md border border-dashed border-stone-200 bg-amber-50/50 px-4 py-3 text-sm font-semibold text-gray-700">
+                Demo notification example is shown below. Live notifications will appear here once available.
+              </div>
+            )}
+            {notificationsToDisplay.map((item) => {
             const notification = notificationFor(item);
             const type = safeType(notification.type);
             const styles = typeStyles[type];
@@ -597,7 +666,8 @@ const AdminNotificationsPage: React.FC = () => {
                 </div>
               </article>
             );
-          })
+            })}
+          </>
         ) : (
           <div className="rounded-md border border-stone-100 bg-white px-5 py-10 text-center text-gray-500 shadow-sm">
             No notifications found.

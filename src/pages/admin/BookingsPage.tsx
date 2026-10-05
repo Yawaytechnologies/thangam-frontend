@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import {
   Building2,
   CalendarDays,
+  CheckCircle2,
   CreditCard,
   Download,
   Edit3,
@@ -22,12 +23,13 @@ import {
 } from 'lucide-react';
 import { useBooking, useBookings, useCreateBooking, useUpdateBooking, useUploadBookingSignature } from '../../hooks/useBookings';
 import { useProperties } from '../../hooks/useProperties';
+import { useMembers } from '../../hooks/useMembers';
 import { useDocuments, useDocumentUrl } from '../../hooks/useDocuments';
 import { bookingsApi } from '../../api/bookings.api';
 import { pdfFilename } from '../../lib/download-file';
 import { resolveFileUrl } from '../../lib/file-url';
 import { extractEntityId } from '../../lib/upload-helpers';
-import type { Booking, BookingStatus, Property } from '../../types';
+import type { Booking, BookingStatus, Member, PaymentMethod, Property, Role } from '../../types';
 import type { BookingDenominationData, BookingPaymentData, CreateBookingData } from '../../api/bookings.api';
 
 type BookingFormMode = 'add' | 'edit';
@@ -48,6 +50,7 @@ interface BookingFormState {
   edDdSmBmName: string;
   referenceCode: string;
   directorName: string;
+  paymentMethod: PaymentMethod;
   bankName: string;
   favourOf: string;
   chequeNumber: string;
@@ -238,6 +241,7 @@ function bookingToForm(booking?: Booking | null): BookingFormState {
     edDdSmBmName: booking?.edDdSmBmName ?? '',
     referenceCode: booking?.referenceCode ?? '',
     directorName: booking?.directorName ?? '',
+    paymentMethod: booking?.payments?.[0]?.paymentMethod ?? 'CASH',
     bankName: booking?.payments?.[0]?.bankName ?? '',
     favourOf: booking?.payments?.[0]?.favourOf ?? 'Sri Thangam Housing',
     chequeNumber: booking?.payments?.[0]?.chequeNumber ?? '',
@@ -252,7 +256,7 @@ function buildBookingPayload(form: BookingFormState, denominationRows: BookingDe
   const validDenominations = denominationRows.map(normalizeDenominationRow).filter((row) => row.count > 0);
   const denominationTotal = validDenominations.reduce((total, row) => total + row.amount, 0);
   const cashAmount = Number(form.cashAmount || 0);
-  const calculatedTotalAmount = cashAmount + denominationTotal;
+  const calculatedTotalAmount = form.paymentMethod === 'CASH' ? cashAmount + denominationTotal : 0;
   const totalAmount = Number(form.totalAmount || 0) || calculatedTotalAmount;
   const payment: BookingPaymentData = {
     bankName: form.bankName || undefined,
@@ -262,7 +266,7 @@ function buildBookingPayload(form: BookingFormState, denominationRows: BookingDe
     gpayReference: form.gpayReference || undefined,
     cashAmount: cashAmount || undefined,
     totalAmount,
-    paymentMethod: cashAmount > 0 ? 'CASH' : form.gpayReference ? 'UPI' : form.chequeNumber ? 'CHEQUE' : 'CASH',
+    paymentMethod: form.paymentMethod,
   };
 
   return {
@@ -383,22 +387,6 @@ function toLocalDateParam(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
-function formatStatusLabel(status: string) {
-  const labels: Record<string, string> = {
-    AVAILABLE: 'Available',
-    BOOKED: 'Booked',
-    BOOKING_INITIATED: 'Booking Initiated',
-    TOKEN_RECEIVED: 'Token Received',
-    ADVANCE_RECEIVED: 'Advance Received',
-    ADVANCE_PAYMENT: 'Advance Received',
-    REGISTRATION_PENDING: 'Registration Pending',
-    FINAL_SETTLEMENT_PENDING: 'Final Settlement Pending',
-    COMPLETED: 'Completed',
-  };
-
-  return labels[status] ?? status.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
 function isBookableProperty(property?: Property | null) {
   return propertyBookingStatus(property) === 'AVAILABLE';
 }
@@ -460,6 +448,12 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
   const createBooking = useCreateBooking();
   const updateBooking = useUpdateBooking();
   const uploadBookingSignature = useUploadBookingSignature();
+  const { data: membersResponse } = useMembers({ limit: 1000 });
+  const referenceMembers = useMemo(() => {
+    const referenceRoles: Role[] = ['EXECUTIVE_DIRECTOR', 'DEPUTY_DIRECTOR', 'SENIOR_MANAGER', 'BUSINESS_MANAGER'];
+    return (membersResponse?.data ?? []).filter((member) => referenceRoles.includes(member.role));
+  }, [membersResponse?.data]);
+  const allMembers = membersResponse?.data ?? [];
   const [form, setForm] = useState<BookingFormState>(() => bookingToForm(booking));
   const [signatureFile, setSignatureFile] = useState<File | null>(null);
   const [signaturePreviewUrl, setSignaturePreviewUrl] = useState('');
@@ -500,6 +494,54 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
 
   const updateForm = (key: keyof BookingFormState, value: string) => {
     setForm((current) => ({ ...current, [key]: value }));
+  };
+
+  const handlePaymentMethodChange = (paymentMethod: PaymentMethod) => {
+    setForm((current) => ({
+      ...current,
+      paymentMethod,
+      bankName: paymentMethod === 'CHEQUE' || paymentMethod === 'BANK_TRANSFER' ? current.bankName : '',
+      favourOf: paymentMethod === 'CHEQUE' ? current.favourOf : '',
+      chequeNumber: paymentMethod === 'CHEQUE' ? current.chequeNumber : '',
+      chequeDate: paymentMethod === 'CHEQUE' ? current.chequeDate : '',
+      gpayReference: paymentMethod === 'GPAY' || paymentMethod === 'UPI' ? current.gpayReference : '',
+      cashAmount: paymentMethod === 'CASH' ? current.cashAmount : '',
+      totalAmount: current.totalAmount,
+    }));
+    if (paymentMethod !== 'CASH') {
+      setDenominationRows([{ denomination: 2000, count: 0, amount: 0 }]);
+    }
+  };
+
+  const findDirector = (member: Member) => {
+    const membersById = new Map(allMembers.map((item) => [item.id, item]));
+    const visited = new Set<string>();
+    let current: Member | undefined = member;
+
+    while (current && !visited.has(current.id)) {
+      visited.add(current.id);
+      if (current.role === 'DIRECTOR') return current.fullName;
+      current = current.reportsToId ? membersById.get(current.reportsToId) : current.reportsTo;
+    }
+
+    return '';
+  };
+
+  const handleReferenceMemberChange = (memberId: string) => {
+    const selectedMember = referenceMembers.find((member) => member.id === memberId);
+    if (!selectedMember) {
+      updateForm('edDdSmBmName', '');
+      updateForm('referenceCode', '');
+      updateForm('directorName', '');
+      return;
+    }
+
+    setForm((current) => ({
+      ...current,
+      edDdSmBmName: selectedMember.fullName,
+      referenceCode: selectedMember.codeNumber ?? '',
+      directorName: findDirector(selectedMember),
+    }));
   };
 
   const updateTotalAmount = (value: string) => {
@@ -589,6 +631,11 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (form.paymentMethod === 'CASH' && !denominationRows.some((row) => row.count > 0)) {
+      toast.error('Please add at least one cash denomination.');
+      return;
+    }
+
     const payload = buildBookingPayload(form, denominationRows);
     const selectedProperty = properties.find((property) => property.id === payload.propertyId);
 
@@ -654,17 +701,13 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
                     className={inputClass}
                   >
                     <option value="">Select available project</option>
-                    {properties.map((property) => {
-                      const status = propertyBookingStatus(property);
-                      const isUnavailable = mode === 'add' && !isBookableProperty(property);
-
-                      return (
-                      <option key={property.id} value={property.id} disabled={isUnavailable}>
-                        {property.projectName}
-                        {isUnavailable && status ? ` - ${formatStatusLabel(status)}` : ''}
-                      </option>
-                      );
-                    })}
+                    {properties
+                      .filter((property) => mode === 'edit' || isBookableProperty(property))
+                      .map((property) => (
+                        <option key={property.id} value={property.id}>
+                          {property.projectName}
+                        </option>
+                      ))}
                   </select>
                 </Field>
                 <Field label="Plot Number">
@@ -765,27 +808,33 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
               <SectionTitle>Reference Details</SectionTitle>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                 <Field label="ED/DD/SM/BM Name">
-                  <input
-                    value={form.edDdSmBmName}
-                    onChange={(event) => updateForm('edDdSmBmName', event.target.value)}
+                  <select
+                    value={referenceMembers.find((member) => member.fullName === form.edDdSmBmName)?.id ?? ''}
+                    onChange={(event) => handleReferenceMemberChange(event.target.value)}
                     className={inputClass}
-                    placeholder="Referrer Name"
-                  />
+                  >
+                    <option value="">Select member</option>
+                    {referenceMembers.map((member) => (
+                      <option key={member.id} value={member.id}>
+                        {member.fullName} ({member.role.replace(/_/g, '/')})
+                      </option>
+                    ))}
+                  </select>
                 </Field>
                 <Field label="Code Number">
                   <input
                     value={form.referenceCode}
-                    onChange={(event) => updateForm('referenceCode', event.target.value)}
                     className={inputClass}
                     placeholder="STH-000"
+                    readOnly
                   />
                 </Field>
                 <Field label="Director Name">
                   <input
                     value={form.directorName}
-                    onChange={(event) => updateForm('directorName', event.target.value)}
                     className={inputClass}
                     placeholder="Director Name"
+                    readOnly
                   />
                 </Field>
               </div>
@@ -794,56 +843,77 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
             <section>
               <SectionTitle>Payment Details</SectionTitle>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-                <Field label="Bank Name">
-                  <input
-                    value={form.bankName}
-                    onChange={(event) => updateForm('bankName', event.target.value)}
+                <Field label="Payment Method">
+                  <select
+                    value={form.paymentMethod}
+                    onChange={(event) => handlePaymentMethodChange(event.target.value as PaymentMethod)}
                     className={inputClass}
-                    placeholder="Bank Name"
-                  />
+                  >
+                    <option value="CASH">Cash</option>
+                    <option value="CHEQUE">Cheque</option>
+                    <option value="GPAY">GPay</option>
+                  </select>
                 </Field>
-                <Field label="Favour Of">
-                  <input
-                    value={form.favourOf}
-                    onChange={(event) => updateForm('favourOf', event.target.value)}
-                    className={inputClass}
-                    placeholder="Sri Thangam Housing"
-                  />
-                </Field>
-                <Field label="Cheque Number">
-                  <input
-                    value={form.chequeNumber}
-                    onChange={(event) => updateForm('chequeNumber', event.target.value)}
-                    className={inputClass}
-                    placeholder="6-digit no."
-                  />
-                </Field>
-                <Field label="Cheque Date">
-                  <input
-                    type="date"
-                    value={form.chequeDate}
-                    onChange={(event) => updateForm('chequeDate', event.target.value)}
-                    className={inputClass}
-                    placeholder="dd-mm-yyyy"
-                  />
-                </Field>
-                <Field label="GPay Reference">
-                  <input
-                    value={form.gpayReference}
-                    onChange={(event) => updateForm('gpayReference', event.target.value)}
-                    className={inputClass}
-                    placeholder="UPI Transaction ID"
-                  />
-                </Field>
-                <Field label="Cash Amount">
-                  <input
-                    value={form.cashAmount}
-                    onChange={(event) => updateForm('cashAmount', event.target.value)}
-                    className={inputClass}
-                    placeholder="₹ 0.00"
-                  />
-                </Field>
-                <Field label="Total Amount" className="md:col-span-2">
+                {(form.paymentMethod === 'CHEQUE' || form.paymentMethod === 'BANK_TRANSFER') && (
+                  <Field label="Bank Name">
+                    <input
+                      value={form.bankName}
+                      onChange={(event) => updateForm('bankName', event.target.value)}
+                      className={inputClass}
+                      placeholder="Bank Name"
+                    />
+                  </Field>
+                )}
+                {form.paymentMethod === 'CHEQUE' && (
+                  <>
+                    <Field label="Favour Of">
+                      <input
+                        value={form.favourOf}
+                        onChange={(event) => updateForm('favourOf', event.target.value)}
+                        className={inputClass}
+                        placeholder="Sri Thangam Housing"
+                      />
+                    </Field>
+                    <Field label="Cheque Number">
+                      <input
+                        value={form.chequeNumber}
+                        onChange={(event) => updateForm('chequeNumber', event.target.value)}
+                        className={inputClass}
+                        placeholder="6-digit no."
+                      />
+                    </Field>
+                    <Field label="Cheque Date">
+                      <input
+                        type="date"
+                        value={form.chequeDate}
+                        onChange={(event) => updateForm('chequeDate', event.target.value)}
+                        className={inputClass}
+                        placeholder="dd-mm-yyyy"
+                      />
+                    </Field>
+                  </>
+                )}
+                {(form.paymentMethod === 'GPAY' || form.paymentMethod === 'UPI') && (
+                  <Field label={`${form.paymentMethod === 'GPAY' ? 'GPay' : 'UPI'} Reference`}>
+                    <input
+                      value={form.gpayReference}
+                      onChange={(event) => updateForm('gpayReference', event.target.value)}
+                      className={inputClass}
+                      placeholder="Transaction ID"
+                    />
+                  </Field>
+                )}
+                {form.paymentMethod === 'CASH' && (
+                  <Field label="Cash Amount (₹)">
+                    <input
+                      value={form.cashAmount}
+                      onChange={(event) => updateForm('cashAmount', event.target.value)}
+                      className={inputClass}
+                      placeholder="₹ 0.00"
+                    />
+                  </Field>
+                )}
+                <Field label="Total Payment Amount (₹)" className="md:col-span-2">
                   <input
                     value={totalAmountForDisplay}
                     onChange={(event) => updateTotalAmount(event.target.value)}
@@ -855,13 +925,16 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
                       ? `Manual total entered. Calculated total is ${formatCurrency(calculatedTotalAmount)}.`
                       : `Auto-calculated from cash and denominations: ${formatCurrency(calculatedTotalAmount)}.`}
                   </p>
+                  <p className="mt-1 text-xs text-gray-500">Enter the final amount received for this booking.</p>
                 </Field>
               </div>
             </section>
 
-            <section>
+            {form.paymentMethod === 'CASH' && <section>
               <div className="mb-4 flex items-center justify-between">
-                <SectionTitle>Denomination Details</SectionTitle>
+                <SectionTitle>
+                  Denomination Details <span className="text-red-600">*</span>
+                </SectionTitle>
                 <button
                   type="button"
                   onClick={() => setDenominationRows((current) => [...current, { denomination: 500, count: 0, amount: 0 }])}
@@ -928,7 +1001,7 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
                   <span className="text-2xl font-extrabold text-teal-700">{formatCurrency(calculatedTotalAmount)}</span>
                 </div>
               </div>
-            </section>
+            </section>}
 
             <section>
               <SectionTitle>Signature Section</SectionTitle>
@@ -1252,6 +1325,7 @@ const AdminBookingsPage: React.FC = () => {
   const [modalMode, setModalMode] = useState<BookingFormMode | null>(null);
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
   const [viewingBooking, setViewingBooking] = useState<Booking | null>(null);
+  const [successBooking, setSuccessBooking] = useState<Booking | null>(null);
   const [localBookings, setLocalBookings] = useState<Booking[]>([]);
   const [downloadingBookingId, setDownloadingBookingId] = useState('');
 
@@ -1306,6 +1380,12 @@ const AdminBookingsPage: React.FC = () => {
     if (bookingDate && toDateInput(booking.bookingDate) !== bookingDate) return false;
     return true;
   });
+  const pageSize = data?.limit ?? 10;
+  const totalBookings = data?.total ?? filteredBookings.length;
+  const totalPages = Math.max(1, Math.ceil(totalBookings / pageSize));
+  const showingStart = totalBookings ? (page - 1) * pageSize + 1 : 0;
+  const showingEnd = totalBookings ? Math.min(page * pageSize, totalBookings) : 0;
+  const paginationPages = Array.from({ length: totalPages }, (_, index) => index + 1);
 
   const summary = {
     totalActiveBookings:
@@ -1343,6 +1423,8 @@ const AdminBookingsPage: React.FC = () => {
   };
 
   const handleSaved = (booking: Booking) => {
+    const savedMode = modalMode;
+
     setLocalBookings((current) => {
       const existingIndex = current.findIndex((item) => item.id === booking.id);
       if (existingIndex >= 0) {
@@ -1359,6 +1441,7 @@ const AdminBookingsPage: React.FC = () => {
     });
     setModalMode(null);
     setEditingBooking(null);
+    if (savedMode === 'add') setSuccessBooking(booking);
     void refetch();
   };
 
@@ -1376,7 +1459,10 @@ const AdminBookingsPage: React.FC = () => {
     const toastId = toast.loading('Downloading PDF...');
     setDownloadingBookingId(booking.id);
     try {
-      await bookingsApi.downloadPdf(booking.id, pdfFilename('booking', booking.bookingId, booking.id));
+        const latestBooking = await bookingsApi.getOne(booking.id);
+        const downloadId = latestBooking.id || booking.id;
+        const displayId = latestBooking.bookingId || booking.bookingId;
+        await bookingsApi.downloadPdf(downloadId, pdfFilename('booking', displayId, downloadId));
       toast.success('PDF downloaded successfully', { id: toastId });
     } catch {
       toast.error('Unable to download PDF. Please try again.', { id: toastId });
@@ -1572,20 +1658,38 @@ const AdminBookingsPage: React.FC = () => {
           </table>
         </div>
         <div className="flex flex-col gap-3 border-t border-stone-100 bg-amber-50/50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm font-semibold text-gray-600">Showing 1 to 10 of 42 bookings</p>
+          <p className="text-sm font-semibold text-gray-600">
+            Showing {showingStart} to {showingEnd} of {totalBookings} bookings
+          </p>
           <div className="flex items-center gap-2">
-            <button className="rounded-sm border border-stone-200 bg-white px-3 py-2 text-sm text-gray-600">‹</button>
-            {[1, 2, 3].map((item) => (
+            <button
+              type="button"
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
+              disabled={page <= 1}
+              className="rounded-sm border border-stone-200 bg-white px-3 py-2 text-sm text-gray-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              ‹
+            </button>
+            {paginationPages.map((item) => (
               <button
+                type="button"
                 key={item}
+                onClick={() => setPage(item)}
                 className={`rounded-sm border px-3 py-2 text-sm font-bold ${
-                  item === 1 ? 'border-gold bg-gold text-white' : 'border-stone-200 bg-white text-gray-700'
+                  item === page ? 'border-gold bg-gold text-white' : 'border-stone-200 bg-white text-gray-700'
                 }`}
               >
                 {item}
               </button>
             ))}
-            <button className="rounded-sm border border-stone-200 bg-white px-3 py-2 text-sm text-gray-600">›</button>
+            <button
+              type="button"
+              onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+              disabled={page >= totalPages}
+              className="rounded-sm border border-stone-200 bg-white px-3 py-2 text-sm text-gray-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              ›
+            </button>
           </div>
         </div>
       </section>
@@ -1610,6 +1714,27 @@ const AdminBookingsPage: React.FC = () => {
           onDownload={handleDownloadBooking}
           isDownloading={downloadingBookingId === viewingBooking.id}
         />
+      )}
+
+      {successBooking && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px]">
+          <div className="w-full max-w-md rounded-md border-t-4 border-teal-700 bg-white p-6 text-center shadow-2xl">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-teal-50 text-teal-700">
+              <CheckCircle2 className="h-8 w-8" />
+            </div>
+            <h2 className="mt-4 text-xl font-extrabold text-gray-900">Property booked successfully</h2>
+            <p className="mt-2 text-sm font-semibold text-gray-600">
+              Booking {successBooking.bookingId} has been created for {successBooking.applicantName}.
+            </p>
+            <button
+              type="button"
+              onClick={() => setSuccessBooking(null)}
+              className="mt-6 rounded-sm bg-teal-700 px-6 py-3 text-sm font-bold text-white hover:bg-teal-800"
+            >
+              OK
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

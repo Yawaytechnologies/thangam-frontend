@@ -46,7 +46,9 @@ export interface CreateMemberData {
   bankBranch?: string;
 }
 
-export type UpdateMemberData = Partial<Omit<CreateMemberData, 'password'>>;
+export type UpdateMemberData = Partial<Omit<CreateMemberData, 'password'>> & {
+  status?: UserStatus;
+};
 
 export const membersApi = {
   getAll: (params?: MemberParams): Promise<PaginatedResponse<Member>> =>

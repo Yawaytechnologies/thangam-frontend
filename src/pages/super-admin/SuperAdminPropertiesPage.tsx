@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import PropertyMap from '../../components/PropertyMap';
 import {
   useProperties,
   useCreateProperty,
@@ -8,7 +9,9 @@ import {
   usePropertyDocuments,
 } from '../../hooks/useProperties';
 import { useDocumentUrl, useUploadDocument } from '../../hooks/useDocuments';
+import { useBranches } from '../../hooks/useBranches';
 import { resolveFileUrl } from '../../lib/file-url';
+import { getApiError } from '../../lib/api-error';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Pagination } from '../../components/ui/Pagination';
 import { SearchInput } from '../../components/ui/SearchInput';
@@ -74,6 +77,7 @@ function stringField(value: unknown): string {
 
 function mapPropertyToEditForm(property: Property): UpdatePropertyData {
   return {
+    branchId: property.branchId ?? '',
     propertyName: property.propertyName,
     propertyCode: property.propertyId,
     projectName: property.projectName,
@@ -391,14 +395,17 @@ function CreatePropertyModal({ open, onClose }: { open: boolean; onClose: () => 
   const create = useCreateProperty();
   const uploadPropertyImages = useUploadPropertyImages();
   const uploadDocument = useUploadDocument();
+  const branchesQuery = useBranches({ limit: 100 });
+  const branches = branchesQuery.data?.data ?? [];
 
   const [form, setForm] = useState<CreatePropertyData>({
+    branchId: '',
     propertyName: '',
     propertyCode: '',
     projectName: '',
     plotNumber: '',
     propertyType: 'RESIDENTIAL',
-    squareFeet: 0,
+    squareFeet: 100,
     address: '',
     city: '',
     district: '',
@@ -413,12 +420,13 @@ function CreatePropertyModal({ open, onClose }: { open: boolean; onClose: () => 
 
   function handleClose() {
     setForm({
+      branchId: '',
       propertyName: '',
       propertyCode: '',
       projectName: '',
       plotNumber: '',
       propertyType: 'RESIDENTIAL',
-      squareFeet: 0,
+      squareFeet: 100,
       address: '',
       city: '',
       district: '',
@@ -440,7 +448,7 @@ function CreatePropertyModal({ open, onClose }: { open: boolean; onClose: () => 
     try {
       const newProperty = await create.mutateAsync({
         ...form,
-        squareFeet: Number(form.squareFeet) || undefined,
+        squareFeet: Number(form.squareFeet),
       });
 
       if (!newProperty?.id) {
@@ -490,6 +498,27 @@ function CreatePropertyModal({ open, onClose }: { open: boolean; onClose: () => 
             </div>
 
             <div>
+              <label className={labelCls}>Branch Name *</label>
+              <select
+                required
+                value={form.branchId}
+                onChange={(e) => setForm((f) => ({ ...f, branchId: e.target.value }))}
+                className={inputCls}
+                disabled={branchesQuery.isLoading}
+              >
+                <option value="">{branchesQuery.isLoading ? 'Loading branches...' : 'Select branch'}</option>
+                {branches.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.name} ({branch.branchCode})
+                  </option>
+                ))}
+              </select>
+              {branchesQuery.isError && (
+                <p className="mt-1 text-xs text-red-600">Unable to load branches. Please retry.</p>
+              )}
+            </div>
+
+            <div>
               <label className={labelCls}>Property Name *</label>
               <input
                 type="text"
@@ -515,9 +544,10 @@ function CreatePropertyModal({ open, onClose }: { open: boolean; onClose: () => 
             </div>
 
             <div>
-              <label className={labelCls}>Project Name</label>
+              <label className={labelCls}>Project Name *</label>
               <input
-                type="text"
+                  type="text"
+                  required
                 value={form.projectName}
                 onChange={(e) => setForm((f) => ({ ...f, projectName: e.target.value }))}
                 className={inputCls}
@@ -526,9 +556,10 @@ function CreatePropertyModal({ open, onClose }: { open: boolean; onClose: () => 
             </div>
 
             <div>
-              <label className={labelCls}>Plot Number</label>
+              <label className={labelCls}>Plot Number *</label>
               <input
-                type="text"
+                  type="text"
+                  required
                 value={form.plotNumber}
                 onChange={(e) => setForm((f) => ({ ...f, plotNumber: e.target.value }))}
                 className={inputCls}
@@ -555,16 +586,18 @@ function CreatePropertyModal({ open, onClose }: { open: boolean; onClose: () => 
             </div>
 
             <div>
-              <label className={labelCls}>Square Feet</label>
+              <label className={labelCls}>Square Feet *</label>
               <input
                 type="number"
-                min="0"
-                value={form.squareFeet ?? 0}
+                min="100"
+                step="50"
+                required
+                value={form.squareFeet ?? 100}
                 onChange={(e) =>
-                  setForm((f) => ({ ...f, squareFeet: Number(e.target.value) || 0 }))
+                  setForm((f) => ({ ...f, squareFeet: Number(e.target.value) || 100 }))
                 }
                 className={inputCls}
-                placeholder="0"
+                placeholder="100"
               />
             </div>
 
@@ -580,44 +613,51 @@ function CreatePropertyModal({ open, onClose }: { open: boolean; onClose: () => 
             </div>
 
             <div>
-              <label className={labelCls}>City</label>
+              <label className={labelCls}>City *</label>
               <input
-                type="text"
+                  type="text"
+                  required
                 value={form.city ?? ''}
-                onChange={(e) => setForm((f) => ({ ...f, city: e.target.value || undefined }))}
+                onChange={(e) => setForm((f) => ({ ...f, city: e.target.value }))}
                 className={inputCls}
                 placeholder="City"
               />
             </div>
 
             <div>
-              <label className={labelCls}>District</label>
+              <label className={labelCls}>District *</label>
               <input
-                type="text"
+                  type="text"
+                  required
                 value={form.district ?? ''}
-                onChange={(e) => setForm((f) => ({ ...f, district: e.target.value || undefined }))}
+                onChange={(e) => setForm((f) => ({ ...f, district: e.target.value }))}
                 className={inputCls}
                 placeholder="District"
               />
             </div>
 
             <div>
-              <label className={labelCls}>State</label>
+              <label className={labelCls}>State *</label>
               <input
-                type="text"
+                  type="text"
+                  required
                 value={form.state ?? ''}
-                onChange={(e) => setForm((f) => ({ ...f, state: e.target.value || undefined }))}
+                onChange={(e) => setForm((f) => ({ ...f, state: e.target.value }))}
                 className={inputCls}
                 placeholder="Tamil Nadu"
               />
             </div>
 
             <div>
-              <label className={labelCls}>Pincode</label>
+              <label className={labelCls}>Pincode *</label>
               <input
                 type="text"
+                required
+                inputMode="numeric"
+                pattern="[0-9]{6}"
+                maxLength={6}
                 value={form.pincode ?? ''}
-                onChange={(e) => setForm((f) => ({ ...f, pincode: e.target.value || undefined }))}
+                onChange={(e) => setForm((f) => ({ ...f, pincode: e.target.value.replace(/\D/g, '').slice(0, 6) }))}
                 className={inputCls}
                 placeholder="600001"
               />
@@ -942,6 +982,8 @@ function PropertyDetailModal({
         title={property.propertyName}
       />
 
+      <PropertyMap location={property.mapLocation} name={property.propertyName} />
+
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-6">
         <div>
           <div className="flex items-center gap-2 text-gold text-xs font-semibold uppercase tracking-wide mb-3">
@@ -1109,6 +1151,8 @@ function EditPropertyModal({
   const updateWorkflow = useUpdatePropertyWorkflow();
   const uploadPropertyImages = useUploadPropertyImages();
   const uploadDocument = useUploadDocument();
+  const branchesQuery = useBranches({ limit: 100 });
+  const branches = branchesQuery.data?.data ?? [];
   const docs = usePropertyDocuments(property.id);
 
   const [form, setForm] = useState<UpdatePropertyData>(() => mapPropertyToEditForm(property));
@@ -1202,9 +1246,27 @@ function EditPropertyModal({
 
         <div className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
-            <label className={labelCls}>Property Name</label>
+            <label className={labelCls}>Branch Name *</label>
+            <select
+              value={form.branchId ?? ''}
+              required
+              onChange={(e) => setForm((f) => ({ ...f, branchId: e.target.value }))}
+              className={inputCls}
+              disabled={branchesQuery.isLoading}
+            >
+              <option value="">Select branch</option>
+              {branches.map((branch) => (
+                <option key={branch.id} value={branch.id}>
+                  {branch.name} ({branch.branchCode})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={labelCls}>Property Name *</label>
             <input
               type="text"
+              required
               value={form.propertyName ?? ''}
               onChange={(e) => setForm((f) => ({ ...f, propertyName: e.target.value }))}
               className={inputCls}
@@ -1224,9 +1286,10 @@ function EditPropertyModal({
           </div>
 
           <div>
-            <label className={labelCls}>Project Name</label>
+            <label className={labelCls}>Project Name *</label>
             <input
               type="text"
+              required
               value={form.projectName ?? ''}
               onChange={(e) => setForm((f) => ({ ...f, projectName: e.target.value }))}
               className={inputCls}
@@ -1234,9 +1297,10 @@ function EditPropertyModal({
           </div>
 
           <div>
-            <label className={labelCls}>Plot Number</label>
+            <label className={labelCls}>Plot Number *</label>
             <input
               type="text"
+              required
               value={form.plotNumber ?? ''}
               onChange={(e) => setForm((f) => ({ ...f, plotNumber: e.target.value }))}
               className={inputCls}
@@ -1244,9 +1308,10 @@ function EditPropertyModal({
           </div>
 
           <div>
-            <label className={labelCls}>Property Type</label>
+            <label className={labelCls}>Property Type *</label>
             <select
               value={form.propertyType ?? ''}
+              required
               onChange={(e) =>
                 setForm((f) => ({ ...f, propertyType: e.target.value as PropertyType }))
               }
@@ -1261,13 +1326,15 @@ function EditPropertyModal({
           </div>
 
           <div>
-            <label className={labelCls}>Square Feet</label>
+            <label className={labelCls}>Square Feet *</label>
             <input
               type="number"
-              min="0"
-              value={form.squareFeet ?? 0}
+              min="100"
+              step="50"
+              required
+              value={form.squareFeet ?? 100}
               onChange={(e) =>
-                setForm((f) => ({ ...f, squareFeet: Number(e.target.value) || 0 }))
+                setForm((f) => ({ ...f, squareFeet: Number(e.target.value) || 100 }))
               }
               className={inputCls}
             />
@@ -1284,14 +1351,15 @@ function EditPropertyModal({
           </div>
 
           <div>
-            <label className={labelCls}>City</label>
+            <label className={labelCls}>City *</label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
                 <PinIcon className="w-3.5 h-3.5" />
               </span>
 
               <input
-                type="text"
+                  type="text"
+                  required
                 value={form.city ?? ''}
                 onChange={(e) => setForm((f) => ({ ...f, city: e.target.value || undefined }))}
                 className={`${inputCls} pl-8`}
@@ -1300,9 +1368,10 @@ function EditPropertyModal({
           </div>
 
           <div>
-            <label className={labelCls}>District</label>
+            <label className={labelCls}>District *</label>
             <input
               type="text"
+              required
               value={form.district ?? ''}
               onChange={(e) => setForm((f) => ({ ...f, district: e.target.value || undefined }))}
               className={inputCls}
@@ -1310,9 +1379,10 @@ function EditPropertyModal({
           </div>
 
           <div>
-            <label className={labelCls}>State</label>
+            <label className={labelCls}>State *</label>
             <input
               type="text"
+              required
               value={form.state ?? ''}
               onChange={(e) => setForm((f) => ({ ...f, state: e.target.value || undefined }))}
               className={inputCls}
@@ -1320,9 +1390,13 @@ function EditPropertyModal({
           </div>
 
           <div>
-            <label className={labelCls}>Pincode</label>
+            <label className={labelCls}>Pincode *</label>
             <input
               type="text"
+              required
+              inputMode="numeric"
+              pattern="[0-9]{6}"
+              maxLength={6}
               value={form.pincode ?? ''}
               onChange={(e) => setForm((f) => ({ ...f, pincode: e.target.value || undefined }))}
               className={inputCls}
@@ -1557,7 +1631,7 @@ const SuperAdminPropertiesPage: React.FC = () => {
   const [detailOpen, setDetailOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
 
-  const { data, isLoading } = useProperties({
+  const { data, isLoading, isError, error, refetch } = useProperties({
     page,
     limit: 12,
     search: search || undefined,
@@ -1694,6 +1768,18 @@ const SuperAdminPropertiesPage: React.FC = () => {
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="bg-white rounded-xl border border-gray-200 shadow-sm h-72 animate-pulse" />
           ))}
+        </div>
+      ) : isError ? (
+        <div className="rounded-xl border border-red-200 bg-white px-6 py-16 text-center shadow-sm">
+          <p className="text-lg font-bold text-gray-900">Unable to load properties</p>
+          <p className="mx-auto mt-2 max-w-xl text-sm text-red-700">{getApiError(error)}</p>
+          <button
+            type="button"
+            onClick={() => refetch()}
+            className="mt-5 rounded-lg bg-teal-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-teal-800"
+          >
+            Retry
+          </button>
         </div>
       ) : !properties.length ? (
         <div className="bg-white rounded-xl border border-gray-200 py-20 text-center">

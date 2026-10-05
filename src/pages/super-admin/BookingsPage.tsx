@@ -4,14 +4,18 @@ import {
   useBooking,
   useCreateBooking,
   useUpdateBooking,
+  useUpdateBookingStatus,
   useDeleteBooking,
+  useUploadBookingSignature,
 } from '../../hooks/useBookings';
 import { useProperties } from '../../hooks/useProperties';
 import { useBranches } from '../../hooks/useBranches';
+import { useMembers } from '../../hooks/useMembers';
 import { Pagination } from '../../components/ui/Pagination';
 import { Modal } from '../../components/ui/Modal';
 import { bookingsApi } from '../../api/bookings.api';
 import type { BookingStatus, Booking } from '../../types';
+import { getApiError } from '../../lib/api-error';
 
 // ─── Style constants ──────────────────────────────────────────────────────────
 
@@ -49,7 +53,7 @@ const STATUS_OPTIONS: BookingStatus[] = [
 
 // ─── Denomination types ───────────────────────────────────────────────────────
 
-const DENOM_VALUES = [2000, 1000, 500, 200, 100, 50, 20, 10] as const;
+const DENOM_VALUES = [500, 200, 100, 50, 20, 10] as const;
 type DenomValue = (typeof DENOM_VALUES)[number];
 
 interface DenomRow {
@@ -313,11 +317,11 @@ function readOptionalNumber(source: unknown, keys: string[]): number | undefined
 }
 
 function formatOptionalCurrency(value?: number): string {
-  return value === undefined ? 'â€”' : formatCurrency(value);
+  return value === undefined ? '—' : formatCurrency(value);
 }
 
 function formatPaymentMethod(value: string): string {
-  return value ? value.replace(/_/g, ' ') : 'â€”';
+  return value ? value.replace(/_/g, ' ') : '—';
 }
 
 function firstPayment(booking: Booking): Record<string, unknown> | undefined {
@@ -330,14 +334,14 @@ function getBookingDenominations(booking: Booking): DenomRow[] {
   const rows = (booking as unknown as { denominations?: Record<string, unknown>[] }).denominations;
 
   if (!Array.isArray(rows) || rows.length === 0) {
-    return [{ id: 1, denomination: 2000, count: 0 }];
+    return [{ id: 1, denomination: 500, count: 0 }];
   }
 
   return rows.map((row, index) => {
     const rawDenomination = safeNumber(row.denomination);
     const denomination = DENOM_VALUES.includes(rawDenomination as DenomValue)
       ? (rawDenomination as DenomValue)
-      : 2000;
+      : 500;
 
     return {
       id: index + 1,
@@ -550,9 +554,11 @@ interface DenominationTableProps {
   onAdd: () => void;
   onRemove: (id: number) => void;
   onChange: (id: number, field: 'denomination' | 'count', value: string) => void;
+  cashAmount: number;
+  denominationTotal: number;
 }
 
-function DenominationTable({ rows, onAdd, onRemove, onChange }: DenominationTableProps) {
+function DenominationTable({ rows, onAdd, onRemove, onChange, cashAmount, denominationTotal }: DenominationTableProps) {
   return (
     <div className="min-w-0 rounded-xl border border-[#eee8dc] bg-[#fafafa] p-4 sm:p-5">
       <SectionTitle icon={<WalletIcon />} title="Denomination Details" />
@@ -622,6 +628,18 @@ function DenominationTable({ rows, onAdd, onRemove, onChange }: DenominationTabl
         <PlusIcon />
         Add Row
       </button>
+
+      <div className={`mt-3 rounded-lg px-3 py-2 text-xs font-semibold ${
+        cashAmount > 0 && denominationTotal === cashAmount
+          ? 'bg-emerald-50 text-emerald-700'
+          : 'bg-amber-50 text-amber-700'
+      }`}>
+        Denomination total: {formatCurrency(denominationTotal)} · Cash amount:{' '}
+        {formatCurrency(cashAmount)}
+        {cashAmount > 0 && denominationTotal === cashAmount
+          ? ' — Amounts match.'
+          : ' — Enter note counts until both amounts match.'}
+      </div>
     </div>
   );
 }
@@ -714,13 +732,21 @@ interface CreateBookingModalProps {
 
 function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps) {
   const create = useCreateBooking();
-  const propertiesQuery = useProperties({ limit: 100 });
+  const uploadSignature = useUploadBookingSignature();
+  const propertiesQuery = useProperties({ limit: 100, workflowStatus: 'AVAILABLE' });
+  const membersQuery = useMembers({ limit: 10000, status: 'ACTIVE' });
 
   const properties = propertiesQuery.data?.data ?? [];
+  const members = membersQuery.data?.data ?? [];
 
   const [form, setForm] = useState<BookingForm>(emptyForm);
+  const [referenceMemberId, setReferenceMemberId] = useState('');
+  const [signatureFile, setSignatureFile] = useState<File | null>(null);
+  const [signaturePreviewUrl, setSignaturePreviewUrl] = useState('');
+  const [savedBookingId, setSavedBookingId] = useState('');
+  const [submitError, setSubmitError] = useState('');
   const [denomRows, setDenomRows] = useState<DenomRow[]>([
-    { id: 1, denomination: 2000, count: 0 },
+    { id: 1, denomination: 500, count: 0 },
   ]);
 
   const nextDenomId = useRef(2);
@@ -732,7 +758,10 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
 
   const cashAmount = safeNumber(form.cashAmount);
   const manualTotal = safeNumber(form.paymentTotal);
-  const totalAmount = manualTotal || cashAmount + denomTotal;
+  const totalAmount = form.paymentMethod === 'CASH' ? cashAmount : manualTotal;
+  const denominationMismatch =
+    form.paymentMethod === 'CASH' &&
+    (cashAmount <= 0 || denomTotal !== cashAmount);
 
   function setField<K extends keyof BookingForm>(field: K, value: BookingForm[K]) {
     setForm((current) => ({
@@ -741,10 +770,79 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
     }));
   }
 
+  function findDirectorName(memberId: string) {
+    const memberMap = new Map(members.map((member) => [member.id, member]));
+    let current = memberMap.get(memberId);
+    const visited = new Set<string>();
+
+    while (current && !visited.has(current.id)) {
+      visited.add(current.id);
+      if (current.role === 'DIRECTOR') return current.fullName;
+      current = current.reportsToId ? memberMap.get(current.reportsToId) : undefined;
+    }
+
+    return '';
+  }
+
+  function selectReferenceMember(memberId: string) {
+    setReferenceMemberId(memberId);
+    const member = members.find((item) => item.id === memberId);
+    if (!member) {
+      setForm((current) => ({ ...current, edDdSmBmName: '', codeNumber: '', directorName: '' }));
+      return;
+    }
+
+    const roleLabel = member.role.replaceAll('_', ' ').toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
+    setForm((current) => ({
+      ...current,
+      edDdSmBmName: `${member.fullName} (${roleLabel})`,
+      codeNumber: member.codeNumber || member.memberId,
+      directorName: findDirectorName(member.id),
+    }));
+  }
+
+  function selectPaymentMethod(paymentMethod: string) {
+    setForm((current) => ({
+      ...current,
+      paymentMethod,
+      bankName: '',
+      chequeNumber: '',
+      chequeDate: '',
+      gpayReference: '',
+      cashAmount: '',
+    }));
+    setDenomRows([{ id: 1, denomination: 500, count: 0 }]);
+  }
+
   function resetForm() {
     setForm(emptyForm);
-    setDenomRows([{ id: 1, denomination: 2000, count: 0 }]);
+    setReferenceMemberId('');
+    setDenomRows([{ id: 1, denomination: 500, count: 0 }]);
     nextDenomId.current = 2;
+    setSignatureFile(null);
+    setSignaturePreviewUrl((current) => {
+      if (current) URL.revokeObjectURL(current);
+      return '';
+    });
+    setSavedBookingId('');
+    setSubmitError('');
+  }
+
+  function selectSignature(file: File | null) {
+    setSubmitError('');
+    if (file && !['image/jpeg', 'image/png'].includes(file.type)) {
+      setSubmitError('Applicant signature must be a PNG or JPEG image.');
+      return;
+    }
+    if (file && file.size > 2 * 1024 * 1024) {
+      setSubmitError('Applicant signature must be 2 MB or smaller.');
+      return;
+    }
+    setSignatureFile(file);
+    setSignaturePreviewUrl((current) => {
+      if (current) URL.revokeObjectURL(current);
+      return file ? URL.createObjectURL(file) : '';
+    });
   }
 
   function addDenomRow() {
@@ -752,7 +850,7 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
       ...rows,
       {
         id: nextDenomId.current++,
-        denomination: 2000,
+        denomination: 500,
         count: 0,
       },
     ]);
@@ -781,8 +879,10 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
     );
   }
 
-  function handleSubmit(event: React.FormEvent) {
+  async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
+    setSubmitError('');
+    let bookingWasSaved = Boolean(savedBookingId);
 
     const validDenoms: DenomData[] = denomRows
       .filter((row) => row.count > 0)
@@ -798,8 +898,10 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
       Boolean(form.chequeNumber.trim()) ||
       Boolean(form.gpayReference.trim());
 
-    create.mutate(
-      {
+    try {
+      let bookingId = savedBookingId;
+      if (!bookingId) {
+        const createdBooking = await create.mutateAsync({
         propertyId: form.propertyId,
         applicantName: form.applicantName,
         relation: form.relationship || undefined,
@@ -831,18 +933,30 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
             ]
           : undefined,
         denominations: validDenoms.length > 0 ? validDenoms : undefined,
-      },
-      {
-        onSuccess: () => {
-          onSaved(
-            'Booking created successfully',
-            `Reference ID: ${form.codeNumber || form.plotNumber || 'Booking saved'}`
-          );
-          resetForm();
-          onClose();
-        },
+        });
+        bookingId = createdBooking.id;
+        bookingWasSaved = true;
+        setSavedBookingId(bookingId);
       }
-    );
+
+      if (signatureFile) {
+        await uploadSignature.mutateAsync({ id: bookingId, file: signatureFile });
+      }
+
+      onSaved(
+        'Booking created successfully',
+        `Reference ID: ${form.codeNumber || form.plotNumber || 'Booking saved'}`
+      );
+      resetForm();
+      onClose();
+    } catch (error) {
+      const message = getApiError(error);
+      setSubmitError(
+        bookingWasSaved
+          ? `Booking was saved, but signature upload failed: ${message}. Press Retry Signature Upload.`
+          : message,
+      );
+    }
   }
 
   return (
@@ -867,6 +981,7 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
                     onChange={(event) => {
                       const selectedId = event.target.value;
                       const property = properties.find((item) => String(item.id) === selectedId);
+                      setReferenceMemberId('');
 
                       setForm((current) => ({
                         ...current,
@@ -875,6 +990,10 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
                         plotNumber: property?.plotNumber ?? '',
                         squareFeet: property?.squareFeet?.toString() ?? '',
                         propertyType: property?.propertyType ?? '',
+                        branchId: property?.branchId ?? '',
+                        edDdSmBmName: '',
+                        codeNumber: '',
+                        directorName: '',
                       }));
                     }}
                     className={inputClass}
@@ -909,6 +1028,17 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
                   />
                 </FormField>
 
+                <FormField label="Branch">
+                  <input
+                    type="text"
+                    required
+                    readOnly
+                    value={properties.find((property) => String(property.id) === form.propertyId)?.branch?.name ?? ''}
+                    className={`${inputClass} bg-slate-50`}
+                    placeholder="Select a property with an assigned branch"
+                  />
+                </FormField>
+
                 <FormField label="Booking Date">
                   <input
                     type="date"
@@ -927,7 +1057,7 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
               <SectionTitle icon={<UserIcon />} title="Applicant Details" />
 
               <div className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-3">
-                <FormField label="Applicant Name">
+                <FormField label="Applicant Name *">
                   <input
                     type="text"
                     required
@@ -948,20 +1078,27 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
                   />
                 </FormField>
 
-                <FormField label="Cell Number">
+                <FormField label="Cell Number *">
                   <input
                     type="tel"
                     required
+                    inputMode="numeric"
+                    pattern="[789][0-9]{9}"
+                    maxLength={10}
+                    title="Enter a 10-digit mobile number starting with 7, 8, or 9"
                     value={form.cellNumber}
-                    onChange={(event) => setField('cellNumber', event.target.value)}
+                    onChange={(event) =>
+                      setField('cellNumber', event.target.value.replace(/\D/g, '').slice(0, 10))
+                    }
                     className={inputClass}
-                    placeholder="+91 00000 00000"
+                    placeholder="9876543210"
                   />
                 </FormField>
 
-                <FormField label="Address" className="md:col-span-2">
+                <FormField label="Address *" className="md:col-span-2">
                   <textarea
                     rows={3}
+                    required
                     value={form.address}
                     onChange={(event) => setField('address', event.target.value)}
                     className={textareaClass}
@@ -969,12 +1106,18 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
                   />
                 </FormField>
 
-                <FormField label="PIN Code">
+                <FormField label="PIN Code *">
                   <input
                     type="text"
+                    required
+                    inputMode="numeric"
+                    pattern="[0-9]{6}"
                     maxLength={6}
+                    title="Enter a valid 6-digit PIN code"
                     value={form.pinCode}
-                    onChange={(event) => setField('pinCode', event.target.value)}
+                    onChange={(event) =>
+                      setField('pinCode', event.target.value.replace(/\D/g, '').slice(0, 6))
+                    }
                     className={inputClass}
                     placeholder="600001"
                   />
@@ -1006,22 +1149,36 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
               <SectionTitle icon={<LinkIcon />} title="Reference Details" />
 
               <div className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-3">
-                <FormField label="ED/DD/SM/BM Name">
-                  <input
-                    type="text"
-                    value={form.edDdSmBmName}
-                    onChange={(event) => setField('edDdSmBmName', event.target.value)}
+                <FormField label="Hierarchy Member (Name & Role)">
+                  <select
+                    value={referenceMemberId}
+                    onChange={(event) => selectReferenceMember(event.target.value)}
                     className={inputClass}
-                    placeholder="Referring Member"
-                  />
+                    disabled={!form.branchId || membersQuery.isLoading}
+                  >
+                    <option value="">
+                      {!form.branchId ? 'Select property first' : membersQuery.isLoading ? 'Loading members...' : 'Select hierarchy member'}
+                    </option>
+                    {members
+                      .filter(
+                        (member) =>
+                          member.branchId === form.branchId &&
+                          ['EXECUTIVE_DIRECTOR', 'DEPUTY_DIRECTOR', 'SENIOR_MANAGER', 'BUSINESS_MANAGER'].includes(member.role),
+                      )
+                      .map((member) => (
+                        <option key={member.id} value={member.id}>
+                          {member.fullName} — {member.role.replaceAll('_', ' ')}
+                        </option>
+                      ))}
+                  </select>
                 </FormField>
 
                 <FormField label="Code Number">
                   <input
                     type="text"
                     value={form.codeNumber}
-                    onChange={(event) => setField('codeNumber', event.target.value)}
-                    className={inputClass}
+                    readOnly
+                    className={`${inputClass} bg-slate-50`}
                     placeholder="STH-REF-000"
                   />
                 </FormField>
@@ -1030,8 +1187,8 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
                   <input
                     type="text"
                     value={form.directorName}
-                    onChange={(event) => setField('directorName', event.target.value)}
-                    className={inputClass}
+                    readOnly
+                    className={`${inputClass} bg-slate-50`}
                     placeholder="Managing Director"
                   />
                 </FormField>
@@ -1044,9 +1201,19 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
               <SectionTitle icon={<WalletIcon />} title="Payment Details" />
 
               <div className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-4">
-                <FormField label="Bank Name">
+                <FormField label="Payment Method">
+                  <select required value={form.paymentMethod} onChange={(event) => selectPaymentMethod(event.target.value)} className={inputClass}>
+                    <option value="">Select payment method</option>
+                    <option value="CASH">Cash</option>
+                    <option value="CHEQUE">Cheque</option>
+                    <option value="GPAY">GPay</option>
+                  </select>
+                </FormField>
+
+                <FormField label="Bank Name" className={form.paymentMethod === 'CHEQUE' || form.paymentMethod === 'BANK_TRANSFER' ? '' : 'hidden'}>
                   <input
                     type="text"
+                    required={form.paymentMethod === 'CHEQUE' || form.paymentMethod === 'BANK_TRANSFER'}
                     value={form.bankName}
                     onChange={(event) => setField('bankName', event.target.value)}
                     className={inputClass}
@@ -1054,9 +1221,10 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
                   />
                 </FormField>
 
-                <FormField label="Favour Of">
+                <FormField label="Favour Of" className={form.paymentMethod === 'CHEQUE' || form.paymentMethod === 'BANK_TRANSFER' ? '' : 'hidden'}>
                   <input
                     type="text"
+                    required={form.paymentMethod === 'CHEQUE' || form.paymentMethod === 'BANK_TRANSFER'}
                     value={form.favourOf}
                     onChange={(event) => setField('favourOf', event.target.value)}
                     className={inputClass}
@@ -1064,9 +1232,10 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
                   />
                 </FormField>
 
-                <FormField label="Cheque Number">
+                <FormField label="Cheque Number" className={form.paymentMethod === 'CHEQUE' ? '' : 'hidden'}>
                   <input
                     type="text"
+                    required={form.paymentMethod === 'CHEQUE'}
                     value={form.chequeNumber}
                     onChange={(event) =>
                       setField('chequeNumber', event.target.value.replace(/\D/g, '').slice(0, 6))
@@ -1076,18 +1245,20 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
                   />
                 </FormField>
 
-                <FormField label="Cheque Date">
+                <FormField label="Cheque Date" className={form.paymentMethod === 'CHEQUE' ? '' : 'hidden'}>
                   <input
                     type="date"
+                    required={form.paymentMethod === 'CHEQUE'}
                     value={form.chequeDate}
                     onChange={(event) => setField('chequeDate', event.target.value)}
                     className={inputClass}
                   />
                 </FormField>
 
-                <FormField label="GPay Reference">
+                <FormField label="Transaction Reference" className={['GPAY', 'UPI', 'BANK_TRANSFER'].includes(form.paymentMethod) ? '' : 'hidden'}>
                   <input
                     type="text"
+                    required={['GPAY', 'UPI', 'BANK_TRANSFER'].includes(form.paymentMethod)}
                     value={form.gpayReference}
                     onChange={(event) => setField('gpayReference', event.target.value)}
                     className={inputClass}
@@ -1095,9 +1266,11 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
                   />
                 </FormField>
 
-                <FormField label="Cash Amount">
+                <FormField label="Cash Amount" className={form.paymentMethod === 'CASH' ? '' : 'hidden'}>
                   <input
-                    type="text"
+                    type="number"
+                    min="1"
+                    required={form.paymentMethod === 'CASH'}
                     value={form.cashAmount}
                     onChange={(event) => setField('cashAmount', event.target.value)}
                     className={inputClass}
@@ -1108,8 +1281,9 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
                 <FormField label="Total Amount" className="md:col-span-2">
                   <input
                     type="text"
-                    value={form.paymentTotal}
+                    value={form.paymentMethod === 'CASH' ? formatCurrency(totalAmount) : form.paymentTotal}
                     onChange={(event) => setField('paymentTotal', event.target.value)}
+                    readOnly={form.paymentMethod === 'CASH'}
                     className={`${inputClass} bg-gray-100 font-bold`}
                     placeholder={formatCurrency(totalAmount)}
                   />
@@ -1117,44 +1291,78 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
               </div>
             </section>
 
-            <DenominationTable
-              rows={denomRows}
-              onAdd={addDenomRow}
-              onRemove={removeDenomRow}
-              onChange={changeDenomRow}
-            />
+            {form.paymentMethod === 'CASH' && (
+              <DenominationTable
+                rows={denomRows}
+                onAdd={addDenomRow}
+                onRemove={removeDenomRow}
+                onChange={changeDenomRow}
+                cashAmount={cashAmount}
+                denominationTotal={denomTotal}
+              />
+            )}
 
             <section>
               <SectionTitle icon={<PencilIcon />} title="Authorization" />
 
               <div className="grid min-w-0 grid-cols-1 gap-5 md:grid-cols-2">
-                <div className="flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-[#d9ccb3] bg-white p-6 text-center transition hover:border-gold">
+                <label className="flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-[#d9ccb3] bg-white p-6 text-center transition hover:border-gold">
                   <UploadIcon />
-                  <p className="mt-2 text-[13px] font-bold text-gray-600">Upload Applicant Signature</p>
-                  <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                    PNG, JPG, GIF up to 2MB
+                  <p className="mt-2 text-[13px] font-bold text-gray-600">
+                    {signatureFile ? signatureFile.name : 'Upload Applicant Signature'}
                   </p>
-                </div>
+                  <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                    PNG or JPEG up to 2 MB
+                  </p>
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg"
+                    className="sr-only"
+                    onChange={(event) => {
+                      selectSignature(event.target.files?.[0] ?? null);
+                      event.target.value = '';
+                    }}
+                  />
+                </label>
 
                 <div className="rounded-xl border border-[#ded6c7] bg-white p-4">
                   <div className="flex items-center justify-between">
                     <p className="text-[10px] font-bold uppercase tracking-wide text-gray-600">
-                      Draw Signature Below
+                      Signature Preview
                     </p>
-                    <button
-                      type="button"
-                      className="text-[10px] font-bold uppercase tracking-wide text-[#9c7a10]"
-                    >
-                      Clear
-                    </button>
+                    {signatureFile && (
+                      <button
+                        type="button"
+                        onClick={() => selectSignature(null)}
+                        className="text-[10px] font-bold uppercase tracking-wide text-red-600"
+                      >
+                        Remove
+                      </button>
+                    )}
                   </div>
 
                   <div className="mt-3 flex h-28 items-center justify-center rounded-lg border border-dashed border-[#ded6c7] bg-[#fafafa]">
-                    <p className="text-[12px] italic text-[#d2c2a3]">Signature Pad Placeholder</p>
+                    {signaturePreviewUrl ? (
+                      <img
+                        src={signaturePreviewUrl}
+                        alt="Applicant signature preview"
+                        className="max-h-full max-w-full object-contain"
+                      />
+                    ) : (
+                      <p className="text-[12px] italic text-[#d2c2a3]">
+                        Select a signature image to preview
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
             </section>
+
+            {submitError && (
+              <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+                {submitError}
+              </p>
+            )}
           </div>
         </div>
 
@@ -1166,9 +1374,23 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
               Cancel
             </button>
 
-            <button type="submit" disabled={create.isPending} className={primaryButtonClass}>
+            <button
+              type="submit"
+              disabled={
+                create.isPending ||
+                uploadSignature.isPending ||
+                denominationMismatch
+              }
+              className={primaryButtonClass}
+            >
               <BookmarkIcon />
-              {create.isPending ? 'Saving...' : 'Save Booking'}
+              {create.isPending || uploadSignature.isPending
+                ? savedBookingId
+                  ? 'Uploading Signature...'
+                  : 'Saving...'
+                : savedBookingId
+                  ? 'Retry Signature Upload'
+                  : 'Save Booking'}
             </button>
           </div>
         </div>
@@ -1234,6 +1456,7 @@ function buildEditForm(booking: Booking): BookingForm {
 
 function EditBookingModal({ open, onClose, booking, onSaved }: EditBookingModalProps) {
   const update = useUpdateBooking();
+  const updateStatus = useUpdateBookingStatus();
   const propertiesQuery = useProperties({ limit: 100 });
   const branchesQuery = useBranches({ limit: 100 });
 
@@ -1257,14 +1480,9 @@ function EditBookingModal({ open, onClose, booking, onSaved }: EditBookingModalP
     return () => window.clearTimeout(timeout);
   }, [booking, open]);
 
-  const denomTotal = useMemo(
-    () => denomRows.reduce((sum, row) => sum + row.denomination * row.count, 0),
-    [denomRows]
-  );
-
   const cashAmount = safeNumber(form.cashAmount);
   const manualTotal = safeNumber(form.paymentTotal);
-  const totalAmount = manualTotal || cashAmount + denomTotal;
+  const totalAmount = form.paymentMethod === 'CASH' ? cashAmount : manualTotal;
 
   function setField<K extends keyof BookingForm>(field: K, value: BookingForm[K]) {
     setForm((current) => ({
@@ -1273,7 +1491,7 @@ function EditBookingModal({ open, onClose, booking, onSaved }: EditBookingModalP
     }));
   }
 
-  function handleSubmit(event: React.FormEvent) {
+  async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
 
     const validDenoms: DenomData[] = denomRows
@@ -1290,8 +1508,8 @@ function EditBookingModal({ open, onClose, booking, onSaved }: EditBookingModalP
       Boolean(form.chequeNumber.trim()) ||
       Boolean(form.gpayReference.trim());
 
-    update.mutate(
-      {
+    try {
+      await update.mutateAsync({
         id: booking.id,
         data: {
           propertyId: form.propertyId || undefined,
@@ -1310,7 +1528,6 @@ function EditBookingModal({ open, onClose, booking, onSaved }: EditBookingModalP
           referenceCode: form.codeNumber || undefined,
           directorName: form.directorName || undefined,
           branchId: form.branchId || undefined,
-          status: form.bookingStatus || undefined,
           payments: hasPayment
             ? [
                 {
@@ -1327,14 +1544,20 @@ function EditBookingModal({ open, onClose, booking, onSaved }: EditBookingModalP
             : undefined,
           denominations: validDenoms.length > 0 ? validDenoms : undefined,
         },
-      },
-      {
-        onSuccess: () => {
-          onSaved('Booking updated successfully', 'Changes are now live in the system.');
-          onClose();
-        },
+      });
+
+      if (form.bookingStatus && form.bookingStatus !== booking.status) {
+        await updateStatus.mutateAsync({
+          id: booking.id,
+          status: form.bookingStatus,
+        });
       }
-    );
+
+      onSaved('Booking updated successfully', 'Changes are now live in the system.');
+      onClose();
+    } catch {
+      // Mutation errors remain available through React Query and the shared API error handler.
+    }
   }
 
   return (
@@ -1364,8 +1587,14 @@ function EditBookingModal({ open, onClose, booking, onSaved }: EditBookingModalP
                 <FormField label="Phone">
                   <input
                     type="tel"
+                    inputMode="numeric"
+                    pattern="[789][0-9]{9}"
+                    maxLength={10}
+                    title="Enter a 10-digit mobile number starting with 7, 8, or 9"
                     value={form.cellNumber}
-                    onChange={(event) => setField('cellNumber', event.target.value)}
+                    onChange={(event) =>
+                      setField('cellNumber', event.target.value.replace(/\D/g, '').slice(0, 10))
+                    }
                     className={inputClass}
                   />
                 </FormField>
@@ -1552,11 +1781,14 @@ function EditBookingModal({ open, onClose, booking, onSaved }: EditBookingModalP
                     onChange={(event) => setField('paymentMethod', event.target.value)}
                     className={inputClass}
                   >
-                    <option value="BANK_TRANSFER">Bank Transfer / UPI</option>
+                    {['BANK_TRANSFER', 'UPI'].includes(form.paymentMethod) && (
+                      <option value={form.paymentMethod} disabled>
+                        {form.paymentMethod === 'BANK_TRANSFER' ? 'Bank Transfer' : 'UPI'} (existing payment)
+                      </option>
+                    )}
                     <option value="CASH">Cash</option>
                     <option value="CHEQUE">Cheque</option>
                     <option value="GPAY">GPay</option>
-                    <option value="UPI">UPI</option>
                   </select>
                 </FormField>
 
@@ -1716,8 +1948,8 @@ function EditBookingModal({ open, onClose, booking, onSaved }: EditBookingModalP
             Cancel
           </button>
 
-          <button type="submit" disabled={update.isPending} className={primaryButtonClass}>
-            {update.isPending ? 'Saving...' : 'Save Changes'}
+          <button type="submit" disabled={update.isPending || updateStatus.isPending} className={primaryButtonClass}>
+            {update.isPending || updateStatus.isPending ? 'Saving...' : 'Save Changes'}
           </button>
         </div>
       </form>
@@ -1738,6 +1970,7 @@ function ViewBookingModal({ open, onClose, booking, onEdit }: ViewBookingModalPr
   const { data: detail } = useBooking(booking.id);
   const currentBooking = detail ?? booking;
   const payment = firstPayment(currentBooking);
+  const paymentMethod = readString(payment, 'paymentMethod').toUpperCase();
   const amountReceived = readOptionalNumber(payment, ['amountReceived', 'receivedAmount', 'amount', 'totalAmount']);
   const totalAmount = readOptionalNumber(payment, ['totalAmount']);
 
@@ -1807,25 +2040,32 @@ function ViewBookingModal({ open, onClose, booking, onEdit }: ViewBookingModalPr
           <InfoCard icon={<WalletIcon />} title="Payment Details" compact>
             {payment ? (
               <>
-            <InfoRow label="Payment Method" value={formatPaymentMethod(readString(payment, 'paymentMethod'))} />
-            <InfoRow label="Bank Name" value={readString(payment, 'bankName', '—')} />
-            <InfoRow label="Favour Of" value={readString(payment, 'favourOf', '—')} />
-            <InfoRow label="Cheque Number" value={readString(payment, 'chequeNumber', '—')} />
-            <InfoRow label="Cheque Date" value={formatDate(readString(payment, 'chequeDate'))} />
-            <InfoRow label="GPay Ref Number" value={readString(payment, 'gpayReference', '—')} />
-            <InfoRow
-              label="Cash Amount"
-              value={formatOptionalCurrency(readOptionalNumber(payment, ['cashAmount']))}
-            />
-            <InfoRow
-              label="Amount Received"
-              value={formatOptionalCurrency(amountReceived)}
-            />
-            <InfoRow
-              label="Total Amount"
-              value={formatOptionalCurrency(totalAmount)}
-              highlight
-            />
+                <InfoRow
+                  label="Payment Method"
+                  value={formatPaymentMethod(paymentMethod)}
+                />
+                {paymentMethod === 'CHEQUE' && (
+                  <>
+                    <InfoRow label="Bank Name" value={readString(payment, 'bankName', '—')} />
+                    <InfoRow label="Favour Of" value={readString(payment, 'favourOf', '—')} />
+                    <InfoRow label="Cheque Number" value={readString(payment, 'chequeNumber', '—')} />
+                    <InfoRow label="Cheque Date" value={formatDate(readString(payment, 'chequeDate'))} />
+                  </>
+                )}
+                {(paymentMethod === 'UPI' || paymentMethod === 'GPAY') && (
+                  <InfoRow label="GPay Ref Number" value={readString(payment, 'gpayReference', '—')} />
+                )}
+                {paymentMethod === 'BANK_TRANSFER' && (
+                  <InfoRow label="Bank Name" value={readString(payment, 'bankName', '—')} />
+                )}
+                {paymentMethod === 'CASH' && (
+                  <InfoRow
+                    label="Cash Amount"
+                    value={formatOptionalCurrency(readOptionalNumber(payment, ['cashAmount']))}
+                  />
+                )}
+                <InfoRow label="Amount Received" value={formatOptionalCurrency(amountReceived)} />
+                <InfoRow label="Total Amount" value={formatOptionalCurrency(totalAmount)} highlight />
               </>
             ) : (
               <div className="text-[13px] font-semibold text-gray-600 sm:col-span-2">
@@ -1951,6 +2191,7 @@ function BookingMobileCard({
           <TrashIcon />
         </button>
       </div>
+
     </div>
   );
 }

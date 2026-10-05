@@ -10,18 +10,30 @@ export interface BranchParams {
 
 export interface CreateBranchData {
   name: string;
-  branchType?: string;
-  phone?: string;
-  address?: string;
-  city?: string;
-  district?: string;
-  state?: string;
-  pincode?: string;
+  branchType: string;
+  phone: string;
+  address: string;
+  city: string;
+  district: string;
+  state: string;
+  pincode: string;
   images?: File[];
-  adminId?: string;
 }
 
 export type UpdateBranchData = Partial<CreateBranchData>;
+
+function toBranchFormData(data: CreateBranchData | UpdateBranchData): FormData {
+  const formData = new FormData();
+  Object.entries(data).forEach(([key, value]) => {
+    if (value === undefined || value === null) return;
+    if (key === 'images' && Array.isArray(value)) {
+      value.forEach((file: File) => formData.append('images', file));
+    } else if (!(value instanceof File)) {
+      formData.append(key, String(value));
+    }
+  });
+  return formData;
+}
 
 export const branchesApi = {
   getAll: (params?: BranchParams): Promise<PaginatedResponse<Branch>> =>
@@ -31,25 +43,11 @@ export const branchesApi = {
     api.get(`/branches/${id}`).then((r) => r.data.data),
 
   create: (data: CreateBranchData): Promise<Branch> => {
-    const formData = new FormData();
-    Object.entries(data).forEach(([key, value]) => {
-      if (value !== undefined && value !== null) {
-        if (key === 'images' && Array.isArray(value)) {
-          value.forEach((file: File) => {
-            formData.append('images', file);
-          });
-        } else if (!(value instanceof File)) {
-          formData.append(key, String(value));
-        }
-      }
-    });
-    return api.post('/branches', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    }).then((r) => r.data.data);
+    return api.post('/branches', toBranchFormData(data)).then((r) => r.data.data);
   },
 
   update: (id: string, data: UpdateBranchData): Promise<Branch> =>
-    api.put(`/branches/${id}`, data).then((r) => r.data.data),
+    api.put(`/branches/${id}`, toBranchFormData(data)).then((r) => r.data.data),
 
   updateStatus: (id: string, status: BranchStatus): Promise<Branch> =>
     api.patch(`/branches/${id}/status`, { status }).then((r) => r.data.data),

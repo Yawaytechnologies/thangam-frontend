@@ -10,6 +10,7 @@ import {
 import { useMembers, useMember } from '../../hooks/useMembers';
 import { Modal } from '../../components/ui/Modal';
 import type { DbTopPerformer } from '../../api/top-performers.api';
+import type { Role } from '../../types';
 
 const MEMBER_ROLES = [
   'DIRECTOR',
@@ -41,6 +42,7 @@ const ROLE_BADGES: Record<string, string> = {
 type MemberOption = {
   id: string;
   fullName: string;
+  role: Role;
   phone?: string | null;
   email?: string | null;
   memberId?: string | null;
@@ -634,15 +636,20 @@ function ManageTopPerformersModal({
   onRequestUnfreeze: () => void;
 }) {
   const { data } = useTopPerformers();
-  const { data: membersData } = useMembers({ limit: 100 });
   const createMutation = useCreateTopPerformer();
   const removeMutation = useRemoveTopPerformer();
   const reorderMutation = useReorderTopPerformers();
 
   const [selectedRole, setSelectedRole] = useState('EXECUTIVE_DIRECTOR');
   const [memberSearch, setMemberSearch] = useState('');
+  const [selectedMemberId, setSelectedMemberId] = useState('');
+  const [showMemberOptions, setShowMemberOptions] = useState(false);
   const [rankInput, setRankInput] = useState<number>(0);
   const [draggedId, setDraggedId] = useState<string | null>(null);
+  const { data: membersData, isLoading: membersLoading } = useMembers({
+    limit: 100,
+    role: selectedRole as Role,
+  });
 
   const members = ((membersData?.data ?? []) as MemberOption[]).filter(Boolean);
 
@@ -657,9 +664,11 @@ function ManageTopPerformersModal({
   const filteredMembers = useMemo(() => {
     const search = memberSearch.trim().toLowerCase();
 
-    if (!search) return members.slice(0, 20);
+    const roleMembers = members.filter((m) => m.role === selectedRole);
 
-    return members
+    if (!search) return roleMembers.slice(0, 20);
+
+    return roleMembers
       .filter((m) => {
         return (
           m.fullName?.toLowerCase().includes(search) ||
@@ -670,17 +679,14 @@ function ManageTopPerformersModal({
         );
       })
       .slice(0, 20);
-  }, [memberSearch, members]);
+  }, [memberSearch, members, selectedRole]);
 
   const selectedMember = useMemo(() => {
-    const search = memberSearch.trim().toLowerCase();
-    if (!search) return undefined;
-
-    return (
-      members.find((m) => m.fullName.toLowerCase() === search) ||
-      filteredMembers[0]
+    return members.find(
+      (member) =>
+        member.id === selectedMemberId && member.role === selectedRole,
     );
-  }, [filteredMembers, memberSearch, members]);
+  }, [members, selectedMemberId, selectedRole]);
 
   function buildReorderItems(performers: DbTopPerformer[]) {
     return performers.map((p, i) => ({
@@ -705,6 +711,7 @@ function ManageTopPerformersModal({
       {
         onSuccess: () => {
           setMemberSearch('');
+          setSelectedMemberId('');
           setRankInput(0);
         },
       },
@@ -776,7 +783,12 @@ function ManageTopPerformersModal({
               </label>
               <select
                 value={selectedRole}
-                onChange={(e) => setSelectedRole(e.target.value)}
+                onChange={(e) => {
+                  setSelectedRole(e.target.value);
+                  setMemberSearch('');
+                  setSelectedMemberId('');
+                  setShowMemberOptions(true);
+                }}
                 disabled={isFrozen}
                 className="h-10 w-full rounded-[6px] border border-[#d8d9df] bg-[#f3f3f4] px-3 text-[13px] font-medium text-[#8a8c93] outline-none transition focus:border-gold focus:ring-2 focus:ring-gold/20 disabled:cursor-not-allowed disabled:opacity-70"
               >
@@ -797,22 +809,65 @@ function ManageTopPerformersModal({
                   <IconSearch />
                 </span>
                 <input
-                  list="top-performer-members"
                   type="text"
                   value={memberSearch}
-                  onChange={(e) => setMemberSearch(e.target.value)}
-                  placeholder="Name, ID, or Phone"
+                  role="combobox"
+                  aria-expanded={showMemberOptions}
+                  aria-controls="top-performer-member-options"
+                  autoComplete="off"
+                  onFocus={() => setShowMemberOptions(true)}
+                  onBlur={() => window.setTimeout(() => setShowMemberOptions(false), 150)}
+                  onChange={(e) => {
+                    setMemberSearch(e.target.value);
+                    setSelectedMemberId('');
+                    setShowMemberOptions(true);
+                  }}
+                  placeholder={membersLoading ? 'Loading members...' : 'Name, ID, or Phone'}
                   disabled={isFrozen}
                   className="h-10 w-full rounded-[6px] border border-[#d8d9df] bg-[#f3f3f4] pl-10 pr-3 text-[13px] font-medium text-[#333741] outline-none transition placeholder:text-[#a0a2a8] focus:border-gold focus:ring-2 focus:ring-gold/20 disabled:cursor-not-allowed disabled:opacity-70"
                 />
-                <datalist id="top-performer-members">
-                  {filteredMembers.map((m) => (
-                    <option key={m.id} value={m.fullName}>
-                      {m.phone || m.email || m.memberId || m.id}
-                    </option>
-                  ))}
-                </datalist>
+                {showMemberOptions && !isFrozen && (
+                  <div
+                    id="top-performer-member-options"
+                    className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-xl"
+                  >
+                    {membersLoading ? (
+                      <p className="px-3 py-3 text-xs text-gray-500">Loading members...</p>
+                    ) : filteredMembers.length > 0 ? (
+                      filteredMembers.map((member) => (
+                        <button
+                          key={member.id}
+                          type="button"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => {
+                            setSelectedMemberId(member.id);
+                            setMemberSearch(member.fullName);
+                            setShowMemberOptions(false);
+                          }}
+                          className="block w-full px-3 py-2 text-left transition hover:bg-amber-50"
+                        >
+                          <span className="block text-sm font-semibold text-gray-800">
+                            {member.fullName}
+                          </span>
+                          <span className="block text-[11px] text-gray-500">
+                            {member.memberId || 'No Member ID'} · {formatRole(member.role)}
+                            {member.phone ? ` · ${member.phone}` : ''}
+                          </span>
+                        </button>
+                      ))
+                    ) : (
+                      <p className="px-3 py-3 text-xs text-gray-500">
+                        No {formatRole(selectedRole).toLowerCase()} found.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
+              {selectedMember && (
+                <p className="mt-1 text-[10px] font-semibold text-emerald-600">
+                  Selected: {selectedMember.memberId || selectedMember.fullName}
+                </p>
+              )}
             </div>
 
             <div>

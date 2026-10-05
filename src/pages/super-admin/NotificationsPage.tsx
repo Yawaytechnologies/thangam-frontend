@@ -1,11 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import {
   useNotifications,
-  useNotification,
   useMarkRead,
   useMarkAllRead,
 } from '../../hooks/useNotifications';
 import { useBranches } from '../../hooks/useBranches';
+import { useMember } from '../../hooks/useMembers';
 import { Modal } from '../../components/ui/Modal';
 import type {
   NotificationType,
@@ -40,27 +40,6 @@ const TYPE_LABELS: Record<NotificationType, string> = {
 const inputClass =
   'border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white';
 
-function createDemoNotification(branchId?: string): NotificationRecipient {
-  return {
-    id: 'demo-notification',
-    notificationId: 'demo-notification',
-    userId: 'demo-user',
-    status: 'UNREAD',
-    notification: {
-      id: 'demo-notification',
-      title: 'New Property Booking Request',
-      message:
-        'A new reservation has been initiated for Emerald Heights Phase II by the Chennai Central Hub team. Please review the booking details and confirm the required KYC documents.',
-      type: 'BOOKING_ACTIVITY',
-      priority: 'HIGH',
-      bookingId: 'BK-9025',
-      propertyId: 'EMH-1024',
-      branchId: branchId ?? 'demo-branch',
-      createdAt: new Date().toISOString(),
-    },
-  };
-}
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function relativeTime(iso: string): string {
@@ -92,6 +71,66 @@ function fullDateTime(iso: string): string {
 }
 
 // ─── Type Icons ───────────────────────────────────────────────────────────────
+
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.trim());
+}
+
+function metadataText(metadata: unknown, keys: string[]) {
+  if (!metadata || typeof metadata !== 'object') return '';
+  const record = metadata as Record<string, unknown>;
+
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  }
+
+  return '';
+}
+
+function readableCodeFromText(value?: string) {
+  if (!value) return '';
+  const match = value.match(/\b(?:STH-)?(?:BK|BILL|PROP|MEM|ADM)-\d{3,}\b/i);
+  return match?.[0] ?? '';
+}
+
+function cleanReferenceValue(value?: string) {
+  const text = value?.trim() ?? '';
+  if (!text || isUuid(text)) return '';
+  return text;
+}
+
+function bookingReference(notification?: NotificationRecipient['notification']) {
+  if (!notification) return '';
+  return (
+    readableCodeFromText(notification.message) ||
+    readableCodeFromText(notification.title) ||
+    cleanReferenceValue(metadataText(notification.metadata, ['bookingCode', 'bookingNumber', 'bookingNo', 'bookingId'])) ||
+    cleanReferenceValue(notification.bookingId)
+  );
+}
+
+function billingReference(notification?: NotificationRecipient['notification']) {
+  if (!notification) return '';
+  return (
+    cleanReferenceValue(metadataText(notification.metadata, ['billingCode', 'billingNumber', 'billingNo', 'billingId'])) ||
+    cleanReferenceValue(notification.billingId)
+  );
+}
+
+function priorityClass(priority?: string) {
+  const normalized = String(priority ?? 'LOW').toUpperCase();
+  if (normalized === 'HIGH') return 'bg-red-50 text-red-700 border-red-100';
+  if (normalized === 'MEDIUM') return 'bg-amber-50 text-amber-700 border-amber-100';
+  return 'bg-gray-50 text-gray-600 border-gray-100';
+}
+
+function priorityLabel(priority?: string) {
+  const normalized = String(priority ?? 'LOW').toUpperCase();
+  if (normalized === 'HIGH' || normalized === 'MEDIUM' || normalized === 'LOW') return normalized;
+  return 'LOW';
+}
 
 function NotificationIcon({ type, isUnread }: { type: NotificationType; isUnread: boolean }) {
   const baseClass = `w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 relative ${
@@ -160,10 +199,12 @@ interface DetailModalProps {
 
 function NotificationDetailModal({ open, onClose, recipient, onMarkRead, isPending, branchName }: DetailModalProps) {
   const n = recipient.notification;
-  const { data: full } = useNotification(n?.id ?? '', n?.id !== 'demo-notification');
-  const detail = (full ?? n) as NonNullable<typeof n>;
+  const memberId = n?.relatedModule === 'MEMBER' ? n.relatedEntityId ?? '' : '';
+  const { data: member } = useMember(memberId);
   const isUnread = recipient.status === 'UNREAD';
   const isDemo = recipient.id === 'demo-notification';
+  const readableBookingId = bookingReference(detail);
+  const readableBillingId = billingReference(detail);
 
   if (!n) return null;
 
@@ -196,8 +237,9 @@ function NotificationDetailModal({ open, onClose, recipient, onMarkRead, isPendi
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Event Details</p>
           {[
             ['Module', TYPE_LABELS[n.type]],
+            ['Priority', priorityLabel(n.priority)],
             ['Branch', branchName ?? (n.branchId ? `Branch ${n.branchId.slice(0, 8)}…` : '—')],
-            ['Timestamp', detail?.createdAt ? fullDateTime(detail.createdAt) : '—'],
+            ['Timestamp', n.createdAt ? fullDateTime(n.createdAt) : '—'],
           ].map(([label, value]) => (
             <div key={label} className="flex items-center justify-between">
               <span className="text-xs text-gray-400">{label}</span>
@@ -207,18 +249,25 @@ function NotificationDetailModal({ open, onClose, recipient, onMarkRead, isPendi
         </div>
 
         <div className="grid gap-3 md:grid-cols-2">
-          <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Personnel</p>
-            <div className="mt-3 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-gold/10 flex items-center justify-center text-gold text-sm font-bold">
-                RK
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-gray-900">Rajesh Kumar</p>
-                <p className="text-xs text-gray-400">Senior Manager</p>
+          {member && (
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Member</p>
+              <div className="mt-3 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-gold/10 flex items-center justify-center text-gold text-sm font-bold">
+                  {member.fullName.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">{member.fullName}</p>
+                  <p className="text-xs text-gray-400">
+                    {member.memberId} · {member.role.replaceAll('_', ' ').toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase())}
+                  </p>
+                  {member.reportsTo?.fullName && (
+                    <p className="mt-1 text-xs text-gray-500">Reports to {member.reportsTo.fullName}</p>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {n.propertyId && (
             <div className="bg-white rounded-xl border border-gray-200 p-4">
@@ -227,12 +276,10 @@ function NotificationDetailModal({ open, onClose, recipient, onMarkRead, isPendi
                 <div className="w-16 h-16 rounded-xl bg-gray-200 shrink-0" />
                 <div>
                   <p className="text-sm font-semibold text-gray-900">
-                    {detail.propertyId === 'EMH-1024'
-                      ? 'Emerald Heights Phase II'
-                      : `Property ${detail.propertyId?.slice(0, 8)}`}
+                    {`Property ${n.propertyId?.slice(0, 8)}`}
                   </p>
                   <p className="text-xs text-gray-400">
-                    {detail.propertyId === 'EMH-1024' ? 'OMR, Chennai South' : 'View property details'}
+                    View property details
                   </p>
                 </div>
               </div>
@@ -241,19 +288,19 @@ function NotificationDetailModal({ open, onClose, recipient, onMarkRead, isPendi
         </div>
 
         {/* Record IDs */}
-        {(n.bookingId || n.billingId) && (
+        {(readableBookingId || readableBillingId) && (
           <div className="bg-gray-50 rounded-xl p-4 space-y-2">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Linked Record</p>
-            {n.bookingId && (
+            {readableBookingId && (
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-400">Booking ID</span>
-                <span className="text-xs font-mono font-semibold text-gold">#{n.bookingId.slice(0, 12)}</span>
+                <span className="text-xs font-mono font-semibold text-gold">{readableBookingId}</span>
               </div>
             )}
-            {n.billingId && (
+            {readableBillingId && (
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-400">Billing ID</span>
-                <span className="text-xs font-mono font-semibold text-gold">#{n.billingId.slice(0, 12)}</span>
+                <span className="text-xs font-mono font-semibold text-gold">{readableBillingId}</span>
               </div>
             )}
           </div>
@@ -272,10 +319,10 @@ function NotificationDetailModal({ open, onClose, recipient, onMarkRead, isPendi
             <button
               type="button"
               onClick={onMarkRead}
-              disabled={isPending || isDemo}
+              disabled={isPending}
               className="bg-gold text-navy font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 text-sm"
             >
-              {isDemo ? 'Demo only' : isPending ? 'Resolving...' : 'Mark as Read & Resolve'}
+              {isPending ? 'Resolving...' : 'Mark as Read & Resolve'}
             </button>
           )}
         </div>
@@ -313,16 +360,8 @@ const SuperAdminNotificationsPage: React.FC = () => {
   const allRecipients = data?.data ?? [];
   const total = data?.total ?? 0;
 
-  const demoNotification = useMemo(
-    () => createDemoNotification(branches[0]?.id),
-    [branches],
-  );
-
-  const notificationsToDisplay = allRecipients.length > 0 ? allRecipients : [demoNotification];
-  const isDemoMode = allRecipients.length === 0;
-
   function getBranchName(branchId?: string) {
-    return branches.find((b) => b.id === branchId)?.name ?? branchId ?? '—';
+    return branches.find((b) => b.id === branchId)?.name ?? 'Branch unavailable';
   }
 
   function handleMarkRead(nr: NotificationRecipient) {
@@ -331,7 +370,7 @@ const SuperAdminNotificationsPage: React.FC = () => {
       return;
     }
 
-    markRead.mutate(nr.id, {
+    markRead.mutate(nr.notificationId, {
       onSuccess: () => setDetailRecipient(null),
     });
   }
@@ -403,16 +442,17 @@ const SuperAdminNotificationsPage: React.FC = () => {
         <div className="text-center py-16 text-gray-400">Loading notifications...</div>
       ) : (
         <>
-          {isDemoMode && (
-            <div className="mb-4 rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">
-              Demo notification example is shown below. Live notifications will appear here once available.
+          {allRecipients.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-gray-200 bg-white px-6 py-16 text-center">
+              <p className="text-base font-semibold text-gray-700">No notifications found</p>
+              <p className="mt-2 text-sm text-gray-400">New system activities will appear here.</p>
             </div>
-          )}
-
-          {notificationsToDisplay.map((nr) => {
+          ) : allRecipients.map((nr) => {
             const n = nr.notification;
             if (!n) return null;
             const isUnread = nr.status === 'UNREAD';
+            const readableBookingId = bookingReference(n);
+            const readableBillingId = billingReference(n);
 
             return (
               <div
@@ -435,6 +475,13 @@ const SuperAdminNotificationsPage: React.FC = () => {
                       >
                         {TYPE_LABELS[n.type]}
                       </span>
+                      <span
+                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${priorityClass(
+                          n.priority,
+                        )}`}
+                      >
+                        {priorityLabel(n.priority)}
+                      </span>
                       <span className="text-xs text-gray-400 ml-auto">
                         {relativeTime(n.createdAt)}
                       </span>
@@ -453,16 +500,16 @@ const SuperAdminNotificationsPage: React.FC = () => {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                               d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                           </svg>
-                          {getBranchName(n.branchId)}
+                          {n.branch?.name ?? getBranchName(n.branchId)}
                         </span>
                       )}
-                      {(n.bookingId || n.billingId) && (
+                      {(readableBookingId || readableBillingId) && (
                         <span className="flex items-center gap-1">
                           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                               d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                           </svg>
-                          {n.bookingId ? `Booking #${n.bookingId.slice(0, 8)}` : `Billing #${n.billingId!.slice(0, 8)}`}
+                          {readableBookingId ? `Booking ${readableBookingId}` : `Billing ${readableBillingId}`}
                         </span>
                       )}
                     </div>
@@ -479,11 +526,11 @@ const SuperAdminNotificationsPage: React.FC = () => {
                       {isUnread && (
                         <button
                           type="button"
-                          onClick={() => nr.id !== 'demo-notification' && markRead.mutate(nr.id)}
+                          onClick={() => nr.id !== 'demo-notification' && markRead.mutate(nr.notificationId)}
                           disabled={nr.id === 'demo-notification' || markRead.isPending}
                           className="text-xs text-gray-500 hover:text-gray-700 font-medium disabled:opacity-50"
                         >
-                          {nr.id === 'demo-notification' ? 'Demo only' : 'Mark as Read'}
+                          Mark as Read
                         </button>
                       )}
                     </div>
@@ -521,7 +568,7 @@ const SuperAdminNotificationsPage: React.FC = () => {
           recipient={detailRecipient}
           onMarkRead={() => handleMarkRead(detailRecipient)}
           isPending={markRead.isPending}
-          branchName={getBranchName(detailRecipient.notification?.branchId)}
+          branchName={detailRecipient.notification?.branch?.name ?? getBranchName(detailRecipient.notification?.branchId)}
         />
       )}
     </div>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/auth.store';
 import { useLogout } from '../../hooks/useAuth';
@@ -20,7 +20,7 @@ const navItems = [
   {
     label: 'Add Member',
     to: '/admin/add-member',
-    activePaths: ['/admin/add-member', '/admin/members'],
+    activePaths: ['/admin/add-member'],
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3M12 7a4 4 0 11-8 0 4 4 0 018 0zM6 14a6 6 0 00-6 6h12a6 6 0 00-6-6z" />
@@ -55,6 +55,15 @@ const navItems = [
     ),
   },
   {
+    label: 'Approved Referrals',
+    to: '/admin/referrals',
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 3.5a11.955 11.955 0 01-8.618 2.484A12.02 12.02 0 003 8c0 5.591 3.824 10.29 9 11.622C17.176 18.29 21 13.591 21 8c0-.847-.088-1.673-.254-2.484z" />
+      </svg>
+    ),
+  },
+  {
     label: 'Billing',
     to: '/admin/billing',
     icon: (
@@ -84,6 +93,8 @@ const navItems = [
   },
 ];
 
+const ADMIN_DEMO_NOTIFICATION_VIEWED_KEY = 'admin-demo-notification-viewed';
+
 const AdminLayout: React.FC = () => {
   useNotificationSocket();
   const user = useAuthStore((s) => s.user);
@@ -94,9 +105,25 @@ const AdminLayout: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
+  const [showDemoNotificationBadge, setShowDemoNotificationBadge] = useState(
+    () => localStorage.getItem(ADMIN_DEMO_NOTIFICATION_VIEWED_KEY) !== 'true',
+  );
   const { data: unreadData } = useUnreadCount();
   const { data: searchData, isLoading: searchLoading } = useGlobalSearch(searchQuery.trim());
   const unreadCount = unreadData?.count ?? 0;
+  const notificationBadgeCount = unreadCount > 0 ? unreadCount : showDemoNotificationBadge ? 1 : 0;
+
+  useEffect(() => {
+    const hideDemoNotificationBadge = () => setShowDemoNotificationBadge(false);
+
+    if (location.pathname === '/admin/notifications') {
+      localStorage.setItem(ADMIN_DEMO_NOTIFICATION_VIEWED_KEY, 'true');
+      hideDemoNotificationBadge();
+    }
+
+    window.addEventListener('admin-demo-notification-viewed', hideDemoNotificationBadge);
+    return () => window.removeEventListener('admin-demo-notification-viewed', hideDemoNotificationBadge);
+  }, [location.pathname]);
 
   const handleLogout = () => {
     logout.mutate(undefined);
@@ -172,9 +199,9 @@ const AdminLayout: React.FC = () => {
               <span className="flex-shrink-0 relative">
                 {item.icon}
 
-                {item.badge && unreadCount > 0 && (
+                {item.badge && notificationBadgeCount > 0 && (
                   <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-white text-xs flex items-center justify-center font-bold">
-                    {unreadCount > 9 ? '9+' : unreadCount}
+                    {notificationBadgeCount > 9 ? '9+' : notificationBadgeCount}
                   </span>
                 )}
               </span>
@@ -309,9 +336,9 @@ const AdminLayout: React.FC = () => {
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6 6 0 0 0-4-5.659V5a2 2 0 1 0-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h11zm0 0v1a3 3 0 1 1-6 0v-1h6z" />
             </svg>
-            {unreadCount > 0 && (
+            {notificationBadgeCount > 0 && (
               <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white">
-                {unreadCount > 9 ? '9+' : unreadCount}
+                {notificationBadgeCount > 9 ? '9+' : notificationBadgeCount}
               </span>
             )}
           </button>
