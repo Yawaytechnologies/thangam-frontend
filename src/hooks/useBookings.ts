@@ -25,6 +25,7 @@ export function useCreateBooking() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bookings'] });
       queryClient.invalidateQueries({ queryKey: ['properties'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard', 'admin', 'stats'] });
     },
   });
 }
@@ -38,6 +39,7 @@ export function useUpdateBooking() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bookings'] });
       queryClient.invalidateQueries({ queryKey: ['properties'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard', 'admin', 'stats'] });
     },
   });
 }
@@ -50,6 +52,7 @@ export function useDeleteBooking() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bookings'] });
       queryClient.invalidateQueries({ queryKey: ['properties'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard', 'admin', 'stats'] });
     },
   });
 }
@@ -63,6 +66,7 @@ export function useUpdateBookingStatus() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bookings'] });
       queryClient.invalidateQueries({ queryKey: ['properties'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard', 'admin', 'stats'] });
     },
   });
 }

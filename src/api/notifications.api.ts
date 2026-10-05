@@ -46,7 +46,10 @@ export const notificationsApi = {
     api.get('/notifications/unread-count').then((r) => r.data.data),
 
   getOne: (id: string): Promise<Notification> =>
-    api.get(`/notifications/${id}`).then((r) => r.data.data),
+    api.get(`/notifications/${id}`).then((r) => {
+      const data = r.data.data;
+      return data?.notification ?? data;
+    }),
 
   markRead: (id: string): Promise<NotificationRecipient> =>
     api.patch(`/notifications/${id}/read`).then((r) => r.data.data),

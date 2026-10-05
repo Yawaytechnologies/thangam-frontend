@@ -33,6 +33,8 @@ export interface AdminMemberActivity {
   role: string;
   createdAt: string;
   status: string;
+  propertyReferralCount?: number;
+  directTeamCount?: number;
 }
 
 export interface AdminBookingActivity {
@@ -41,6 +43,8 @@ export interface AdminBookingActivity {
   applicantName: string;
   projectName: string;
   plotNumber: string;
+  edDdSmBmName?: string | null;
+  referenceCode?: string | null;
   status: string;
   bookingDate: string;
 }
@@ -52,6 +56,20 @@ export interface AdminBillingActivity {
   amountInNumbers: number;
   totalBalance: number;
   status: string;
+}
+
+export interface UserDashboardStats {
+  totalNetwork: number;
+  activeMembers: number;
+  availableProperties: number;
+  unreadNotifications: number;
+}
+
+export interface UserDashboardAlert {
+  type: string;
+  title: string;
+  description: string;
+  relatedId: string;
 }
 
 export const dashboardApi = {
@@ -69,4 +87,10 @@ export const dashboardApi = {
 
   getAdminBillingActivity: (): Promise<AdminBillingActivity[]> =>
     api.get('/admin/dashboard/billing-activity').then((r) => r.data.data),
+
+  getUserDashboard: (): Promise<UserDashboardStats> =>
+    api.get('/user/dashboard').then((r) => r.data.data),
+
+  getUserAlerts: (): Promise<UserDashboardAlert[]> =>
+    api.get('/user/dashboard/alerts').then((r) => r.data.data),
 };

@@ -104,6 +104,7 @@ export interface Member {
   reportsToId?: string;
   reportsTo?: Member;
   codeNumber?: string;
+  introName?: string;
   status: UserStatus;
   gender?: string;
   dateOfBirth?: string;

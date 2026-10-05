@@ -1,6 +1,6 @@
 import React from 'react';
-import { Navigate } from 'react-router-dom';
+import AdminMembersListPage from './MembersListPage';
 
-const AddMemberPage: React.FC = () => <Navigate to="/admin/members" replace />;
+const AddMemberPage: React.FC = () => <AdminMembersListPage addMemberPage />;
 
 export default AddMemberPage;

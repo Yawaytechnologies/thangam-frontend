@@ -35,3 +35,17 @@ export function useAdminBillingActivity() {
     queryFn: () => dashboardApi.getAdminBillingActivity(),
   });
 }
+
+export function useUserDashboard() {
+  return useQuery({
+    queryKey: ['dashboard', 'user'],
+    queryFn: () => dashboardApi.getUserDashboard(),
+  });
+}
+
+export function useUserAlerts() {
+  return useQuery({
+    queryKey: ['dashboard', 'user', 'alerts'],
+    queryFn: () => dashboardApi.getUserAlerts(),
+  });
+}

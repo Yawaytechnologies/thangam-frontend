@@ -93,6 +93,66 @@ function fullDateTime(iso: string): string {
 
 // ─── Type Icons ───────────────────────────────────────────────────────────────
 
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.trim());
+}
+
+function metadataText(metadata: unknown, keys: string[]) {
+  if (!metadata || typeof metadata !== 'object') return '';
+  const record = metadata as Record<string, unknown>;
+
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  }
+
+  return '';
+}
+
+function readableCodeFromText(value?: string) {
+  if (!value) return '';
+  const match = value.match(/\b(?:STH-)?(?:BK|BILL|PROP|MEM|ADM)-\d{3,}\b/i);
+  return match?.[0] ?? '';
+}
+
+function cleanReferenceValue(value?: string) {
+  const text = value?.trim() ?? '';
+  if (!text || isUuid(text)) return '';
+  return text;
+}
+
+function bookingReference(notification?: NotificationRecipient['notification']) {
+  if (!notification) return '';
+  return (
+    readableCodeFromText(notification.message) ||
+    readableCodeFromText(notification.title) ||
+    cleanReferenceValue(metadataText(notification.metadata, ['bookingCode', 'bookingNumber', 'bookingNo', 'bookingId'])) ||
+    cleanReferenceValue(notification.bookingId)
+  );
+}
+
+function billingReference(notification?: NotificationRecipient['notification']) {
+  if (!notification) return '';
+  return (
+    cleanReferenceValue(metadataText(notification.metadata, ['billingCode', 'billingNumber', 'billingNo', 'billingId'])) ||
+    cleanReferenceValue(notification.billingId)
+  );
+}
+
+function priorityClass(priority?: string) {
+  const normalized = String(priority ?? 'LOW').toUpperCase();
+  if (normalized === 'HIGH') return 'bg-red-50 text-red-700 border-red-100';
+  if (normalized === 'MEDIUM') return 'bg-amber-50 text-amber-700 border-amber-100';
+  return 'bg-gray-50 text-gray-600 border-gray-100';
+}
+
+function priorityLabel(priority?: string) {
+  const normalized = String(priority ?? 'LOW').toUpperCase();
+  if (normalized === 'HIGH' || normalized === 'MEDIUM' || normalized === 'LOW') return normalized;
+  return 'LOW';
+}
+
 function NotificationIcon({ type, isUnread }: { type: NotificationType; isUnread: boolean }) {
   const baseClass = `w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 relative ${
     isUnread ? 'bg-gold/10' : 'bg-gray-100'
@@ -164,6 +224,8 @@ function NotificationDetailModal({ open, onClose, recipient, onMarkRead, isPendi
   const detail = (full ?? n) as NonNullable<typeof n>;
   const isUnread = recipient.status === 'UNREAD';
   const isDemo = recipient.id === 'demo-notification';
+  const readableBookingId = bookingReference(detail);
+  const readableBillingId = billingReference(detail);
 
   if (!n) return null;
 
@@ -196,6 +258,7 @@ function NotificationDetailModal({ open, onClose, recipient, onMarkRead, isPendi
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Event Details</p>
           {[
             ['Module', TYPE_LABELS[n.type]],
+            ['Priority', priorityLabel(n.priority)],
             ['Branch', branchName ?? (n.branchId ? `Branch ${n.branchId.slice(0, 8)}…` : '—')],
             ['Timestamp', detail?.createdAt ? fullDateTime(detail.createdAt) : '—'],
           ].map(([label, value]) => (
@@ -241,19 +304,19 @@ function NotificationDetailModal({ open, onClose, recipient, onMarkRead, isPendi
         </div>
 
         {/* Record IDs */}
-        {(n.bookingId || n.billingId) && (
+        {(readableBookingId || readableBillingId) && (
           <div className="bg-gray-50 rounded-xl p-4 space-y-2">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Linked Record</p>
-            {n.bookingId && (
+            {readableBookingId && (
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-400">Booking ID</span>
-                <span className="text-xs font-mono font-semibold text-gold">#{n.bookingId.slice(0, 12)}</span>
+                <span className="text-xs font-mono font-semibold text-gold">{readableBookingId}</span>
               </div>
             )}
-            {n.billingId && (
+            {readableBillingId && (
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-400">Billing ID</span>
-                <span className="text-xs font-mono font-semibold text-gold">#{n.billingId.slice(0, 12)}</span>
+                <span className="text-xs font-mono font-semibold text-gold">{readableBillingId}</span>
               </div>
             )}
           </div>
@@ -331,7 +394,7 @@ const SuperAdminNotificationsPage: React.FC = () => {
       return;
     }
 
-    markRead.mutate(nr.id, {
+    markRead.mutate(nr.notificationId, {
       onSuccess: () => setDetailRecipient(null),
     });
   }
@@ -413,6 +476,8 @@ const SuperAdminNotificationsPage: React.FC = () => {
             const n = nr.notification;
             if (!n) return null;
             const isUnread = nr.status === 'UNREAD';
+            const readableBookingId = bookingReference(n);
+            const readableBillingId = billingReference(n);
 
             return (
               <div
@@ -435,6 +500,13 @@ const SuperAdminNotificationsPage: React.FC = () => {
                       >
                         {TYPE_LABELS[n.type]}
                       </span>
+                      <span
+                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${priorityClass(
+                          n.priority,
+                        )}`}
+                      >
+                        {priorityLabel(n.priority)}
+                      </span>
                       <span className="text-xs text-gray-400 ml-auto">
                         {relativeTime(n.createdAt)}
                       </span>
@@ -456,13 +528,13 @@ const SuperAdminNotificationsPage: React.FC = () => {
                           {getBranchName(n.branchId)}
                         </span>
                       )}
-                      {(n.bookingId || n.billingId) && (
+                      {(readableBookingId || readableBillingId) && (
                         <span className="flex items-center gap-1">
                           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                               d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                           </svg>
-                          {n.bookingId ? `Booking #${n.bookingId.slice(0, 8)}` : `Billing #${n.billingId!.slice(0, 8)}`}
+                          {readableBookingId ? `Booking ${readableBookingId}` : `Billing ${readableBillingId}`}
                         </span>
                       )}
                     </div>
@@ -479,7 +551,7 @@ const SuperAdminNotificationsPage: React.FC = () => {
                       {isUnread && (
                         <button
                           type="button"
-                          onClick={() => nr.id !== 'demo-notification' && markRead.mutate(nr.id)}
+                          onClick={() => nr.id !== 'demo-notification' && markRead.mutate(nr.notificationId)}
                           disabled={nr.id === 'demo-notification' || markRead.isPending}
                           className="text-xs text-gray-500 hover:text-gray-700 font-medium disabled:opacity-50"
                         >

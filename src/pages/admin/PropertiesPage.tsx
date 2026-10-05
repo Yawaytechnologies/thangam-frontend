@@ -14,6 +14,7 @@ import {
 import { useProperties, useProperty, usePropertyDocuments, usePropertyWorkflow } from '../../hooks/useProperties';
 import { Pagination } from '../../components/ui/Pagination';
 import { resolveFileUrl } from '../../lib/file-url';
+import { documentsApi } from '../../api/documents.api';
 import type { WorkflowDocument, WorkflowHistoryEntry } from '../../api/properties.api';
 import type { Property, PropertyType, WorkflowStatus } from '../../types';
 
@@ -35,7 +36,9 @@ function stringField(value: unknown) {
 
 function firstPropertyImageUrl(property: Property) {
   const extra = property as Property & Record<string, unknown>;
-  const image = property.images?.[0] as ({ url?: string } & Record<string, unknown>) | undefined;
+  const first = property.images?.[0] as unknown;
+  if (typeof first === 'string') return resolveFileUrl(first);
+  const image = first as ({ url?: string } & Record<string, unknown>) | undefined;
 
   return resolveFileUrl(
     image?.url ||
@@ -113,64 +116,65 @@ function PropertyCard({
   onDetails: () => void;
 }) {
   const kind = statusKind(property.workflowStatus);
+  const isSold = property.workflowStatus === 'COMPLETED';
   const [imageFailed, setImageFailed] = useState(false);
   const imageUrl = imageFailed ? '' : firstPropertyImageUrl(property);
 
   return (
-    <article className="overflow-hidden border border-gray-200 bg-white shadow-sm">
-      <div className="relative h-40 overflow-hidden bg-gradient-to-br from-teal-900 via-gray-800 to-gold/70">
+    <article className="flex h-full flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+      <div className="relative h-44 shrink-0 overflow-hidden bg-gradient-to-br from-gray-900 via-gray-800 to-gold/70">
         {imageUrl && (
           <img
             src={imageUrl}
             alt={displayName(property)}
             onError={() => setImageFailed(true)}
-            className="absolute inset-0 h-full w-full object-cover"
+            className="absolute inset-0 h-full w-full object-cover object-center"
           />
         )}
-        <div className="absolute inset-0 bg-black/10" />
-        <div className="absolute left-4 top-4 flex gap-2">
-          <Pill tone={kind === 'active' ? 'green' : kind === 'danger' ? 'red' : 'gold'}>
-            {workflowLabels[property.workflowStatus]}
-          </Pill>
-          <Pill tone="gold">{typeLabel(property.propertyType)}</Pill>
+        <div className="absolute inset-0 bg-black/20" />
+        <div className="absolute left-3 top-3">
+          <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${isSold ? 'bg-green-500 text-white' : 'bg-gold text-navy'}`}>
+            {isSold ? 'Sold' : 'Active'}
+          </span>
+        </div>
+        <div className="absolute bottom-3 left-3 text-xs font-medium uppercase tracking-widest text-white/75">
+          {typeLabel(property.propertyType)}
         </div>
       </div>
-      <div className="space-y-3 p-5">
+      <div className="flex flex-1 flex-col p-4">
         <div>
-          <h2 className="text-lg font-bold text-gray-900">{displayName(property)}</h2>
-          <p className="mt-1 flex items-center gap-1.5 text-sm text-gray-600">
-            <MapPin className="h-4 w-4 text-gold" />
-            {locationFor(property)}
+          <h2 className="text-sm font-bold leading-snug text-gray-900">{displayName(property)}</h2>
+          <p className="mt-0.5 truncate text-xs font-medium text-gray-500">
+            {property.projectName} · Plot {property.plotNumber || '-'}
           </p>
+          <p className="mt-1 flex items-center gap-1 text-xs font-medium text-gray-500">
+            <MapPin className="h-3 w-3 shrink-0 text-gold" />
+            {[property.city, property.state].filter(Boolean).join(', ') || locationFor(property)}
+          </p>
+          {property.squareFeet && <p className="mt-1 text-xs text-gray-400">{property.squareFeet.toLocaleString()} sq.ft</p>}
         </div>
 
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          <div className="flex items-center gap-2">
-            <GitBranch className="h-4 w-4 text-gold" />
-            <span className="font-semibold text-gray-800">{workflowLabels[property.workflowStatus]}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Home className="h-4 w-4 text-teal-700" />
-            <span className="font-semibold text-gray-800">Plot: {property.plotNumber || '-'}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <FileText className="h-4 w-4 text-gold" />
-            <span className="font-semibold text-gray-800">Property ID: {property.propertyId || '-'}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Pill tone={kind === 'complete' ? 'green' : kind === 'danger' ? 'red' : 'gold'}>
-              {workflowLabels[property.workflowStatus]}
-            </Pill>
-          </div>
+        <div className="mt-3 grid grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr] items-center gap-2">
+          <LifecycleStep label="Token" state={lifecycleState(property.workflowStatus, 'TOKEN_RECEIVED')} />
+          <div className="h-px bg-stone-200" />
+          <LifecycleStep label="Advance" state={lifecycleState(property.workflowStatus, 'ADVANCE_PAYMENT')} />
+          <div className="h-px bg-stone-200" />
+          <LifecycleStep label="Registration" state={lifecycleState(property.workflowStatus, 'REGISTRATION_PENDING')} />
+          <div className="h-px bg-stone-200" />
+          <LifecycleStep label="Final Settlement" state={lifecycleState(property.workflowStatus, 'FINAL_SETTLEMENT_PENDING')} />
         </div>
 
-        <button
-          type="button"
-          onClick={onDetails}
-          className="mt-2 w-full bg-gold px-4 py-3 text-sm font-bold text-white transition hover:bg-gold-light hover:text-navy"
-        >
-          View Details
-        </button>
+        <div className="mt-3 flex flex-wrap gap-1">
+          <Pill tone={kind === 'complete' ? 'green' : kind === 'danger' ? 'red' : 'gold'}>
+            {workflowLabels[property.workflowStatus]}
+          </Pill>
+        </div>
+
+        <div className="mt-auto border-t border-gray-100 pt-3">
+          <button type="button" onClick={onDetails} className="text-xs font-semibold text-gold hover:underline">
+            View Details
+          </button>
+        </div>
       </div>
     </article>
   );
@@ -320,6 +324,24 @@ function documentUrl(document: WorkflowDocument) {
   return resolveFileUrl(path);
 }
 
+async function openDocument(document: WorkflowDocument) {
+  const url = documentUrl(document) || (await documentsApi.getUrl(document.id)).signedUrl;
+  window.open(resolveFileUrl(url), '_blank', 'noopener,noreferrer');
+}
+
+async function downloadDocument(document: WorkflowDocument) {
+  const url = documentUrl(document) || (await documentsApi.getUrl(document.id)).signedUrl;
+  const response = await fetch(resolveFileUrl(url));
+  if (!response.ok) throw new Error('Unable to download document');
+
+  const blobUrl = URL.createObjectURL(await response.blob());
+  const link = window.document.createElement('a');
+  link.href = blobUrl;
+  link.download = documentFileName(document);
+  link.click();
+  URL.revokeObjectURL(blobUrl);
+}
+
 function documentFileName(document: WorkflowDocument) {
   const extra = document as WorkflowDocument & { fileName?: string; originalName?: string; name?: string };
   const explicitName = extra.originalName || extra.fileName || extra.name;
@@ -342,22 +364,25 @@ function PropertyDetailModal({ property, onClose }: { property: Property; onClos
   const detailedProperty = latestProperty ?? property;
   const visibleWorkflowHistory = cleanWorkflowHistory(workflowHistory);
   const [imageFailed, setImageFailed] = useState(false);
-  const imageUrl = imageFailed ? '' : firstPropertyImageUrl(detailedProperty);
+  const propertyImageDocument = documents.find((document) => document.documentType === 'PROPERTY_IMAGE');
+  const imageUrl = imageFailed
+    ? ''
+    : firstPropertyImageUrl(detailedProperty) || (propertyImageDocument ? documentUrl(propertyImageDocument) : '');
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[1px]">
       <div className="max-h-[90vh] w-full max-w-6xl overflow-hidden rounded-md bg-white shadow-2xl">
         <div className="max-h-[90vh] overflow-y-auto">
-          <div className="relative h-64 overflow-hidden bg-gradient-to-br from-teal-900 via-gray-800 to-gold/70">
+          <div className="relative h-64 overflow-hidden bg-gray-100">
             {imageUrl && (
               <img
                 src={imageUrl}
                 alt={displayName(detailedProperty)}
                 onError={() => setImageFailed(true)}
-                className="absolute inset-0 h-full w-full object-cover"
+                className="absolute inset-0 h-full w-full object-contain object-center"
               />
             )}
-            <div className="absolute inset-0 bg-gradient-to-r from-black/60 to-black/10" />
+            <div className="absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-black/65 to-transparent" />
             <button
               type="button"
               onClick={onClose}
@@ -465,21 +490,20 @@ function PropertyDetailModal({ property, onClose }: { property: Property; onClos
                           </div>
                           {fileUrl ? (
                             <div className="flex items-center gap-2">
-                              <a
-                                href={fileUrl}
-                                target="_blank"
-                                rel="noreferrer"
+                              <button
+                                type="button"
+                                onClick={() => void openDocument(document)}
                                 className="inline-flex items-center gap-1 text-xs font-bold text-gold hover:underline"
                               >
                                 View <ExternalLink className="h-3.5 w-3.5" />
-                              </a>
-                              <a
-                                href={fileUrl}
-                                download
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void downloadDocument(document)}
                                 className="inline-flex items-center gap-1 text-xs font-bold text-teal-700 hover:underline"
                               >
                                 Download <Download className="h-3.5 w-3.5" />
-                              </a>
+                              </button>
                             </div>
                           ) : (
                             <span className="text-sm text-gray-400">-</span>

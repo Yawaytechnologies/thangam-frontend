@@ -28,7 +28,7 @@ export const adminsApi = {
     api.get(`/admins/${id}`).then((r) => r.data.data),
 
   getProfile: (): Promise<Admin> =>
-    api.get('/admin/profile').then((r) => r.data.data),
+    api.get('/admins/profile').then((r) => r.data.data),
 
   create: (data: CreateAdminData): Promise<Admin> =>
     api.post('/admins', data).then((r) => r.data.data),
@@ -44,7 +44,7 @@ export const adminsApi = {
 
   uploadPhoto: (id: string, file: File): Promise<Admin> => {
     const form = new FormData();
-    form.append('photo', file);
+    form.append('file', file);
     return api.post(`/admins/${id}/photo`, form, { skipAuthRedirect: true }).then((r) => r.data.data);
   },
 };
