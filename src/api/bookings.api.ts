@@ -48,7 +48,9 @@ export interface CreateBookingData {
   directorName?: string;
   signatureUrl?: string;
   branchId?: string;
-  status?: BookingStatus;
+  referralId?: string;
+  referralVersion?: number;
+  referralNotes?: string;
   payments?: BookingPaymentData[];
   denominations?: BookingDenominationData[];
 }
@@ -74,10 +76,11 @@ export const bookingsApi = {
   uploadSignature: (id: string, file: File): Promise<unknown> => {
     const form = new FormData();
     form.append('file', file);
-    form.append('entityType', 'booking');
-    form.append('entityId', id);
-    form.append('documentType', 'BOOKING_DOCUMENT');
-    return api.post('/documents/upload', form, { skipAuthRedirect: true }).then((r) => r.data.data);
+    return api
+      .post(`/documents/bookings/${id}/signature`, form, {
+        skipAuthRedirect: true,
+      })
+      .then((r) => r.data.data);
   },
 
   delete: (id: string): Promise<void> =>

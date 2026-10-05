@@ -11,21 +11,20 @@ export interface PropertyParams {
 }
 
 export interface CreatePropertyData {
+  branchId: string;
   propertyName: string;
   projectName: string;
   plotNumber: string;
   propertyType: PropertyType;
-  squareFeet?: number;
+  squareFeet: number;
   propertyCode?: string;
   facing?: string;
-  approvalStatus?: string;
   address?: string;
-  city?: string;
-  district?: string;
-  state?: string;
-  pincode?: string;
+  city: string;
+  district: string;
+  state: string;
+  pincode: string;
   mapLocation?: string;
-  branchId?: string;
 }
 
 export type UpdatePropertyData = Partial<CreatePropertyData>;

@@ -2,6 +2,7 @@ import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { authApi } from '../api/auth.api';
 import { useAuthStore } from '../stores/auth.store';
+import { getRoleHome } from '../lib/role-home';
 
 export function useLogin() {
   const setAuth = useAuthStore((s) => s.setAuth);
@@ -11,11 +12,7 @@ export function useLogin() {
     mutationFn: authApi.login,
     onSuccess: ({ user, accessToken, refreshToken }) => {
       setAuth(user, accessToken, refreshToken);
-      if (user.role === 'SUPER_ADMIN') {
-        navigate('/super-admin/dashboard');
-      } else if (user.role === 'ADMIN') {
-        navigate('/admin/dashboard');
-      }
+      navigate(getRoleHome(user.role), { replace: true });
     },
   });
 }

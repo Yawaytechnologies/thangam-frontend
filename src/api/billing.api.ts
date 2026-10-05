@@ -34,6 +34,7 @@ export interface CreateBillingData {
   chequeNumber?: string;
   chequeDate?: string;
   gpayReference?: string;
+  status?: BillingStatus;
 }
 
 export interface UpdateBillingData {

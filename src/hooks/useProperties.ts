@@ -1,3 +1,4 @@
+import { useAuthStore } from '../stores/auth.store';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   propertiesApi,
@@ -8,31 +9,39 @@ import {
 } from '../api/properties.api';
 
 export function useProperties(params?: PropertyParams) {
+  const user = useAuthStore(state => state.user);
+  const scope = [user?.id, user?.role, user?.admin?.branchId, user?.member?.branchId];
   return useQuery({
-    queryKey: ['properties', params],
+    queryKey: [...['properties', params], ...scope],
     queryFn: () => propertiesApi.getAll(params),
   });
 }
 
 export function useProperty(id: string) {
+  const user = useAuthStore(state => state.user);
+  const scope = [user?.id, user?.role, user?.admin?.branchId, user?.member?.branchId];
   return useQuery({
-    queryKey: ['properties', id],
+    queryKey: [...['properties', id], ...scope],
     queryFn: () => propertiesApi.getOne(id),
     enabled: !!id,
   });
 }
 
 export function usePropertyWorkflow(id: string) {
+  const user = useAuthStore(state => state.user);
+  const scope = [user?.id, user?.role, user?.admin?.branchId, user?.member?.branchId];
   return useQuery({
-    queryKey: ['properties', id, 'workflow'],
+    queryKey: [...['properties', id, 'workflow'], ...scope],
     queryFn: () => propertiesApi.getWorkflow(id),
     enabled: !!id,
   });
 }
 
 export function usePropertyDocuments(id: string) {
+  const user = useAuthStore(state => state.user);
+  const scope = [user?.id, user?.role, user?.admin?.branchId, user?.member?.branchId];
   return useQuery({
-    queryKey: ['properties', id, 'documents'],
+    queryKey: [...['properties', id, 'documents'], ...scope],
     queryFn: () => propertiesApi.getDocuments(id),
     enabled: !!id,
   });

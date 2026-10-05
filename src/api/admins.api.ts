@@ -12,7 +12,7 @@ export interface AdminParams {
 export interface CreateAdminData {
   fullName: string;
   phone: string;
-  email?: string;
+  email: string;
   branchId: string;
   password: string;
   status?: UserStatus;
@@ -42,9 +42,11 @@ export const adminsApi = {
   delete: (id: string): Promise<void> =>
     api.delete(`/admins/${id}`).then(() => undefined),
 
-  uploadPhoto: (id: string, file: File): Promise<Admin> => {
+  uploadPhoto: (id: string, file: File): Promise<{ profilePhotoUrl: string }> => {
     const form = new FormData();
-    form.append('photo', file);
-    return api.post(`/admins/${id}/photo`, form, { skipAuthRedirect: true }).then((r) => r.data.data);
+    form.append('file', file);
+    return api
+      .post(`/admins/${id}/photo`, form, { skipAuthRedirect: true })
+      .then((r) => r.data.data);
   },
 };

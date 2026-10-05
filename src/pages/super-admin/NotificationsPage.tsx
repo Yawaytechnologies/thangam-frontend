@@ -1,11 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import {
   useNotifications,
-  useNotification,
   useMarkRead,
   useMarkAllRead,
 } from '../../hooks/useNotifications';
 import { useBranches } from '../../hooks/useBranches';
+import { useMember } from '../../hooks/useMembers';
 import { Modal } from '../../components/ui/Modal';
 import type {
   NotificationType,
@@ -39,27 +39,6 @@ const TYPE_LABELS: Record<NotificationType, string> = {
 
 const inputClass =
   'border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold bg-white';
-
-function createDemoNotification(branchId?: string): NotificationRecipient {
-  return {
-    id: 'demo-notification',
-    notificationId: 'demo-notification',
-    userId: 'demo-user',
-    status: 'UNREAD',
-    notification: {
-      id: 'demo-notification',
-      title: 'New Property Booking Request',
-      message:
-        'A new reservation has been initiated for Emerald Heights Phase II by the Chennai Central Hub team. Please review the booking details and confirm the required KYC documents.',
-      type: 'BOOKING_ACTIVITY',
-      priority: 'HIGH',
-      bookingId: 'BK-9025',
-      propertyId: 'EMH-1024',
-      branchId: branchId ?? 'demo-branch',
-      createdAt: new Date().toISOString(),
-    },
-  };
-}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -160,10 +139,9 @@ interface DetailModalProps {
 
 function NotificationDetailModal({ open, onClose, recipient, onMarkRead, isPending, branchName }: DetailModalProps) {
   const n = recipient.notification;
-  const { data: full } = useNotification(n?.id ?? '', n?.id !== 'demo-notification');
-  const detail = (full ?? n) as NonNullable<typeof n>;
+  const memberId = n?.relatedModule === 'MEMBER' ? n.relatedEntityId ?? '' : '';
+  const { data: member } = useMember(memberId);
   const isUnread = recipient.status === 'UNREAD';
-  const isDemo = recipient.id === 'demo-notification';
 
   if (!n) return null;
 
@@ -197,7 +175,7 @@ function NotificationDetailModal({ open, onClose, recipient, onMarkRead, isPendi
           {[
             ['Module', TYPE_LABELS[n.type]],
             ['Branch', branchName ?? (n.branchId ? `Branch ${n.branchId.slice(0, 8)}…` : '—')],
-            ['Timestamp', detail?.createdAt ? fullDateTime(detail.createdAt) : '—'],
+            ['Timestamp', n.createdAt ? fullDateTime(n.createdAt) : '—'],
           ].map(([label, value]) => (
             <div key={label} className="flex items-center justify-between">
               <span className="text-xs text-gray-400">{label}</span>
@@ -207,18 +185,25 @@ function NotificationDetailModal({ open, onClose, recipient, onMarkRead, isPendi
         </div>
 
         <div className="grid gap-3 md:grid-cols-2">
-          <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Personnel</p>
-            <div className="mt-3 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-gold/10 flex items-center justify-center text-gold text-sm font-bold">
-                RK
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-gray-900">Rajesh Kumar</p>
-                <p className="text-xs text-gray-400">Senior Manager</p>
+          {member && (
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Member</p>
+              <div className="mt-3 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-gold/10 flex items-center justify-center text-gold text-sm font-bold">
+                  {member.fullName.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase()}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">{member.fullName}</p>
+                  <p className="text-xs text-gray-400">
+                    {member.memberId} · {member.role.replaceAll('_', ' ').toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase())}
+                  </p>
+                  {member.reportsTo?.fullName && (
+                    <p className="mt-1 text-xs text-gray-500">Reports to {member.reportsTo.fullName}</p>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {n.propertyId && (
             <div className="bg-white rounded-xl border border-gray-200 p-4">
@@ -227,12 +212,10 @@ function NotificationDetailModal({ open, onClose, recipient, onMarkRead, isPendi
                 <div className="w-16 h-16 rounded-xl bg-gray-200 shrink-0" />
                 <div>
                   <p className="text-sm font-semibold text-gray-900">
-                    {detail.propertyId === 'EMH-1024'
-                      ? 'Emerald Heights Phase II'
-                      : `Property ${detail.propertyId?.slice(0, 8)}`}
+                    {`Property ${n.propertyId?.slice(0, 8)}`}
                   </p>
                   <p className="text-xs text-gray-400">
-                    {detail.propertyId === 'EMH-1024' ? 'OMR, Chennai South' : 'View property details'}
+                    View property details
                   </p>
                 </div>
               </div>
@@ -272,10 +255,10 @@ function NotificationDetailModal({ open, onClose, recipient, onMarkRead, isPendi
             <button
               type="button"
               onClick={onMarkRead}
-              disabled={isPending || isDemo}
+              disabled={isPending}
               className="bg-gold text-navy font-semibold px-4 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 text-sm"
             >
-              {isDemo ? 'Demo only' : isPending ? 'Resolving...' : 'Mark as Read & Resolve'}
+              {isPending ? 'Resolving...' : 'Mark as Read & Resolve'}
             </button>
           )}
         </div>
@@ -313,24 +296,11 @@ const SuperAdminNotificationsPage: React.FC = () => {
   const allRecipients = data?.data ?? [];
   const total = data?.total ?? 0;
 
-  const demoNotification = useMemo(
-    () => createDemoNotification(branches[0]?.id),
-    [branches],
-  );
-
-  const notificationsToDisplay = allRecipients.length > 0 ? allRecipients : [demoNotification];
-  const isDemoMode = allRecipients.length === 0;
-
   function getBranchName(branchId?: string) {
-    return branches.find((b) => b.id === branchId)?.name ?? branchId ?? '—';
+    return branches.find((b) => b.id === branchId)?.name ?? 'Branch unavailable';
   }
 
   function handleMarkRead(nr: NotificationRecipient) {
-    if (nr.id === 'demo-notification') {
-      setDetailRecipient(null);
-      return;
-    }
-
     markRead.mutate(nr.id, {
       onSuccess: () => setDetailRecipient(null),
     });
@@ -403,13 +373,12 @@ const SuperAdminNotificationsPage: React.FC = () => {
         <div className="text-center py-16 text-gray-400">Loading notifications...</div>
       ) : (
         <>
-          {isDemoMode && (
-            <div className="mb-4 rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">
-              Demo notification example is shown below. Live notifications will appear here once available.
+          {allRecipients.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-gray-200 bg-white px-6 py-16 text-center">
+              <p className="text-base font-semibold text-gray-700">No notifications found</p>
+              <p className="mt-2 text-sm text-gray-400">New system activities will appear here.</p>
             </div>
-          )}
-
-          {notificationsToDisplay.map((nr) => {
+          ) : allRecipients.map((nr) => {
             const n = nr.notification;
             if (!n) return null;
             const isUnread = nr.status === 'UNREAD';
@@ -453,7 +422,7 @@ const SuperAdminNotificationsPage: React.FC = () => {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                               d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                           </svg>
-                          {getBranchName(n.branchId)}
+                          {n.branch?.name ?? getBranchName(n.branchId)}
                         </span>
                       )}
                       {(n.bookingId || n.billingId) && (
@@ -479,11 +448,11 @@ const SuperAdminNotificationsPage: React.FC = () => {
                       {isUnread && (
                         <button
                           type="button"
-                          onClick={() => nr.id !== 'demo-notification' && markRead.mutate(nr.id)}
-                          disabled={nr.id === 'demo-notification' || markRead.isPending}
+                          onClick={() => markRead.mutate(nr.id)}
+                          disabled={markRead.isPending}
                           className="text-xs text-gray-500 hover:text-gray-700 font-medium disabled:opacity-50"
                         >
-                          {nr.id === 'demo-notification' ? 'Demo only' : 'Mark as Read'}
+                          Mark as Read
                         </button>
                       )}
                     </div>
@@ -521,7 +490,7 @@ const SuperAdminNotificationsPage: React.FC = () => {
           recipient={detailRecipient}
           onMarkRead={() => handleMarkRead(detailRecipient)}
           isPending={markRead.isPending}
-          branchName={getBranchName(detailRecipient.notification?.branchId)}
+          branchName={detailRecipient.notification?.branch?.name ?? getBranchName(detailRecipient.notification?.branchId)}
         />
       )}
     </div>

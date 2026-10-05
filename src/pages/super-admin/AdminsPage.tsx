@@ -13,6 +13,7 @@ import { Pagination } from '../../components/ui/Pagination';
 import { Modal } from '../../components/ui/Modal';
 import type { CreateAdminData, UpdateAdminData } from '../../api/admins.api';
 import type { Admin, UserStatus } from '../../types';
+import { getApiError } from '../../lib/api-error';
 
 const inputClass =
   'w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-gold';
@@ -261,11 +262,29 @@ function formatDate(iso: string): string {
   });
 }
 
+function formatOptionalDate(iso?: string | null): string {
+  return iso ? formatDate(iso) : 'Never';
+}
+
+const ADMIN_PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const ADMIN_PHOTO_MAX_BYTES = 5 * 1024 * 1024;
+
+function validateAdminPhoto(file: File): string | null {
+  if (!ADMIN_PHOTO_TYPES.includes(file.type)) {
+    return 'Select a JPEG, PNG, or WebP image.';
+  }
+  if (file.size > ADMIN_PHOTO_MAX_BYTES) {
+    return 'Profile photo must be 5 MB or smaller.';
+  }
+  return null;
+}
+
 function getAdminPhoto(admin: Admin): string {
   const raw = admin as unknown as Record<string, unknown>;
 
   return (
     (typeof raw.photo === 'string' && raw.photo) ||
+    (typeof raw.profilePhotoUrl === 'string' && raw.profilePhotoUrl) ||
     (typeof raw.photoUrl === 'string' && raw.photoUrl) ||
     (typeof raw.profilePhoto === 'string' && raw.profilePhoto) ||
     (typeof raw.profileImage === 'string' && raw.profileImage) ||
@@ -342,10 +361,29 @@ function ViewAdminModal({ open, onClose, admin }: ViewAdminModalProps) {
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {[
+            { label: 'Admin ID', value: admin.adminId },
+            { label: 'Role', value: admin.user?.role ?? 'ADMIN' },
             { label: 'Phone', value: admin.phone },
             { label: 'Email', value: admin.email ?? '—' },
             { label: 'Branch', value: admin.branch?.name ?? '—' },
+            { label: 'Branch Code', value: admin.branch?.branchCode ?? '—' },
+            {
+              label: 'Branch Location',
+              value:
+                [admin.branch?.city, admin.branch?.state]
+                  .filter(Boolean)
+                  .join(', ') || '—',
+            },
+            { label: 'Account Status', value: admin.status },
+            {
+              label: 'Last Login',
+              value: formatOptionalDate(admin.user?.lastLoginAt),
+            },
             { label: 'Created', value: formatDate(admin.createdAt) },
+            {
+              label: 'Last Updated',
+              value: admin.updatedAt ? formatDate(admin.updatedAt) : '—',
+            },
           ].map(({ label, value }) => (
             <div key={label} className="rounded-lg bg-gray-50 p-3">
               <p className="mb-1 text-xs uppercase tracking-wide text-gray-400">
@@ -394,6 +432,8 @@ function AddAdminModal({ open, onClose }: AddAdminModalProps) {
 
   const [showPassword, setShowPassword] = useState(false);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [formError, setFormError] = useState('');
+  const [createdAdminId, setCreatedAdminId] = useState<string | null>(null);
 
   function handleClose() {
     onClose();
@@ -406,33 +446,44 @@ function AddAdminModal({ open, onClose }: AddAdminModalProps) {
       status: 'ACTIVE',
     });
     setPhotoFile(null);
+    setFormError('');
+    setCreatedAdminId(null);
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setFormError('');
+    let accountCreated = Boolean(createdAdminId);
 
-    create.mutate(
-      {
-        fullName: form.fullName,
-        phone: form.phone,
-        branchId: form.branchId,
-        password: form.password,
-        email: form.email || undefined,
-        status: form.status,
-      },
-      {
-        onSuccess: (newAdmin) => {
-          if (photoFile) {
-            uploadAdminPhoto.mutate({
-              id: newAdmin.id,
-              file: photoFile,
-            });
-          }
-
-          handleClose();
-        },
+    try {
+      let adminId = createdAdminId;
+      if (!adminId) {
+        const newAdmin = await create.mutateAsync({
+          fullName: form.fullName,
+          phone: form.phone,
+          branchId: form.branchId,
+          password: form.password,
+          email: form.email,
+          status: form.status,
+        });
+        adminId = newAdmin.id;
+        accountCreated = true;
+        setCreatedAdminId(adminId);
       }
-    );
+
+      if (photoFile) {
+        await uploadAdminPhoto.mutateAsync({ id: adminId, file: photoFile });
+      }
+
+      handleClose();
+    } catch (error) {
+      const message = getApiError(error);
+      setFormError(
+        accountCreated
+          ? `Admin was created, but the photo upload failed: ${message}. Press Retry Photo Upload to try again.`
+          : message
+      );
+    }
   }
 
   return (
@@ -462,10 +513,19 @@ function AddAdminModal({ open, onClose }: AddAdminModalProps) {
           <label className={labelClass}>Profile Photo</label>
           <input
             type="file"
-            accept="image/*"
-            onChange={(e) => setPhotoFile(e.target.files?.[0] ?? null)}
+            accept="image/jpeg,image/png,image/webp"
+            onChange={(e) => {
+              const file = e.target.files?.[0] ?? null;
+              const error = file ? validateAdminPhoto(file) : null;
+              setFormError(error ?? '');
+              setPhotoFile(error ? null : file);
+              if (error) e.target.value = '';
+            }}
             className="block w-full text-sm text-gray-500 file:mr-4 file:rounded-lg file:border-0 file:bg-gold/10 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-[#94750d] hover:file:bg-gold/20"
           />
+          <p className="mt-1 text-xs text-gray-400">
+            JPEG, PNG or WebP, maximum 5 MB.
+          </p>
         </div>
 
         <div>
@@ -487,9 +547,9 @@ function AddAdminModal({ open, onClose }: AddAdminModalProps) {
           <input
             type="tel"
             required
-            pattern="[6-9][0-9]{9}"
+            pattern="[789][0-9]{9}"
             maxLength={10}
-            title="Enter a valid 10-digit Indian mobile number"
+            title="Enter a 10-digit mobile number starting with 7, 8, or 9"
             placeholder="9876543210"
             value={form.phone}
             onChange={(e) =>
@@ -503,9 +563,10 @@ function AddAdminModal({ open, onClose }: AddAdminModalProps) {
         </div>
 
         <div>
-          <label className={labelClass}>Email Address</label>
+          <label className={labelClass}>Email Address *</label>
           <input
             type="email"
+            required
             placeholder="admin@thangam.com"
             value={form.email ?? ''}
             onChange={(e) =>
@@ -565,6 +626,15 @@ function AddAdminModal({ open, onClose }: AddAdminModalProps) {
           </div>
         </div>
 
+        {formError && (
+          <p
+            role="alert"
+            className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"
+          >
+            {formError}
+          </p>
+        )}
+
         <div className="flex justify-end gap-3 pt-2">
           <button
             type="button"
@@ -576,10 +646,16 @@ function AddAdminModal({ open, onClose }: AddAdminModalProps) {
 
           <button
             type="submit"
-            disabled={create.isPending}
+            disabled={create.isPending || uploadAdminPhoto.isPending}
             className="rounded-lg bg-gold px-4 py-2 text-sm font-semibold text-navy hover:opacity-90 disabled:opacity-50"
           >
-            {create.isPending ? 'Creating...' : 'Create Admin Account'}
+            {create.isPending || uploadAdminPhoto.isPending
+              ? createdAdminId
+                ? 'Uploading...'
+                : 'Creating...'
+              : createdAdminId
+                ? 'Retry Photo Upload'
+                : 'Create Admin Account'}
           </button>
         </div>
       </form>
@@ -626,50 +702,45 @@ function EditAdminModalContent({ open, onClose, admin }: EditAdminModalProps) {
   );
 
   const [editPhotoFile, setEditPhotoFile] = useState<File | null>(null);
+  const [formError, setFormError] = useState('');
 
   function handleClose() {
     setEditPhotoFile(null);
+    setFormError('');
     onClose();
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setFormError('');
 
     const statusChanged = form.status !== admin.status;
 
-    update.mutate(
-      {
+    try {
+      await update.mutateAsync({
         id: admin.id,
         data: {
           fullName: form.fullName,
           phone: form.phone,
           branchId: form.branchId,
-          email: form.email || undefined,
+          email: form.email,
         },
-      },
-      {
-        onSuccess: () => {
-          if (editPhotoFile) {
-            uploadAdminPhoto.mutate({
-              id: admin.id,
-              file: editPhotoFile,
-            });
-          }
+      });
 
-          if (statusChanged) {
-            updateStatus.mutate(
-              { id: admin.id, status: form.status },
-              { onSuccess: handleClose }
-            );
-          } else {
-            handleClose();
-          }
-        },
+      if (editPhotoFile) {
+        await uploadAdminPhoto.mutateAsync({ id: admin.id, file: editPhotoFile });
       }
-    );
+      if (statusChanged) {
+        await updateStatus.mutateAsync({ id: admin.id, status: form.status });
+      }
+      handleClose();
+    } catch (error) {
+      setFormError(getApiError(error));
+    }
   }
 
-  const isPending = update.isPending || updateStatus.isPending;
+  const isPending =
+    update.isPending || updateStatus.isPending || uploadAdminPhoto.isPending;
   const initials = getInitials(admin.fullName);
   const photo = getAdminPhoto(admin);
 
@@ -702,10 +773,19 @@ function EditAdminModalContent({ open, onClose, admin }: EditAdminModalProps) {
 
             <input
               type="file"
-              accept="image/*"
-              onChange={(e) => setEditPhotoFile(e.target.files?.[0] ?? null)}
+              accept="image/jpeg,image/png,image/webp"
+              onChange={(e) => {
+                const file = e.target.files?.[0] ?? null;
+                const error = file ? validateAdminPhoto(file) : null;
+                setFormError(error ?? '');
+                setEditPhotoFile(error ? null : file);
+                if (error) e.target.value = '';
+              }}
               className="block w-full text-sm text-gray-500 file:mr-4 file:rounded-lg file:border-0 file:bg-gold/10 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-[#94750d] hover:file:bg-gold/20"
             />
+            <p className="mt-1 text-xs text-gray-400">
+              JPEG, PNG or WebP, maximum 5 MB.
+            </p>
           </div>
         </div>
 
@@ -756,9 +836,9 @@ function EditAdminModalContent({ open, onClose, admin }: EditAdminModalProps) {
             <input
               type="tel"
               required
-              pattern="[6-9][0-9]{9}"
+              pattern="[789][0-9]{9}"
               maxLength={10}
-              title="Enter a valid 10-digit Indian mobile number"
+              title="Enter a 10-digit mobile number starting with 7, 8, or 9"
               placeholder="9876543210"
               value={form.phone ?? ''}
               onChange={(e) =>
@@ -772,9 +852,10 @@ function EditAdminModalContent({ open, onClose, admin }: EditAdminModalProps) {
           </div>
 
           <div>
-            <label className={labelClass}>Email Address</label>
+            <label className={labelClass}>Email Address *</label>
             <input
               type="email"
+              required
               value={form.email ?? ''}
               onChange={(e) =>
                 setForm((current) => ({
@@ -812,6 +893,34 @@ function EditAdminModalContent({ open, onClose, admin }: EditAdminModalProps) {
             Reset Password
           </button>
         </div>
+
+        <div className="grid grid-cols-1 gap-3 rounded-lg border border-gray-100 bg-gray-50 p-3 md:grid-cols-3">
+          <div>
+            <p className={labelClass}>Admin ID</p>
+            <p className="text-sm font-medium text-gray-800">{admin.adminId}</p>
+          </div>
+          <div>
+            <p className={labelClass}>Role</p>
+            <p className="text-sm font-medium text-gray-800">
+              {admin.user?.role ?? 'ADMIN'}
+            </p>
+          </div>
+          <div>
+            <p className={labelClass}>Last Login</p>
+            <p className="text-sm font-medium text-gray-800">
+              {formatOptionalDate(admin.user?.lastLoginAt)}
+            </p>
+          </div>
+        </div>
+
+        {formError && (
+          <p
+            role="alert"
+            className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"
+          >
+            {formError}
+          </p>
+        )}
 
         <div className="flex justify-end gap-3 pt-2">
           <button

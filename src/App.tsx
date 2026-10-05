@@ -25,11 +25,18 @@ import AddMemberPage from './pages/admin/AddMemberPage';
 import MembersListPage from './pages/admin/MembersListPage';
 import AdminPropertiesPage from './pages/admin/PropertiesPage';
 import AdminBookingsPage from './pages/admin/BookingsPage';
+import AdminReferralsPage from './pages/admin/ReferralsPage';
 import AdminBillingPage from './pages/admin/BillingPage';
 import AdminNotificationsPage from './pages/admin/NotificationsPage';
 import AdminProfilePage from './pages/admin/ProfilePage';
 import BranchMembersPage from './pages/admin/BranchMembersPage';
 import { ProtectedRoute } from './components/layout/ProtectedRoute';
+import { getRoleHome } from './lib/role-home';
+import DirectorLayout from './components/layout/DirectorLayout';
+import DirectorDashboardPage from './pages/director/DirectorDashboardPage';
+import DirectorTeamPage from './pages/director/DirectorTeamPage';
+import DirectorNotificationsPage from './pages/director/DirectorNotificationsPage';
+import DirectorMemberDetailsPage from './pages/director/DirectorMemberDetailsPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -80,6 +87,7 @@ function AppRoutes() {
           <Route path="/admin/members"       element={<MembersListPage />} />
           <Route path="/admin/properties"    element={<AdminPropertiesPage />} />
           <Route path="/admin/bookings"      element={<AdminBookingsPage />} />
+          <Route path="/admin/referrals"     element={<AdminReferralsPage />} />
           <Route path="/admin/billing"       element={<AdminBillingPage />} />
           <Route path="/admin/notifications"   element={<AdminNotificationsPage />} />
           <Route path="/admin/profile"         element={<AdminProfilePage />} />
@@ -87,12 +95,21 @@ function AppRoutes() {
         </Route>
       </Route>
 
+      <Route element={<ProtectedRoute allowedRoles={['DIRECTOR']} />}>
+        <Route element={<DirectorLayout />}>
+          <Route path="/director/dashboard" element={<DirectorDashboardPage />} />
+          <Route path="/director/team" element={<DirectorTeamPage />} />
+          <Route path="/director/notifications" element={<DirectorNotificationsPage />} />
+          <Route path="/director/team/:memberId" element={<DirectorMemberDetailsPage />} />
+        </Route>
+      </Route>
+
       <Route
         path="/"
         element={
-          user?.role === 'SUPER_ADMIN' ? <Navigate to="/super-admin/dashboard" replace />
-          : user?.role === 'ADMIN'     ? <Navigate to="/admin/dashboard" replace />
-          : <Navigate to="/login" replace />
+          user
+            ? <Navigate to={getRoleHome(user.role)} replace />
+            : <Navigate to="/login" replace />
         }
       />
       <Route path="*" element={<NotFoundPage />} />

@@ -4,6 +4,7 @@ import { StatusBadge } from '../../components/ui/StatusBadge';
 import { Modal } from '../../components/ui/Modal';
 import type { CreateBranchData, UpdateBranchData } from '../../api/branches.api';
 import type { Branch, BranchStatus } from '../../types';
+import { getApiError } from '../../lib/api-error';
 
 // ─── Icons ───────────────────────────────────────────────────────────────────
 
@@ -65,17 +66,58 @@ interface CreateBranchModalProps {
 
 function CreateBranchModal({ open, onClose }: CreateBranchModalProps) {
   const create = useCreateBranch();
-  const [form, setForm] = useState<CreateBranchData>({ name: '' });
+  const emptyForm: CreateBranchData = {
+    name: '',
+    branchType: '',
+    phone: '',
+    address: '',
+    city: '',
+    district: '',
+    state: '',
+    pincode: '',
+  };
+  const [form, setForm] = useState<CreateBranchData>(emptyForm);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [formError, setFormError] = useState('');
+
+  function setImages(files: File[]) {
+    setFormError('');
+    if (files.length > 5) {
+      setFormError('You can upload a maximum of 5 branch images.');
+      return;
+    }
+    const invalid = files.find(
+      (file) =>
+        !['image/jpeg', 'image/png', 'image/webp'].includes(file.type) ||
+        file.size > 5 * 1024 * 1024,
+    );
+    if (invalid) {
+      setFormError(
+        `${invalid.name}: use JPEG, PNG or WebP images of 5 MB or less.`,
+      );
+      return;
+    }
+    setImageFiles(files);
+    setForm((current) => ({ ...current, images: files }));
+  }
+
+  function handleClose() {
+    setForm(emptyForm);
+    setImageFiles([]);
+    setFormError('');
+    if (imageInputRef.current) imageInputRef.current.value = '';
+    onClose();
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setFormError('');
     create.mutate(form, {
       onSuccess: () => {
-        onClose();
-        setForm({ name: '' });
+        handleClose();
       },
+      onError: (error) => setFormError(getApiError(error)),
     });
   }
 
@@ -86,7 +128,7 @@ function CreateBranchModal({ open, onClose }: CreateBranchModalProps) {
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={handleClose}
       title="Create New Branch"
       subtitle="Add a new regional branch to the organisation."
       size="lg"
@@ -108,8 +150,9 @@ function CreateBranchModal({ open, onClose }: CreateBranchModalProps) {
         {/* Branch Type + Phone */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className={labelClass}>Branch Type</label>
+            <label className={labelClass}>Branch Type *</label>
             <select
+              required
               value={form.branchType ?? ''}
               onChange={(e) => field('branchType', e.target.value)}
               className={inputClass}
@@ -122,32 +165,25 @@ function CreateBranchModal({ open, onClose }: CreateBranchModalProps) {
             </select>
           </div>
           <div>
-            <label className={labelClass}>Phone Number</label>
+            <label className={labelClass}>Phone Number *</label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
                 <PhoneIcon />
               </span>
               <input
                 type="tel"
-                placeholder="+91 98765 43210"
+                required
+                inputMode="numeric"
+                pattern="[789][0-9]{9}"
+                maxLength={10}
+                title="Enter a 10-digit mobile number starting with 7, 8, or 9"
+                placeholder="9876543210"
                 value={form.phone ?? ''}
-                onChange={(e) => field('phone', e.target.value)}
+                onChange={(e) => field('phone', e.target.value.replace(/\D/g, '').slice(0, 10))}
                 className={`${inputClass} pl-9`}
               />
             </div>
           </div>
-        </div>
-
-        {/* Admin ID */}
-        <div>
-          <label className={labelClass}>Admin ID</label>
-          <input
-            type="text"
-            placeholder="UUID"
-            value={form.adminId ?? ''}
-            onChange={(e) => field('adminId', e.target.value)}
-            className={inputClass}
-          />
         </div>
 
         {/* Branch Images upload */}
@@ -156,6 +192,11 @@ function CreateBranchModal({ open, onClose }: CreateBranchModalProps) {
           <div
             className="border-2 border-dashed border-gray-200 rounded-xl p-6 flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-gold transition-colors bg-gray-50"
             onClick={() => imageInputRef.current?.click()}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault();
+              setImages(Array.from(event.dataTransfer.files));
+            }}
           >
             <input
               type="file"
@@ -165,8 +206,7 @@ function CreateBranchModal({ open, onClose }: CreateBranchModalProps) {
               className="hidden"
               onChange={(e) => {
                 const files = Array.from(e.target.files || []);
-                setImageFiles(files);
-                setForm((f) => ({ ...f, images: files }));
+                setImages(files);
               }}
             />
             <UploadIcon />
@@ -201,13 +241,14 @@ function CreateBranchModal({ open, onClose }: CreateBranchModalProps) {
 
         {/* Location Address */}
         <div>
-          <label className={labelClass}>Location Address</label>
+          <label className={labelClass}>Location Address *</label>
           <div className="relative">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
               <PinIcon />
             </span>
             <input
               type="text"
+              required
               placeholder="Street address"
               value={form.address ?? ''}
               onChange={(e) => field('address', e.target.value)}
@@ -219,9 +260,10 @@ function CreateBranchModal({ open, onClose }: CreateBranchModalProps) {
         {/* City / District / State / Pincode */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className={labelClass}>City</label>
+            <label className={labelClass}>City *</label>
             <input
               type="text"
+              required
               placeholder="Chennai"
               value={form.city ?? ''}
               onChange={(e) => field('city', e.target.value)}
@@ -229,9 +271,10 @@ function CreateBranchModal({ open, onClose }: CreateBranchModalProps) {
             />
           </div>
           <div>
-            <label className={labelClass}>District</label>
+            <label className={labelClass}>District *</label>
             <input
               type="text"
+              required
               placeholder="Chennai"
               value={form.district ?? ''}
               onChange={(e) => field('district', e.target.value)}
@@ -239,9 +282,10 @@ function CreateBranchModal({ open, onClose }: CreateBranchModalProps) {
             />
           </div>
           <div>
-            <label className={labelClass}>State</label>
+            <label className={labelClass}>State *</label>
             <input
               type="text"
+              required
               placeholder="Tamil Nadu"
               value={form.state ?? ''}
               onChange={(e) => field('state', e.target.value)}
@@ -249,12 +293,17 @@ function CreateBranchModal({ open, onClose }: CreateBranchModalProps) {
             />
           </div>
           <div>
-            <label className={labelClass}>Pincode</label>
+            <label className={labelClass}>Pincode *</label>
             <input
               type="text"
+              required
+              inputMode="numeric"
+              pattern="[0-9]{6}"
+              maxLength={6}
+              title="Enter a valid 6-digit pincode"
               placeholder="600001"
               value={form.pincode ?? ''}
-              onChange={(e) => field('pincode', e.target.value)}
+              onChange={(e) => field('pincode', e.target.value.replace(/\D/g, '').slice(0, 6))}
               className={inputClass}
             />
           </div>
@@ -262,10 +311,17 @@ function CreateBranchModal({ open, onClose }: CreateBranchModalProps) {
 
 
 
+
+        {formError && (
+          <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+            {formError}
+          </p>
+        )}
+
         <div className="flex justify-end gap-3 pt-2">
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 text-sm"
           >
             Cancel
@@ -305,10 +361,43 @@ function EditBranchModal({ open, onClose, branch }: EditBranchModalProps) {
   });
   const [imageFile, setImageFile] = useState<File | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const [formError, setFormError] = useState('');
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    update.mutate({ id: branch.id, data: form }, { onSuccess: onClose });
+    setFormError('');
+    update.mutate(
+      {
+        id: branch.id,
+        data: {
+          ...form,
+          ...(imageFile ? { images: [imageFile] } : {}),
+        },
+      },
+      {
+        onSuccess: onClose,
+        onError: (error) => setFormError(getApiError(error)),
+      },
+    );
+  }
+
+  function selectEditImage(file: File | undefined) {
+    setFormError('');
+    if (!file) {
+      setImageFile(null);
+      return;
+    }
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setFormError('Use a JPEG, PNG or WebP branch image.');
+      setImageFile(null);
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setFormError('Branch image must be 5 MB or smaller.');
+      setImageFile(null);
+      return;
+    }
+    setImageFile(file);
   }
 
   function field<K extends keyof UpdateBranchData>(key: K, value: string) {
@@ -356,10 +445,15 @@ function EditBranchModal({ open, onClose, branch }: EditBranchModalProps) {
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
                 <PhoneIcon />
               </span>
-              <input
-                type="tel"
-                value={form.phone ?? ''}
-                onChange={(e) => field('phone', e.target.value)}
+            <input
+              type="tel"
+              required
+              inputMode="numeric"
+              pattern="[789][0-9]{9}"
+              maxLength={10}
+              title="Enter a 10-digit mobile number starting with 7, 8, or 9"
+              value={form.phone ?? ''}
+              onChange={(e) => field('phone', e.target.value.replace(/\D/g, '').slice(0, 10))}
                 className={`${inputClass} pl-9`}
               />
             </div>
@@ -410,19 +504,18 @@ function EditBranchModal({ open, onClose, branch }: EditBranchModalProps) {
           >
             <input
               type="file"
-              accept="image/*"
+              accept="image/jpeg,image/png,image/webp"
               ref={imageInputRef}
               className="hidden"
               onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) setImageFile(file);
+                selectEditImage(e.target.files?.[0]);
               }}
             />
             <UploadIcon />
             <p className="text-sm font-medium text-gray-600">
               {imageFile ? 'Replace selected branch image' : 'Choose a new branch image'}
             </p>
-            <p className="text-xs text-gray-400">PNG, JPG up to 10MB</p>
+            <p className="text-xs text-gray-400">JPEG, PNG or WebP up to 5 MB</p>
             {imageFile && <p className="text-xs text-gray-500">{imageFile.name}</p>}
             <button
               type="button"
@@ -436,6 +529,12 @@ function EditBranchModal({ open, onClose, branch }: EditBranchModalProps) {
             </button>
           </div>
         </div>
+
+        {formError && (
+          <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+            {formError}
+          </p>
+        )}
 
         <div className="flex justify-end gap-3 pt-2">
           <button type="button" onClick={onClose} className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 text-sm">
