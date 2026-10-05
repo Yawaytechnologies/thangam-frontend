@@ -84,8 +84,25 @@ export interface Admin {
   email?: string;
   branchId: string;
   branch?: Branch;
+  photo?: string | null;
+  profilePhotoUrl?: string | null;
   status: UserStatus;
   createdAt: string;
+  updatedAt?: string;
+  user?: {
+    id: string;
+    email?: string | null;
+    phone?: string | null;
+    role: Role;
+    status: UserStatus;
+    lastLoginAt?: string | null;
+    createdAt?: string;
+  };
+  activitySummary?: {
+    membersAdded: number;
+    bookingsHandled: number;
+    billingUpdates: number;
+  };
 }
 
 export interface Member {
@@ -133,6 +150,8 @@ export interface Member {
 
 export interface Property {
   id: string;
+  branchId?: string | null;
+  branch?: Pick<Branch, 'id' | 'branchCode' | 'name' | 'status'> | null;
   propertyId: string;
   propertyName: string;
   projectName: string;
@@ -146,7 +165,6 @@ export interface Property {
   state?: string;
   pincode?: string;
   mapLocation?: string;
-  branchId?: string;
   approvalStatus?: string;
   createdAt: string;
   // detail-view fields (returned by getOne)
@@ -248,11 +266,13 @@ export interface Notification {
   readAt?: string;
   relatedEntityId?: string;
   relatedEntityType?: string;
+  relatedModule?: string;
   metadata?: Record<string, unknown>;
   bookingId?: string;
   billingId?: string;
   propertyId?: string;
   branchId?: string;
+  branch?: Pick<Branch, 'id' | 'name' | 'branchCode'>;
   updatedAt?: string;
   createdAt: string;
   recipients?: NotificationRecipient[];

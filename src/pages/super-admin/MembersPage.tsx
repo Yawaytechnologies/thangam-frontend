@@ -84,6 +84,7 @@ type MemberRecord = {
   avatarUrl?: string | null;
   profileImage?: string | null;
   profileImageUrl?: string | null;
+  profilePhotoUrl?: string | null;
   photoUrl?: string | null;
   imageUrl?: string | null;
   image?: string | null;
@@ -162,8 +163,8 @@ type MemberEditForm = {
 
 const ROLE_FLOW: MemberRole[] = [
   'DIRECTOR',
-  'DEPUTY_DIRECTOR',
   'EXECUTIVE_DIRECTOR',
+  'DEPUTY_DIRECTOR',
   'SENIOR_MANAGER',
   'BUSINESS_MANAGER',
   'AGENT',
@@ -252,6 +253,7 @@ function getAvatarUrl(member: MemberRecord) {
     member.avatarUrl ||
     member.profileImage ||
     member.profileImageUrl ||
+    member.profilePhotoUrl ||
     member.photoUrl ||
     member.imageUrl ||
     member.image ||
@@ -734,6 +736,144 @@ function BranchDirectorSection({
         })}
       </div>
     </section>
+  );
+}
+
+function BoardDirectorCard({
+  director,
+  teamSize,
+  activeCount,
+  pendingCount,
+  downlineMembers,
+  onOpen,
+}: {
+  director: HierarchyNode;
+  teamSize: number;
+  activeCount: number;
+  pendingCount: number;
+  downlineMembers: HierarchyNode[];
+  onOpen: () => void;
+}) {
+  const [expandedParents, setExpandedParents] = useState<Record<string, boolean>>({});
+  const [showAllDownline, setShowAllDownline] = useState(false);
+
+  function renderChildren(parent: HierarchyNode, depth = 0): React.ReactNode {
+    const children = downlineMembers.filter((member) => getReportsToId(member) === parent.id);
+    const expanded = Boolean(expandedParents[parent.id]);
+    const visibleChildren = expanded ? children : children.slice(0, 2);
+    const remainingCount = children.length - visibleChildren.length;
+
+    if (children.length === 0) return null;
+
+    return (
+      <div
+        className={
+          depth === 0
+            ? 'ml-5 space-y-2 border-l border-slate-200 pb-1 pl-5 pt-4'
+            : 'ml-4 mt-2 space-y-2 border-l border-slate-200 pl-4'
+        }
+      >
+        {visibleChildren.map((member) => (
+          <div key={member.id}>
+            <div
+              className="relative flex w-full items-center justify-between gap-2 rounded-[10px] border border-slate-200 bg-white px-3 py-2.5 text-left shadow-[0_4px_12px_rgba(15,20,25,0.04)]"
+            >
+              <span className="absolute -left-5 top-1/2 h-px w-5 bg-slate-200" />
+              <span className="truncate text-[11px] font-black text-slate-900">{member.fullName}</span>
+              <span className="shrink-0 text-[8px] font-bold text-slate-500">{ROLE_LABELS[member.role]}</span>
+            </div>
+            {renderChildren(member, depth + 1)}
+          </div>
+        ))}
+        {!expanded && remainingCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setExpandedParents((current) => ({ ...current, [parent.id]: true }))}
+            className="relative w-full rounded-[10px] border border-[#eadba4] bg-[#fffaf0] px-3 py-2.5 text-left text-[10px] font-black text-[#806000] shadow-[0_4px_12px_rgba(15,20,25,0.04)] hover:bg-[#fff4d6]"
+          >
+            <span className="absolute -left-5 top-1/2 h-px w-5 bg-slate-200" />
+            +{remainingCount} {remainingCount === 1 ? 'Other' : 'Others'}
+          </button>
+        )}
+        {expanded && children.length > 2 && (
+          <button
+            type="button"
+            onClick={() => setExpandedParents((current) => ({ ...current, [parent.id]: false }))}
+            className="w-full text-center text-[9px] font-bold text-slate-500 hover:text-slate-800"
+          >
+            Show less
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <article className="min-w-0">
+      <button type="button" onClick={onOpen} className="w-full rounded-[14px] border border-slate-200 bg-white p-3 text-left shadow-[0_8px_20px_rgba(15,20,25,0.08)] transition hover:-translate-y-0.5 hover:border-[#c9a227]/50">
+        <div className="flex items-start gap-3">
+          <Avatar member={director} size="md" />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2">
+              <h3 className="truncate text-[14px] font-black text-slate-950">{director.fullName}</h3>
+              <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-1 text-[8px] font-black uppercase text-emerald-700">
+                Director
+              </span>
+            </div>
+            <p className="mt-1 truncate text-[10px] font-bold text-slate-500">ID: {toText(director.memberId || director.id)}</p>
+            <p className="mt-1 truncate text-[10px] font-semibold text-slate-500">⌖ {getBranchName(director)}</p>
+          </div>
+        </div>
+
+        <div className="mt-3 grid grid-cols-3 divide-x divide-slate-200 rounded-lg bg-slate-50 py-1">
+          <div className="px-2 py-1.5 text-center"><p className="text-[7px] font-black uppercase text-slate-400">Team</p><p className="mt-0.5 text-[12px] font-black text-slate-950">{formatNumber(teamSize)}</p></div>
+          <div className="px-2 py-1.5 text-center"><p className="text-[7px] font-black uppercase text-slate-400">Active</p><p className="mt-0.5 text-[12px] font-black text-slate-950">{formatNumber(activeCount)}</p></div>
+          <div className="px-2 py-1.5 text-center"><p className="text-[7px] font-black uppercase text-slate-400">Pending</p><p className="mt-0.5 text-[12px] font-black text-amber-700">{formatNumber(pendingCount)}</p></div>
+        </div>
+      </button>
+
+      <div>
+        <div>
+          {downlineMembers.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-3 text-center text-[10px] font-semibold text-slate-400">No downline members</p>
+          ) : !showAllDownline ? (
+            <div className="ml-5 space-y-2 border-l border-slate-200 pb-1 pl-5 pt-4">
+              {downlineMembers.slice(0, 2).map((member) => (
+                <div
+                  key={member.id}
+                  className="relative flex w-full items-center justify-between gap-2 rounded-[10px] border border-slate-200 bg-white px-3 py-2.5 shadow-[0_4px_12px_rgba(15,20,25,0.04)]"
+                >
+                  <span className="absolute -left-5 top-1/2 h-px w-5 bg-slate-200" />
+                  <span className="truncate text-[11px] font-black text-slate-900">{member.fullName}</span>
+                  <span className="shrink-0 text-[8px] font-bold text-slate-500">{ROLE_LABELS[member.role]}</span>
+                </div>
+              ))}
+              {downlineMembers.length > 2 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllDownline(true)}
+                  className="relative w-full rounded-[10px] border border-[#eadba4] bg-[#fffaf0] px-3 py-2.5 text-left text-[10px] font-black text-[#806000] shadow-[0_4px_12px_rgba(15,20,25,0.04)] hover:bg-[#fff4d6]"
+                >
+                  <span className="absolute -left-5 top-1/2 h-px w-5 bg-slate-200" />
+                  +{downlineMembers.length - 2} Others
+                </button>
+              )}
+            </div>
+          ) : (
+            <>
+              {renderChildren(director)}
+              <button
+                type="button"
+                onClick={() => setShowAllDownline(false)}
+                className="mt-2 w-full text-center text-[9px] font-bold text-slate-500 hover:text-slate-800"
+              >
+                Show less
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </article>
   );
 }
 
@@ -1342,6 +1482,13 @@ const MembersPage: React.FC = () => {
     return children.reduce((total, child) => total + 1 + getTeamSize(child), 0);
   }
 
+  function getDescendantMembers(member: HierarchyNode): HierarchyNode[] {
+    const nextRole = getNextRole(member);
+    const children = getChildren(member, nextRole);
+
+    return children.flatMap((child) => [child, ...getDescendantMembers(child)]);
+  }
+
   function getCardStats(member: HierarchyNode) {
     const directReports = getDirectReports(member);
     const teamSize = getTeamSize(member);
@@ -1739,42 +1886,37 @@ const MembersPage: React.FC = () => {
             )
           ) : !currentParent ? (
             <div className="space-y-8">
-              <FounderCard
-                founder={FOUNDER}
-                teamSize={getCardStats(FOUNDER).teamSize}
-                directReports={getCardStats(FOUNDER).directReports}
-                onOpen={() => setSelectedMember(FOUNDER)}
-              />
-
-              <div className="mx-auto h-10 w-px bg-slate-200" />
-
               <div className="rounded-[20px] border border-slate-200 bg-slate-50/70 p-4 sm:p-5">
                 <div className="mb-4 flex items-center gap-2">
                   <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#705400] text-[10px] font-black text-white">
                     ★
                   </span>
                   <h3 className="text-[12px] font-black uppercase tracking-[0.14em] text-slate-700">
-                    Directors
+                    Board of Directors
                   </h3>
                 </div>
 
-                {directorBranchGroups.length === 0 ? (
+                {directorMembers.length === 0 ? (
                   <div className="rounded-[16px] border border-dashed border-slate-300 bg-white px-5 py-10 text-center">
                     <p className="text-[13px] font-black text-slate-700">No directors found</p>
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    {directorBranchGroups.map((group) => (
-                      <BranchDirectorSection
-                        key={group.branchName}
-                        branchName={group.branchName}
-                        members={group.members}
-                        getCardStats={getCardStats}
-                        onOpen={setSelectedMember}
-                        onViewTeam={handleViewTeam}
-                        onEdit={setEditingMember}
-                      />
-                    ))}
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                    {directorMembers.map((director) => {
+                      const descendants = getDescendantMembers(director);
+
+                      return (
+                        <BoardDirectorCard
+                          key={director.id}
+                          director={director}
+                          teamSize={descendants.length}
+                          activeCount={descendants.filter((member) => member.status === 'ACTIVE').length}
+                          pendingCount={descendants.filter((member) => member.status === 'PENDING').length}
+                          downlineMembers={descendants}
+                          onOpen={() => setSelectedMember(director)}
+                        />
+                      );
+                    })}
                   </div>
                 )}
               </div>

@@ -55,6 +55,15 @@ const navItems = [
     ),
   },
   {
+    label: 'Approved Referrals',
+    to: '/admin/referrals',
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 3.5a11.955 11.955 0 01-8.618 2.484A12.02 12.02 0 003 8c0 5.591 3.824 10.29 9 11.622C17.176 18.29 21 13.591 21 8c0-.847-.088-1.673-.254-2.484z" />
+      </svg>
+    ),
+  },
+  {
     label: 'Billing',
     to: '/admin/billing',
     icon: (
