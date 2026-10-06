@@ -1181,7 +1181,7 @@ function SummaryCard({
   subtitleColor?: string;
 }) {
   return (
-    <div className={`${pageCardClass} p-4`}>
+    <div className={`${pageCardClass} min-h-[140px] border-l-[5px] border-l-current p-5 ${iconColor}`}>
       <div className="flex items-start gap-3">
         <div
           className={`flex h-10 w-10 items-center justify-center rounded-xl ${iconBg} ${iconColor}`}
@@ -1190,10 +1190,10 @@ function SummaryCard({
         </div>
 
         <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-gray-400">
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-700">
             {title}
           </p>
-          <p className="mt-1 text-[22px] font-bold leading-none text-[#2b2b2b]">
+          <p className="mt-1 text-[32px] font-bold leading-none">
             {value}
           </p>
           <p className={`mt-2 text-[11px] ${subtitleColor}`}>{subtitle}</p>
@@ -1229,24 +1229,11 @@ const AdminsPage: React.FC = () => {
 
   const admins = useMemo(() => data?.data ?? [], [data]);
 
-  const totalCount = data?.total ?? 0;
   const showingCount = admins.length;
-  const activeCount = admins.filter((admin) => admin.status === 'ACTIVE').length;
-  const inactiveCount = admins.filter(
-    (admin) => admin.status === 'INACTIVE'
-  ).length;
-
-  const [now] = useState(() => Date.now());
-
-  const addedThisMonth = useMemo(
-    () =>
-      admins.filter(
-        (admin) =>
-          new Date(admin.createdAt).getTime() >
-          now - 30 * 24 * 60 * 60 * 1000
-      ).length,
-    [admins, now]
-  );
+  const totalCount = data?.total ?? 0;
+  const allAdminsQuery = useAdmins({ limit: 1 });
+  const activeAdminsQuery = useAdmins({ limit: 1, status: 'ACTIVE' });
+  const inactiveAdminsQuery = useAdmins({ limit: 1, status: 'INACTIVE' });
 
   function handleDelete(admin: Admin) {
     if (
@@ -1296,6 +1283,13 @@ const AdminsPage: React.FC = () => {
           <PlusIcon />
           Add Admin
         </button>
+      </div>
+
+      <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <SummaryCard icon={<AdminStatIcon />} title="Total Admins" value={allAdminsQuery.data?.total ?? '?'} subtitle="Across all branches" iconBg="bg-amber-50" iconColor="text-[#c9a227]" />
+        <SummaryCard icon={<ShieldIcon />} title="Active Admins" value={activeAdminsQuery.data?.total ?? '?'} subtitle="Active admin accounts" iconBg="bg-teal-50" iconColor="text-[#008477]" />
+        <SummaryCard icon={<PendingIcon />} title="Inactive Admins" value={inactiveAdminsQuery.data?.total ?? '?'} subtitle="Inactive admin accounts" iconBg="bg-amber-50" iconColor="text-[#c9a227]" />
+        <SummaryCard icon={<AdminStatIcon />} title="Total Branches" value={branchesQuery.data?.total ?? '?'} subtitle="Across the organization" iconBg="bg-blue-50" iconColor="text-[#1647f5]" />
       </div>
 
       <div className={`${pageCardClass} mb-5 p-4`}>
@@ -1455,37 +1449,6 @@ const AdminsPage: React.FC = () => {
             />
           </div>
         )}
-      </div>
-
-      <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <SummaryCard
-          icon={<AdminStatIcon />}
-          title="Total Admins"
-          value={totalCount}
-          subtitle={`↗ ${addedThisMonth} added this month`}
-          iconBg="bg-[#f4f0e2]"
-          iconColor="text-[#a78010]"
-          subtitleColor="text-green-600"
-        />
-
-        <SummaryCard
-          icon={<ShieldIcon />}
-          title="Active Sessions"
-          value={activeCount}
-          subtitle="Across all branch locations"
-          iconBg="bg-[#e9f6f1]"
-          iconColor="text-[#2c806f]"
-        />
-
-        <SummaryCard
-          icon={<PendingIcon />}
-          title="Pending Approvals"
-          value={inactiveCount.toString().padStart(2, '0')}
-          subtitle="Requires super admin action"
-          iconBg="bg-[#fff0ee]"
-          iconColor="text-[#d85245]"
-          subtitleColor="text-red-500"
-        />
       </div>
 
       <AddAdminModal open={addOpen} onClose={() => setAddOpen(false)} />

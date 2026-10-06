@@ -2285,6 +2285,36 @@ const SuperAdminBookingsPage: React.FC = () => {
           </p>
         </div>
 
+        <div className="mb-5 grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            icon={<BookmarkIcon />}
+            label="Total Bookings"
+            value={totalBookings}
+            tone="gold"
+          />
+
+          <StatCard
+            icon={<CheckIcon />}
+            label="Completed"
+            value={completed}
+            tone="green"
+          />
+
+          <StatCard
+            icon={<ClockIcon />}
+            label="In Progress"
+            value={inProgress}
+            tone="blue"
+          />
+
+          <StatCard
+            icon={<CloseIcon />}
+            label="Cancelled"
+            value={cancelled}
+            tone="red"
+          />
+        </div>
+
         <div className="mb-5 w-full min-w-0 rounded-xl border border-[#eee8dc] bg-white p-4 shadow-sm">
           <div className="grid w-full min-w-0 grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_130px_150px_165px_145px]">
             <div className="relative min-w-0">
@@ -2544,35 +2574,7 @@ const SuperAdminBookingsPage: React.FC = () => {
           )}
         </div>
 
-        <div className="mt-6 grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard
-            icon={<BookmarkIcon />}
-            label="Total Bookings"
-            value={totalBookings}
-            tone="gold"
-          />
 
-          <StatCard
-            icon={<CheckIcon />}
-            label="Completed"
-            value={completed}
-            tone="green"
-          />
-
-          <StatCard
-            icon={<ClockIcon />}
-            label="In Progress"
-            value={inProgress}
-            tone="blue"
-          />
-
-          <StatCard
-            icon={<CloseIcon />}
-            label="Cancelled"
-            value={cancelled}
-            tone="red"
-          />
-        </div>
       </div>
 
       <CreateBookingModal

@@ -57,3 +57,11 @@ export function useSendMessage() {
     mutationFn: (data: SendMessageData) => notificationsApi.sendMessage(data),
   });
 }
+
+export function useDeleteNotification() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => notificationsApi.remove(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
+  });
+}
