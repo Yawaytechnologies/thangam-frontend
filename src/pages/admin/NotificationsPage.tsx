@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
   AlertTriangle,
@@ -11,10 +11,12 @@ import {
   Home,
   Mail,
   Search,
+  Trash2,
   UserPlus,
   X,
 } from 'lucide-react';
-import { useMarkAllRead, useMarkRead, useNotification, useNotifications } from '../../hooks/useNotifications';
+import { useDeleteNotification, useMarkRead, useNotification, useNotifications } from '../../hooks/useNotifications';
+import { getApiError } from '../../lib/api-error';
 import type { Notification, NotificationRecipient, NotificationStatus, NotificationType } from '../../types';
 
 type NotificationItem = NotificationRecipient | Notification;
@@ -102,26 +104,6 @@ const typeStyles: Record<NotificationType, { accent: string; box: string; badge:
     icon: <UserPlus className="h-4 w-4" />,
   },
 };
-
-function createDemoNotification(): NotificationRecipient {
-  return {
-    id: 'demo-admin-notification',
-    notificationId: 'demo-admin-notification',
-    userId: 'demo-admin-user',
-    status: 'UNREAD',
-    notification: {
-      id: 'demo-admin-notification',
-      title: 'New Booking Activity',
-      message:
-        'A booking update was recorded for Emerald Heights, Plot #14A. Review the activity details and follow up if required.',
-      type: 'BOOKING_ACTIVITY',
-      priority: 'MEDIUM',
-      bookingId: 'BK-DEMO-001',
-      branchId: 'demo-branch',
-      createdAt: new Date().toISOString(),
-    },
-  };
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object';
@@ -279,7 +261,9 @@ function NotificationDetailsModal({
   detailLoading,
   read,
   marking,
+  deleting,
   onClose,
+  onDelete,
   onMarkRead,
 }: {
   item: NotificationItem;
@@ -287,7 +271,9 @@ function NotificationDetailsModal({
   detailLoading: boolean;
   read: boolean;
   marking: boolean;
+  deleting: boolean;
   onClose: () => void;
+  onDelete: () => void;
   onMarkRead: () => void;
 }) {
   const notification = detail ?? notificationFor(item);
@@ -387,6 +373,15 @@ function NotificationDetailsModal({
         <div className="flex flex-col gap-3 border-t border-amber-100 bg-white px-6 py-4 sm:flex-row sm:justify-end">
           <button
             type="button"
+            onClick={onDelete}
+            disabled={deleting}
+            className="inline-flex items-center justify-center gap-2 rounded-sm border border-red-200 bg-white px-6 py-3 text-sm font-bold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <Trash2 className="h-4 w-4" />
+            {deleting ? 'Deleting...' : 'Delete'}
+          </button>
+          <button
+            type="button"
             onClick={onClose}
             className="rounded-sm border border-stone-300 bg-white px-6 py-3 text-sm font-semibold text-gray-700 hover:bg-stone-50"
           >
@@ -437,14 +432,7 @@ const AdminNotificationsPage: React.FC = () => {
   const selectedNotificationId = selected ? notificationIdFor(selected) : '';
   const { data: selectedDetail, isLoading: isDetailLoading } = useNotification(selectedNotificationId, !!selectedNotificationId);
   const markRead = useMarkRead();
-  const markAllRead = useMarkAllRead();
-
-  useEffect(() => {
-    localStorage.setItem('admin-demo-notification-viewed', 'true');
-    window.dispatchEvent(new Event('admin-demo-notification-viewed'));
-    markAllRead.mutate();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const deleteNotification = useDeleteNotification();
 
   const filteredNotifications = useMemo(() => {
     const notifications = (data?.data ?? []) as NotificationItem[];
@@ -472,8 +460,7 @@ const AdminNotificationsPage: React.FC = () => {
       return true;
     });
   }, [data?.data, filters]);
-  const isDemoMode = !isLoading && (data?.data?.length ?? 0) === 0;
-  const notificationsToDisplay = filteredNotifications.length ? filteredNotifications : isDemoMode ? [createDemoNotification()] : [];
+  const notificationsToDisplay = filteredNotifications;
 
   const applyFilters = () => {
     setFilters({
@@ -486,22 +473,33 @@ const AdminNotificationsPage: React.FC = () => {
   };
 
   const markNotificationRead = (item: NotificationItem) => {
-    if (itemKey(item) === 'demo-admin-notification') {
-      toast('Demo notification only');
-      return;
-    }
-
     const notificationId = notificationIdFor(item);
     setLocalReadIds((current) => new Set(current).add(notificationId));
     markRead.mutate(notificationId, {
       onSuccess: () => toast.success('Notification marked as read'),
-      onError: () => {
+      onError: (error) => {
         setLocalReadIds((current) => {
           const next = new Set(current);
           next.delete(notificationId);
           return next;
         });
+        toast.error(getApiError(error));
       },
+    });
+  };
+
+  const deleteSelectedNotification = () => {
+    if (!selected) return;
+
+    const confirmed = window.confirm('Delete this notification from your inbox?');
+    if (!confirmed) return;
+
+    deleteNotification.mutate(notificationIdFor(selected), {
+      onSuccess: () => {
+        toast.success('Notification deleted');
+        setSelected(null);
+      },
+      onError: (error) => toast.error(getApiError(error)),
     });
   };
 
@@ -586,13 +584,7 @@ const AdminNotificationsPage: React.FC = () => {
             Loading notifications...
           </div>
         ) : notificationsToDisplay.length ? (
-          <>
-            {isDemoMode && (
-              <div className="rounded-md border border-dashed border-stone-200 bg-amber-50/50 px-4 py-3 text-sm font-semibold text-gray-700">
-                Demo notification example is shown below. Live notifications will appear here once available.
-              </div>
-            )}
-            {notificationsToDisplay.map((item) => {
+          notificationsToDisplay.map((item) => {
             const notification = notificationFor(item);
             const type = safeType(notification.type);
             const styles = typeStyles[type];
@@ -666,8 +658,7 @@ const AdminNotificationsPage: React.FC = () => {
                 </div>
               </article>
             );
-            })}
-          </>
+          })
         ) : (
           <div className="rounded-md border border-stone-100 bg-white px-5 py-10 text-center text-gray-500 shadow-sm">
             No notifications found.
@@ -704,7 +695,9 @@ const AdminNotificationsPage: React.FC = () => {
           detailLoading={isDetailLoading}
           read={isRead(selected, localReadIds)}
           marking={markRead.isPending}
+          deleting={deleteNotification.isPending}
           onClose={() => setSelected(null)}
+          onDelete={deleteSelectedNotification}
           onMarkRead={() => markNotificationRead(selected)}
         />
       )}

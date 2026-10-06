@@ -300,6 +300,10 @@ const CreateMemberModal: React.FC<{
     control,
     name: 'reportsToId',
   }) ?? '';
+  const selectedIntroNo = useWatch({
+    control,
+    name: 'introNo',
+  }) ?? '';
   const selectedRole = useWatch({
     control,
     name: 'role',
@@ -312,10 +316,31 @@ const CreateMemberModal: React.FC<{
     control,
     name: 'status',
   }) ?? 'ACTIVE';
-  const selectedReportsToMember = useMemo(
-    () => reportsToMembers.find((member) => member.id === selectedReportsToId),
-    [reportsToMembers, selectedReportsToId],
+  const selectedIntroMember = useMemo(
+    () => reportsToMembers.find((member) => introNumberFor(member) === selectedIntroNo),
+    [reportsToMembers, selectedIntroNo],
   );
+
+  const introMembers = useMemo(() => {
+    return reportsToMembers.filter((member) => {
+      if (isEdit && member.id === memberExtra.id) return false;
+      return !selectedBranchId || member.branchId === selectedBranchId;
+    });
+  }, [isEdit, memberExtra.id, reportsToMembers, selectedBranchId]);
+
+  const introOptions = useMemo<SearchableSelectOption[]>(() => {
+    return introMembers.reduce<SearchableSelectOption[]>((options, member) => {
+      const introNo = introNumberFor(member);
+      if (!introNo) return options;
+
+      options.push({
+        value: introNo,
+        label: `${introNo} - ${member.fullName} - ${formatRole(member.role)}`,
+        searchText: `${introNo} ${member.memberId} ${member.fullName} ${member.phone} ${member.role} ${formatRole(member.role)}`.toLowerCase(),
+      });
+      return options;
+    }, []);
+  }, [introMembers]);
 
   const eligibleReportsToMembers = useMemo(() => {
     const allowedRoles = parentRolesByRole[selectedRole] ?? [];
@@ -350,15 +375,8 @@ const CreateMemberModal: React.FC<{
   }, [eligibleReportsToMembers, selectedReportsToId, selectedRole, setValue]);
 
   useEffect(() => {
-    if (selectedRole === 'DIRECTOR') {
-      setValue('introNo', '', { shouldDirty: true, shouldValidate: true });
-      setValue('introName', '', { shouldDirty: true, shouldValidate: true });
-      return;
-    }
-
-    setValue('introNo', introNumberFor(selectedReportsToMember), { shouldDirty: true, shouldValidate: true });
-    setValue('introName', selectedReportsToMember?.fullName ?? '', { shouldDirty: true, shouldValidate: true });
-  }, [selectedReportsToMember, selectedRole, setValue]);
+    setValue('introName', selectedIntroMember?.fullName ?? '', { shouldDirty: true, shouldValidate: true });
+  }, [selectedIntroMember, setValue]);
 
   const isSaving = isSubmitting || createMember.isPending || updateMember.isPending || uploadPhoto.isPending || uploadDocument.isPending;
 
@@ -507,12 +525,14 @@ const CreateMemberModal: React.FC<{
                 </div>
               )}
               <Field label="Intro No">
-                <input
-                  {...register('introNo')}
-                  className={`${inputClass} cursor-not-allowed text-gray-500`}
-                  placeholder="Select Reports To"
-                  readOnly
+                <SearchableSelect
+                  value={selectedIntroNo}
+                  options={introOptions}
+                  loading={reportsToLoading}
+                  placeholder={introOptions.length ? 'Search or select intro no' : 'No members found'}
+                  onChange={(value) => setValue('introNo', value, { shouldDirty: true, shouldValidate: true })}
                 />
+                <input type="hidden" {...register('introNo')} />
               </Field>
               <Field label="City">
                 <input {...register('city')} className={inputClass} placeholder="Chennai" />
@@ -524,7 +544,7 @@ const CreateMemberModal: React.FC<{
                 <input
                   {...register('introName')}
                   className={`${inputClass} cursor-not-allowed text-gray-500`}
-                  placeholder="Auto-filled from Reports To"
+                  placeholder="Auto-filled from Intro No"
                   readOnly
                 />
               </Field>

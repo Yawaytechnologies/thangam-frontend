@@ -86,6 +86,13 @@ const lifecycleLabels: Record<LifecycleStage, string> = {
   COMPLETED: 'Completed',
 };
 
+const selectableLifecycleStages: Exclude<LifecycleStage, 'COMPLETED'>[] = [
+  'TOKEN_RECEIVED',
+  'ADVANCE_PAYMENT',
+  'REGISTRATION_PENDING',
+  'FINAL_SETTLEMENT',
+];
+
 const paymentMethods: { value: PaymentMethod; label: string }[] = [
   { value: 'CHEQUE', label: 'Cheque' },
   { value: 'GPAY', label: 'GPay' },
@@ -431,7 +438,7 @@ function billingToForm(billing?: Billing | null): BillingFormState {
     currentAmount: billing?.paymentMethod !== 'CASH' ? amount : '',
     lifecycleStage:
       billing?.status === 'COMPLETED'
-        ? 'COMPLETED'
+        ? 'FINAL_SETTLEMENT'
         : billing?.status === 'FINAL_SETTLEMENT'
           ? 'FINAL_SETTLEMENT'
           : billing?.status === 'PARTIAL_PAYMENT'
@@ -578,6 +585,28 @@ function buildUpdatePayload(form: BillingFormState): UpdateBillingData {
 
 function isBadRequestValidationError(error: unknown) {
   return axios.isAxiosError(error) && error.response?.status === 400;
+}
+
+async function downloadErrorMessage(error: unknown) {
+  if (!axios.isAxiosError(error)) return 'Unable to download PDF. Please try again.';
+
+  const data = error.response?.data;
+  if (data instanceof Blob) {
+    try {
+      const text = await data.text();
+      const parsed = JSON.parse(text) as { message?: string | string[] };
+      const message = parsed.message;
+      if (Array.isArray(message)) return message.join(', ');
+      if (message) return message;
+    } catch {
+      return `Unable to download PDF. Server error (${error.response?.status ?? 'unknown'}).`;
+    }
+  }
+
+  const message = data?.message;
+  if (Array.isArray(message)) return message.join(', ');
+  if (message) return message;
+  return `Unable to download PDF. Server error (${error.response?.status ?? 'unknown'}).`;
 }
 
 function isApiBackedBilling(billing?: Billing | null) {
@@ -1192,9 +1221,9 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved, hideFinal
                     onChange={(event) => updateForm('lifecycleStage', event.target.value as LifecycleStage)}
                     className={inputClass}
                   >
-                    {Object.entries(lifecycleLabels).filter(([value]) => !hideFinalSettlement || value !== 'FINAL_SETTLEMENT').map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
+                    {selectableLifecycleStages.filter((stage) => !hideFinalSettlement || stage !== 'FINAL_SETTLEMENT').map((stage) => (
+                      <option key={stage} value={stage}>
+                        {lifecycleLabels[stage]}
                       </option>
                     ))}
                   </select>
@@ -1676,8 +1705,8 @@ const AdminBillingPage: React.FC<{ hideFinalSettlement?: boolean }> = ({ hideFin
     try {
       await billingApi.downloadPdf(billing.id, pdfFilename('billing', billing.billingId, billing.id));
       toast.success('PDF downloaded successfully', { id: toastId });
-    } catch {
-      toast.error('Unable to download PDF. Please try again.', { id: toastId });
+    } catch (error) {
+      toast.error(await downloadErrorMessage(error), { id: toastId });
     } finally {
       setDownloadingBillingId('');
     }

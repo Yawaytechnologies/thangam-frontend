@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useProperties, useProperty, usePropertyDocuments, usePropertyWorkflow } from '../../hooks/useProperties';
 import { Pagination } from '../../components/ui/Pagination';
+import { getApiError } from '../../lib/api-error';
 import { resolveFileUrl } from '../../lib/file-url';
 import { documentsApi } from '../../api/documents.api';
 import type { WorkflowDocument, WorkflowHistoryEntry } from '../../api/properties.api';
@@ -301,15 +302,16 @@ function cleanWorkflowHistory(entries: WorkflowHistoryEntry[]) {
   const sorted = [...entries].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   );
+  const lastSeenByContent = new Map<string, number>();
 
-  return sorted.filter((entry, index) => {
-    const previous = sorted[index - 1];
-    if (!previous) return true;
-    const sameContent =
-      entry.toStatus === previous.toStatus &&
-      workflowDescription(entry).toLowerCase() === workflowDescription(previous).toLowerCase();
-    const timeDifference = Math.abs(new Date(previous.createdAt).getTime() - new Date(entry.createdAt).getTime());
-    return !sameContent || timeDifference > 5 * 60 * 1000;
+  return sorted.filter((entry) => {
+    const contentKey = `${entry.toStatus}:${workflowDescription(entry).toLowerCase()}`;
+    const timestamp = new Date(entry.createdAt).getTime();
+    const previousTimestamp = lastSeenByContent.get(contentKey);
+    lastSeenByContent.set(contentKey, timestamp);
+
+    if (!Number.isFinite(timestamp) || previousTimestamp === undefined) return true;
+    return Math.abs(previousTimestamp - timestamp) > 5 * 60 * 1000;
   });
 }
 
@@ -576,7 +578,7 @@ const AdminPropertiesPage: React.FC = () => {
   const [workflowStatus, setWorkflowStatus] = useState<WorkflowStatus | ''>('');
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
 
-  const { data, isLoading } = useProperties({
+  const { data, isLoading, isError, error, refetch } = useProperties({
     page,
     limit: 24,
     workflowStatus: workflowStatus || undefined,
@@ -609,6 +611,7 @@ const AdminPropertiesPage: React.FC = () => {
     if (workflowStatus && property.workflowStatus !== workflowStatus) return false;
     return true;
   });
+  const hasActiveFilters = Boolean(statusFilter || workflowStatus);
   const counts = {
     activeProperties: availableProperties?.total ?? 0,
     soldProperties: completedProperties?.total ?? 0,
@@ -626,11 +629,24 @@ const AdminPropertiesPage: React.FC = () => {
     isCompletedCountError ||
     isAdvancePaidCountError ||
     isFinalSettlementPendingCountError;
-  const statValue = (value: number) => (isStatsLoading ? '-' : value);
+  const statValue = (value: number, hasError: boolean) =>
+    isStatsLoading || hasError ? '-' : value;
 
   const resetFilters = () => {
     setStatusFilter('');
     setWorkflowStatus('');
+    setPage(1);
+  };
+
+  const handleStatusFilterChange = (value: PropertyDisplayStatus | '') => {
+    setStatusFilter(value);
+    setWorkflowStatus('');
+    setPage(1);
+  };
+
+  const handleWorkflowStatusChange = (value: WorkflowStatus | '') => {
+    setWorkflowStatus(value);
+    setStatusFilter('');
     setPage(1);
   };
 
@@ -642,14 +658,14 @@ const AdminPropertiesPage: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <StatCard label="Active Properties" value={statValue(counts.activeProperties)} accent="border-t-2 border-t-gold" />
-        <StatCard label="Sold Properties" value={statValue(counts.soldProperties)} accent="border-t-2 border-t-teal-700" />
-        <StatCard label="Advance Paid" value={statValue(counts.advancePaid)} accent="border-t-2 border-t-gold-light" />
-        <StatCard label="Final Settlement Pending" value={statValue(counts.finalSettlementPending)} accent="border-t-2 border-t-red-600" />
-        <StatCard label="Settlement Completed" value={statValue(counts.settlementCompleted)} accent="border-t-2 border-t-teal-300" />
+        <StatCard label="Active Properties" value={statValue(counts.activeProperties, isAvailableCountError)} accent="border-t-2 border-t-gold" />
+        <StatCard label="Sold Properties" value={statValue(counts.soldProperties, isCompletedCountError)} accent="border-t-2 border-t-teal-700" />
+        <StatCard label="Advance Paid" value={statValue(counts.advancePaid, isAdvancePaidCountError)} accent="border-t-2 border-t-gold-light" />
+        <StatCard label="Final Settlement Pending" value={statValue(counts.finalSettlementPending, isFinalSettlementPendingCountError)} accent="border-t-2 border-t-red-600" />
+        <StatCard label="Settlement Completed" value={statValue(counts.settlementCompleted, isCompletedCountError)} accent="border-t-2 border-t-teal-300" />
       </div>
       {hasStatsError && (
-        <p className="text-sm font-semibold text-red-600">Unable to load some property statistics. Unavailable counts are shown as 0.</p>
+        <p className="text-sm font-semibold text-red-600">Unable to load some property statistics. Unavailable counts are shown as —.</p>
       )}
 
       <div className="flex flex-col gap-3 border border-gray-100 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
@@ -657,8 +673,7 @@ const AdminPropertiesPage: React.FC = () => {
           <select
             value={statusFilter}
             onChange={(event) => {
-              setStatusFilter(event.target.value as PropertyDisplayStatus | '');
-              setPage(1);
+              handleStatusFilterChange(event.target.value as PropertyDisplayStatus | '');
             }}
             className="h-10 rounded-sm border border-gray-200 bg-amber-50/60 px-4 text-sm font-semibold text-gray-700 outline-none focus:border-gold"
           >
@@ -670,8 +685,7 @@ const AdminPropertiesPage: React.FC = () => {
           <select
             value={workflowStatus}
             onChange={(event) => {
-              setWorkflowStatus(event.target.value as WorkflowStatus | '');
-              setPage(1);
+              handleWorkflowStatusChange(event.target.value as WorkflowStatus | '');
             }}
             className="h-10 rounded-sm border border-gray-200 bg-amber-50/60 px-4 text-sm font-semibold text-gray-700 outline-none focus:border-gold"
           >
@@ -699,8 +713,21 @@ const AdminPropertiesPage: React.FC = () => {
             <div key={index} className="h-80 animate-pulse bg-white shadow-sm" />
           ))}
         </div>
+      ) : isError ? (
+        <div role="alert" className="border border-red-200 bg-red-50 p-6 text-center">
+          <p className="font-semibold text-red-700">Unable to load properties: {getApiError(error)}</p>
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            className="mt-3 text-sm font-semibold text-red-700 underline"
+          >
+            Try again
+          </button>
+        </div>
       ) : !filteredProperties.length ? (
-        <div className="border border-gray-200 bg-white p-12 text-center text-gray-500">No properties found</div>
+        <div className="border border-gray-200 bg-white p-12 text-center text-gray-500">
+          {hasActiveFilters ? 'No properties match the selected filter' : 'No properties found'}
+        </div>
       ) : (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           {filteredProperties.map((property) => (
