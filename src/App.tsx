@@ -25,7 +25,6 @@ import AddMemberPage from './pages/admin/AddMemberPage';
 import MembersListPage from './pages/admin/MembersListPage';
 import AdminPropertiesPage from './pages/admin/PropertiesPage';
 import AdminBookingsPage from './pages/admin/BookingsPage';
-import AdminReferralsPage from './pages/admin/ReferralsPage';
 import AdminBillingPage from './pages/admin/BillingPage';
 import AdminNotificationsPage from './pages/admin/NotificationsPage';
 import AdminProfilePage from './pages/admin/ProfilePage';
@@ -82,7 +81,7 @@ function AppRoutes() {
           <Route path="/admin/members"       element={<MembersListPage />} />
           <Route path="/admin/properties"    element={<AdminPropertiesPage />} />
           <Route path="/admin/bookings"      element={<AdminBookingsPage />} />
-          <Route path="/admin/referrals"     element={<AdminReferralsPage />} />
+          <Route path="/admin/referrals"     element={<Navigate to="/admin/dashboard" replace />} />
           <Route path="/admin/billing"       element={<AdminBillingPage />} />
           <Route path="/admin/notifications"   element={<AdminNotificationsPage />} />
           <Route path="/admin/profile"         element={<AdminProfilePage />} />
