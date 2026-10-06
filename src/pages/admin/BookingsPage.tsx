@@ -85,6 +85,10 @@ const statusLabels: Record<BookingStatus, string> = {
   CANCELLED: 'Cancelled',
 };
 
+const adminStatusFilterOptions = Object.entries(statusLabels).filter(
+  ([value]) => value !== 'COMPLETED',
+);
+
 const fallbackBookings: Booking[] = [
   {
     id: 'fallback-booking-1',
@@ -169,7 +173,7 @@ const fallbackProperties: Property[] = [
   },
 ];
 
-const denominations = [2000, 1000, 500, 200, 100, 50, 20, 10];
+const denominations = [1000, 500, 200, 100, 50, 20, 10];
 
 function calculateDenominationAmount(denomination: number, count: number) {
   return (Number(denomination) || 0) * (Number(count) || 0);
@@ -254,9 +258,8 @@ function bookingToForm(booking?: Booking | null): BookingFormState {
 
 function buildBookingPayload(form: BookingFormState, denominationRows: BookingDenominationData[]): CreateBookingData {
   const validDenominations = denominationRows.map(normalizeDenominationRow).filter((row) => row.count > 0);
-  const denominationTotal = validDenominations.reduce((total, row) => total + row.amount, 0);
   const cashAmount = Number(form.cashAmount || 0);
-  const calculatedTotalAmount = form.paymentMethod === 'CASH' ? cashAmount + denominationTotal : 0;
+  const calculatedTotalAmount = form.paymentMethod === 'CASH' ? cashAmount : 0;
   const totalAmount = Number(form.totalAmount || 0) || calculatedTotalAmount;
   const payment: BookingPaymentData = {
     bankName: form.bankName || undefined,
@@ -467,7 +470,7 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
             amount: row.amount,
           }),
         )
-      : [{ denomination: 2000, count: 0, amount: 0 }],
+      : [{ denomination: 1000, count: 0, amount: 0 }],
   );
 
   const modalTitle = mode === 'add' ? 'Add Property Booking' : 'Edit Property Booking';
@@ -484,7 +487,7 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
     [denominationRows],
   );
   const cashAmount = Number(form.cashAmount || 0);
-  const calculatedTotalAmount = cashAmount + denominationTotal;
+  const calculatedTotalAmount = form.paymentMethod === 'CASH' ? cashAmount : 0;
   const hasManualTotalAmount = isTotalAmountManual && form.totalAmount.trim() !== '';
   const totalAmountForDisplay = hasManualTotalAmount
     ? form.totalAmount
@@ -509,7 +512,7 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
       totalAmount: current.totalAmount,
     }));
     if (paymentMethod !== 'CASH') {
-      setDenominationRows([{ denomination: 2000, count: 0, amount: 0 }]);
+      setDenominationRows([{ denomination: 1000, count: 0, amount: 0 }]);
     }
   };
 
@@ -631,10 +634,6 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (form.paymentMethod === 'CASH' && !denominationRows.some((row) => row.count > 0)) {
-      toast.error('Please add at least one cash denomination.');
-      return;
-    }
 
     const payload = buildBookingPayload(form, denominationRows);
     const selectedProperty = properties.find((property) => property.id === payload.propertyId);
@@ -922,8 +921,8 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
                   />
                   <p className="mt-1 text-xs font-semibold text-gray-500">
                     {hasManualTotalAmount
-                      ? `Manual total entered. Calculated total is ${formatCurrency(calculatedTotalAmount)}.`
-                      : `Auto-calculated from cash and denominations: ${formatCurrency(calculatedTotalAmount)}.`}
+                      ? `Manual total entered. Cash amount is ${formatCurrency(cashAmount)}.`
+                      : `Auto-filled from cash amount: ${formatCurrency(calculatedTotalAmount)}.`}
                   </p>
                   <p className="mt-1 text-xs text-gray-500">Enter the final amount received for this booking.</p>
                 </Field>
@@ -933,7 +932,7 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
             {form.paymentMethod === 'CASH' && <section>
               <div className="mb-4 flex items-center justify-between">
                 <SectionTitle>
-                  Denomination Details <span className="text-red-600">*</span>
+                  Denomination Details
                 </SectionTitle>
                 <button
                   type="button"
@@ -997,8 +996,8 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
               </div>
               <div className="mt-4 rounded-sm border border-teal-100 bg-teal-50 px-4 py-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <span className="text-sm font-extrabold uppercase tracking-wide text-gray-700">Calculated Total Amount</span>
-                  <span className="text-2xl font-extrabold text-teal-700">{formatCurrency(calculatedTotalAmount)}</span>
+                  <span className="text-sm font-extrabold uppercase tracking-wide text-gray-700">Total Denomination Amount</span>
+                  <span className="text-2xl font-extrabold text-teal-700">{formatCurrency(denominationTotal)}</span>
                 </div>
               </div>
             </section>}
@@ -1533,7 +1532,7 @@ const AdminBookingsPage: React.FC = () => {
             className="h-11 rounded-sm border border-stone-200 bg-amber-50/50 px-3 text-sm font-semibold outline-none focus:border-gold"
           >
             <option value="">All Statuses</option>
-            {Object.entries(statusLabels).map(([value, label]) => (
+            {adminStatusFilterOptions.map(([value, label]) => (
               <option key={value} value={value}>
                 {label}
               </option>

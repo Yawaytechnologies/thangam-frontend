@@ -51,8 +51,14 @@ export const notificationsApi = {
       return data?.notification ?? data;
     }),
 
+  remove: (id: string): Promise<{ deleted: boolean }> =>
+    api.delete(`/notifications/${id}`).then((r) => r.data.data),
+
   markRead: (id: string): Promise<NotificationRecipient> =>
     api.patch(`/notifications/${id}/read`).then((r) => r.data.data),
+
+  delete: (id: string): Promise<{ deleted: boolean }> =>
+    api.delete(`/notifications/${id}`).then((r) => r.data.data),
 
   markAllRead: (): Promise<{ updated: number }> =>
     api.patch('/notifications/mark-all-read').then((r) => r.data.data),

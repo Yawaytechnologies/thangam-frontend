@@ -41,6 +41,17 @@ export function useMarkRead() {
   });
 }
 
+export function useDeleteNotification() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => notificationsApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    },
+  });
+}
+
 export function useMarkAllRead() {
   const queryClient = useQueryClient();
 
@@ -55,5 +66,13 @@ export function useMarkAllRead() {
 export function useSendMessage() {
   return useMutation({
     mutationFn: (data: SendMessageData) => notificationsApi.sendMessage(data),
+  });
+}
+
+export function useDeleteNotification() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => notificationsApi.remove(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
   });
 }

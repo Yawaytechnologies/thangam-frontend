@@ -1,8 +1,11 @@
+import toast from 'react-hot-toast';
+import { getApiError } from '../../lib/api-error';
 import React, { useMemo, useState } from 'react';
 import {
   useNotifications,
   useMarkRead,
   useMarkAllRead,
+  useDeleteNotification,
 } from '../../hooks/useNotifications';
 import { useBranches } from '../../hooks/useBranches';
 import { useMember } from '../../hooks/useMembers';
@@ -15,16 +18,7 @@ import type {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const TYPE_OPTIONS: NotificationType[] = [
-  'ADMIN_ACTIVITY',
-  'MEMBER_ACTIVITY',
-  'BRANCH_ACTIVITY',
-  'PROPERTY_ACTIVITY',
-  'BOOKING_ACTIVITY',
-  'BILLING_ACTIVITY',
-  'SYSTEM_ACTIVITY',
-  'TEAM_ACTIVITY',
-];
+const TYPE_OPTIONS: NotificationType[] = ['PROPERTY_ACTIVITY', 'BOOKING_ACTIVITY', 'BILLING_ACTIVITY'];
 
 const TYPE_LABELS: Record<NotificationType, string> = {
   ADMIN_ACTIVITY: 'Admin Activity',
@@ -333,6 +327,8 @@ function NotificationDetailModal({ open, onClose, recipient, onMarkRead, isPendi
 // ─── NotificationsPage ────────────────────────────────────────────────────────
 
 const SuperAdminNotificationsPage: React.FC = () => {
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState('');
   const [limit, setLimit] = useState(20);
   const [typeFilter, setTypeFilter] = useState<NotificationType | ''>('');
   const [branchFilter, setBranchFilter] = useState('');
@@ -353,6 +349,7 @@ const SuperAdminNotificationsPage: React.FC = () => {
     [branchesQuery.data?.data],
   );
 
+  const deleteNotification = useDeleteNotification();
   const markRead = useMarkRead();
   const markAllRead = useMarkAllRead();
 
@@ -381,7 +378,7 @@ const SuperAdminNotificationsPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Notification Management</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Stay updated with all system activities and member interactions.
+            Property, booking, and billing updates made by Admins.
           </p>
         </div>
         <button
@@ -444,7 +441,7 @@ const SuperAdminNotificationsPage: React.FC = () => {
           {allRecipients.length === 0 ? (
             <div className="rounded-xl border border-dashed border-gray-200 bg-white px-6 py-16 text-center">
               <p className="text-base font-semibold text-gray-700">No notifications found</p>
-              <p className="mt-2 text-sm text-gray-400">New system activities will appear here.</p>
+              <p className="mt-2 text-sm text-gray-400">New Admin property updates will appear here.</p>
             </div>
           ) : allRecipients.map((nr) => {
             const n = nr.notification;
@@ -522,6 +519,12 @@ const SuperAdminNotificationsPage: React.FC = () => {
                       >
                         View Details
                       </button>
+                      <button
+                        type="button"
+                        disabled={deleteNotification.isPending}
+                        onClick={() => { setDeleteError(''); setDeleteTarget(nr.id); }}
+                        className="text-xs font-medium text-red-600 hover:text-red-700 disabled:opacity-50"
+                      >Delete</button>
                       {isUnread && (
                         <button
                           type="button"
@@ -560,6 +563,21 @@ const SuperAdminNotificationsPage: React.FC = () => {
       )}
 
       {/* ── Detail Modal ── */}
+      <Modal open={!!deleteTarget} onClose={() => { if (!deleteNotification.isPending) setDeleteTarget(null); }} title="Delete notification?" size="sm">
+        <p className="text-sm text-gray-600">This removes the notification from your inbox only.</p>
+        {deleteError && <p role="alert" className="mt-3 text-sm text-red-600">{deleteError}</p>}
+        <div className="mt-5 flex justify-end gap-3">
+          <button type="button" disabled={deleteNotification.isPending} onClick={() => setDeleteTarget(null)} className="rounded-lg border px-4 py-2 text-sm">Cancel</button>
+          <button type="button" disabled={deleteNotification.isPending} className="rounded-lg bg-red-600 px-4 py-2 text-sm text-white disabled:opacity-50" onClick={() => {
+            if (!deleteTarget) return;
+            setDeleteError('');
+            deleteNotification.mutate(deleteTarget, {
+              onSuccess: () => { setDeleteTarget(null); setDetailRecipient(null); toast.success('Notification deleted'); },
+              onError: (error) => setDeleteError(getApiError(error)),
+            });
+          }}>{deleteNotification.isPending ? 'Deleting...' : 'Delete'}</button>
+        </div>
+      </Modal>
       {detailRecipient && (
         <NotificationDetailModal
           open

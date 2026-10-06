@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/auth.store';
 import { useLogout } from '../../hooks/useAuth';
@@ -55,15 +55,6 @@ const navItems = [
     ),
   },
   {
-    label: 'Approved Referrals',
-    to: '/admin/referrals',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 3.5a11.955 11.955 0 01-8.618 2.484A12.02 12.02 0 003 8c0 5.591 3.824 10.29 9 11.622C17.176 18.29 21 13.591 21 8c0-.847-.088-1.673-.254-2.484z" />
-      </svg>
-    ),
-  },
-  {
     label: 'Billing',
     to: '/admin/billing',
     icon: (
@@ -93,8 +84,6 @@ const navItems = [
   },
 ];
 
-const ADMIN_DEMO_NOTIFICATION_VIEWED_KEY = 'admin-demo-notification-viewed';
-
 const AdminLayout: React.FC = () => {
   useNotificationSocket();
   const user = useAuthStore((s) => s.user);
@@ -105,25 +94,10 @@ const AdminLayout: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
-  const [showDemoNotificationBadge, setShowDemoNotificationBadge] = useState(
-    () => localStorage.getItem(ADMIN_DEMO_NOTIFICATION_VIEWED_KEY) !== 'true',
-  );
   const { data: unreadData } = useUnreadCount();
   const { data: searchData, isLoading: searchLoading } = useGlobalSearch(searchQuery.trim());
   const unreadCount = unreadData?.count ?? 0;
-  const notificationBadgeCount = unreadCount > 0 ? unreadCount : showDemoNotificationBadge ? 1 : 0;
-
-  useEffect(() => {
-    const hideDemoNotificationBadge = () => setShowDemoNotificationBadge(false);
-
-    if (location.pathname === '/admin/notifications') {
-      localStorage.setItem(ADMIN_DEMO_NOTIFICATION_VIEWED_KEY, 'true');
-      hideDemoNotificationBadge();
-    }
-
-    window.addEventListener('admin-demo-notification-viewed', hideDemoNotificationBadge);
-    return () => window.removeEventListener('admin-demo-notification-viewed', hideDemoNotificationBadge);
-  }, [location.pathname]);
+  const notificationBadgeCount = unreadCount;
 
   const handleLogout = () => {
     logout.mutate(undefined);

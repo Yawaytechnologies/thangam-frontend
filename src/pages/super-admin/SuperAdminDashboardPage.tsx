@@ -241,8 +241,8 @@ const KPI_CONFIG = [
     tone: 'bg-red-50 text-red-500',
   },
   {
-    label: 'TOTAL DIRECTORS',
-    valueKey: 'totalDirectors',
+    label: 'TOTAL ADMINS',
+    valueKey: 'totalAdmins',
     icon: <IconClipboard />,
     tag: 'Global',
     tone: 'bg-[#f5f0df] text-[#a47d05]',
@@ -430,23 +430,10 @@ function MemberProfileModal({
     });
   };
 
-  const getSafeDate = () => {
-    if (!m) return undefined;
-
-    const record = m as typeof m & {
-      created_at?: string;
-      createdAt?: string;
-    };
-
-    return record.createdAt ?? record.created_at;
-  };
+  const extra = m as (typeof m & { weddingDate?: string; parentGuardianName?: string });
 
   const avatarSrc = m?.photo || m?.avatarUrl || m?.profileImage || '';
   const roleLabel = m?.role ? ROLE_BADGES[m.role] ?? m.role.replace(/_/g, ' ') : 'MEMBER';
-
-  const fullAddress = m
-    ? [m.address, m.city, m.district, m.state, m.pincode].filter(Boolean).join(', ')
-    : '';
 
   return (
     <Modal
@@ -503,9 +490,7 @@ function MemberProfileModal({
                       {roleLabel}
                     </span>
 
-                    <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-white">
-                      {formatValue(m.memberId ?? m.id)}
-                    </span>
+
                   </div>
                 </div>
               </div>
@@ -523,16 +508,7 @@ function MemberProfileModal({
               </div>
             </div>
 
-            <div className="relative mt-5 grid gap-3 sm:grid-cols-3">
-              <div className="rounded-2xl border border-white/10 bg-white/10 p-3 backdrop-blur">
-                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-white/50">
-                  Joined
-                </p>
-                <p className="mt-1 text-sm font-black text-white">
-                  {formatDate(getSafeDate())}
-                </p>
-              </div>
-
+            <div className="relative mt-5 grid gap-3 sm:grid-cols-2">
               <div className="rounded-2xl border border-white/10 bg-white/10 p-3 backdrop-blur">
                 <p className="text-[10px] font-black uppercase tracking-[0.16em] text-white/50">
                   Branch
@@ -554,63 +530,48 @@ function MemberProfileModal({
           </div>
 
           <div className="space-y-4 p-4 sm:p-6">
-            <MemberSection title="Quick Info">
-              <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <MemberInfoItem label="Member ID" value={m.memberId ?? m.id} formatValue={formatValue} />
-                <MemberInfoItem label="Code Number" value={m.codeNumber} formatValue={formatValue} />
-                <MemberInfoItem label="Phone" value={m.phone} formatValue={formatValue} />
-                <MemberInfoItem label="Alternate Phone" value={m.alternatePhone} formatValue={formatValue} />
-                <MemberInfoItem label="Email" value={m.email} wide formatValue={formatValue} />
-                <MemberInfoItem label="Address" value={fullAddress} wide formatValue={formatValue} />
+            <MemberSection title="Member Details">
+              <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+                <MemberInfoItem label="Intro No" value={m.codeNumber} formatValue={formatValue} />
+                <MemberInfoItem label="Intro Name" value={m.introName} formatValue={formatValue} />
+                <MemberInfoItem label="Full Name" value={m.fullName} formatValue={formatValue} />
+                <MemberInfoItem label="Mobile 1" value={m.phone} formatValue={formatValue} />
+                <MemberInfoItem label="Mobile 2" value={m.alternatePhone} formatValue={formatValue} />
+                <MemberInfoItem label="Email ID" value={m.email} formatValue={formatValue} />
               </div>
             </MemberSection>
-
-            <div className="grid min-w-0 gap-4 lg:grid-cols-2">
-              <MemberSection title="Personal Profile">
-                <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-                  <MemberInfoItem label="Gender" value={m.gender} formatValue={formatValue} />
-                  <MemberInfoItem label="Date of Birth" value={formatDate(m.dateOfBirth)} formatValue={formatValue} />
-                  <MemberInfoItem label="Blood Group" value={m.bloodGroup} formatValue={formatValue} />
-                  <MemberInfoItem label="Qualification" value={m.qualification} formatValue={formatValue} />
-                  <MemberInfoItem label="Experience" value={m.experience} formatValue={formatValue} />
-                </div>
-              </MemberSection>
-
-              <MemberSection title="Branch Details">
-                <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-                  <MemberInfoItem label="Branch" value={m.branch?.name} formatValue={formatValue} />
-                  <MemberInfoItem label="Reporting To" value={m.reportsTo?.fullName} formatValue={formatValue} />
-                  <MemberInfoItem label="City" value={m.city} formatValue={formatValue} />
-                  <MemberInfoItem label="District" value={m.district} formatValue={formatValue} />
-                  <MemberInfoItem label="State" value={m.state} formatValue={formatValue} />
-                  <MemberInfoItem label="Pincode" value={m.pincode} formatValue={formatValue} />
-                </div>
-              </MemberSection>
-            </div>
-
-            <div className="grid min-w-0 gap-4 lg:grid-cols-2">
-              <MemberSection title="Bank & Nominee">
-                <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-                  <MemberInfoItem label="Bank Name" value={m.bankName} formatValue={formatValue} />
-                  <MemberInfoItem label="Account Holder" value={m.accountHolder} formatValue={formatValue} />
-                  <MemberInfoItem label="Account Number" value={m.accountNumber} formatValue={formatValue} />
-                  <MemberInfoItem label="IFSC Code" value={m.ifscCode} formatValue={formatValue} />
-                  <MemberInfoItem label="Bank Branch" value={m.bankBranch} formatValue={formatValue} />
-                  <MemberInfoItem label="Nominee" value={m.nomineeName} formatValue={formatValue} />
-                  <MemberInfoItem label="Relation" value={m.nomineeRelation} formatValue={formatValue} />
-                  <MemberInfoItem label="Nominee Phone" value={m.nomineePhone} formatValue={formatValue} />
-                </div>
-              </MemberSection>
-
-              <MemberSection title="Document IDs">
-                <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-                  <MemberInfoItem label="PAN Number" value={m.panNumber} formatValue={formatValue} />
-                  <MemberInfoItem label="Aadhaar Number" value={m.aadhaarNumber} formatValue={formatValue} />
-                  <MemberInfoItem label="Voter ID" value={m.voterIdNumber} formatValue={formatValue} />
-                  <MemberInfoItem label="Driving License" value={m.drivingLicense} formatValue={formatValue} />
-                </div>
-              </MemberSection>
-            </div>
+            <MemberSection title="Personal Details">
+              <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+                <MemberInfoItem label="Date of Birth" value={formatDate(m.dateOfBirth)} formatValue={formatValue} />
+                <MemberInfoItem label="Wedding Date" value={formatDate(extra?.weddingDate)} formatValue={formatValue} />
+                <MemberInfoItem label="Blood Group" value={m.bloodGroup} formatValue={formatValue} />
+                <MemberInfoItem label="Qualification" value={m.qualification} formatValue={formatValue} />
+                <MemberInfoItem label="Experience (Years)" value={m.experience} formatValue={formatValue} />
+                <MemberInfoItem label="Parent/Guardian Name" value={extra?.parentGuardianName} formatValue={formatValue} />
+              </div>
+            </MemberSection>
+            <MemberSection title="Address">
+              <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+                <MemberInfoItem label="Address" value={m.address} formatValue={formatValue} />
+                <MemberInfoItem label="City" value={m.city} formatValue={formatValue} />
+                <MemberInfoItem label="District" value={m.district} formatValue={formatValue} />
+                <MemberInfoItem label="State" value={m.state} formatValue={formatValue} />
+                <MemberInfoItem label="Pincode" value={m.pincode} formatValue={formatValue} />
+              </div>
+            </MemberSection>
+            <MemberSection title="Nominee Details">
+              <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+                <MemberInfoItem label="Nominee Name" value={m.nomineeName} formatValue={formatValue} />
+                <MemberInfoItem label="Relationship" value={m.nomineeRelation} formatValue={formatValue} />
+                <MemberInfoItem label="Nominee Mobile" value={m.nomineePhone} formatValue={formatValue} />
+              </div>
+            </MemberSection>
+            <MemberSection title="Identity Details">
+              <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+                <MemberInfoItem label="PAN No" value={m.panNumber} formatValue={formatValue} />
+                <MemberInfoItem label="Aadhaar No" value={m.aadhaarNumber} formatValue={formatValue} />
+              </div>
+            </MemberSection>
           </div>
         </div>
       ) : (
