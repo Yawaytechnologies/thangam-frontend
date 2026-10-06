@@ -55,6 +55,7 @@ interface BillingFormState {
 }
 
 interface BillingModalProps {
+  hideFinalSettlement?: boolean;
   mode: BillingFormMode;
   billing?: Billing | null;
   bookings: Booking[];
@@ -669,7 +670,7 @@ function payloadToBilling(payload: CreateBillingData, form: BillingFormState, ex
   };
 }
 
-function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: BillingModalProps) {
+function BillingFormModal({ mode, billing, bookings, onClose, onSaved, hideFinalSettlement = false }: BillingModalProps) {
   const createBilling = useCreateBilling();
   const updateBilling = useUpdateBilling();
   const updateBookingStatus = useUpdateBookingStatus();
@@ -1191,7 +1192,7 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
                     onChange={(event) => updateForm('lifecycleStage', event.target.value as LifecycleStage)}
                     className={inputClass}
                   >
-                    {Object.entries(lifecycleLabels).map(([value, label]) => (
+                    {Object.entries(lifecycleLabels).filter(([value]) => !hideFinalSettlement || value !== 'FINAL_SETTLEMENT').map(([value, label]) => (
                       <option key={value} value={value}>
                         {label}
                       </option>
@@ -1553,7 +1554,7 @@ function BillingDetailsModal({ billing, onClose, onDownload, isDownloading }: Bi
   );
 }
 
-const AdminBillingPage: React.FC = () => {
+const AdminBillingPage: React.FC<{ hideFinalSettlement?: boolean }> = ({ hideFinalSettlement = false }) => {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<BillingStatus | ''>('');
@@ -1730,7 +1731,7 @@ const AdminBillingPage: React.FC = () => {
               className="h-11 w-full rounded-sm border border-stone-200 bg-amber-50/50 px-3 text-sm font-semibold outline-none focus:border-gold"
             >
               <option value="">All Statuses</option>
-              {Object.entries(statusLabels).map(([value, label]) => (
+              {Object.entries(statusLabels).filter(([value]) => !hideFinalSettlement || value !== 'FINAL_SETTLEMENT').map(([value, label]) => (
                 <option key={value} value={value}>
                   {label}
                 </option>
@@ -1869,6 +1870,7 @@ const AdminBillingPage: React.FC = () => {
 
       {modalMode && (
         <BillingFormModal
+          hideFinalSettlement={hideFinalSettlement}
           mode={modalMode}
           billing={editingBilling}
           bookings={availableBillingBookings}
