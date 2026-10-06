@@ -32,11 +32,6 @@ import AdminProfilePage from './pages/admin/ProfilePage';
 import BranchMembersPage from './pages/admin/BranchMembersPage';
 import { ProtectedRoute } from './components/layout/ProtectedRoute';
 import { getRoleHome } from './lib/role-home';
-import DirectorLayout from './components/layout/DirectorLayout';
-import DirectorDashboardPage from './pages/director/DirectorDashboardPage';
-import DirectorTeamPage from './pages/director/DirectorTeamPage';
-import DirectorNotificationsPage from './pages/director/DirectorNotificationsPage';
-import DirectorMemberDetailsPage from './pages/director/DirectorMemberDetailsPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -92,15 +87,6 @@ function AppRoutes() {
           <Route path="/admin/notifications"   element={<AdminNotificationsPage />} />
           <Route path="/admin/profile"         element={<AdminProfilePage />} />
           <Route path="/admin/branch-members"  element={<BranchMembersPage />} />
-        </Route>
-      </Route>
-
-      <Route element={<ProtectedRoute allowedRoles={['DIRECTOR']} />}>
-        <Route element={<DirectorLayout />}>
-          <Route path="/director/dashboard" element={<DirectorDashboardPage />} />
-          <Route path="/director/team" element={<DirectorTeamPage />} />
-          <Route path="/director/notifications" element={<DirectorNotificationsPage />} />
-          <Route path="/director/team/:memberId" element={<DirectorMemberDetailsPage />} />
         </Route>
       </Route>
 

@@ -202,9 +202,8 @@ function NotificationDetailModal({ open, onClose, recipient, onMarkRead, isPendi
   const memberId = n?.relatedModule === 'MEMBER' ? n.relatedEntityId ?? '' : '';
   const { data: member } = useMember(memberId);
   const isUnread = recipient.status === 'UNREAD';
-  const isDemo = recipient.id === 'demo-notification';
-  const readableBookingId = bookingReference(detail);
-  const readableBillingId = billingReference(detail);
+  const readableBookingId = bookingReference(n);
+  const readableBillingId = billingReference(n);
 
   if (!n) return null;
 
