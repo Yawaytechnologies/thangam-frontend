@@ -69,10 +69,3 @@ export function useSendMessage() {
   });
 }
 
-export function useDeleteNotification() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) => notificationsApi.remove(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
-  });
-}
