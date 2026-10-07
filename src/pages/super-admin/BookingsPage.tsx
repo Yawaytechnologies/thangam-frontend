@@ -688,7 +688,7 @@ const emptyForm: BookingForm = {
   projectName: '',
   propertyId: '',
   plotNumber: '',
-  squareFeet: '',
+  squareFeet: '100',
   bookingDate: '',
   applicantName: '',
   relationship: '',
@@ -1020,11 +1020,12 @@ function CreateBookingModal({ open, onClose, onSaved }: CreateBookingModalProps)
                 <FormField label="Square Feet">
                   <input
                     type="number"
-                    min={0}
+                    min={100}
+                    step={50}
                     value={form.squareFeet}
                     onChange={(event) => setField('squareFeet', event.target.value)}
                     className={inputClass}
-                    placeholder="1200"
+                    placeholder="100"
                   />
                 </FormField>
 

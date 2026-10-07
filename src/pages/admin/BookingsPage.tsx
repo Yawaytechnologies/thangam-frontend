@@ -233,7 +233,7 @@ function bookingToForm(booking?: Booking | null): BookingFormState {
     propertyId: booking?.propertyId ?? '',
     projectName: booking?.projectName ?? '',
     plotNumber: booking?.plotNumber ?? '',
-    squareFeet: booking?.squareFeet ? String(booking.squareFeet) : '',
+    squareFeet: booking?.squareFeet ? String(booking.squareFeet) : '100',
     bookingDate: toDateInput(booking?.bookingDate),
     applicantName: booking?.applicantName ?? '',
     relation: booking?.relation ?? '',
@@ -719,10 +719,13 @@ function BookingFormModal({ mode, booking, properties, onClose, onSaved }: Booki
                 </Field>
                 <Field label="Square Feet">
                   <input
+                    type="number"
+                    min="100"
+                    step="50"
                     value={form.squareFeet}
                     onChange={(event) => updateForm('squareFeet', event.target.value)}
                     className={inputClass}
-                    placeholder="0.00"
+                    placeholder="100"
                   />
                 </Field>
                 <Field label="Booking Date">

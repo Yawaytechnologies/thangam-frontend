@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { UpdateMemberData } from '../../api/members.api';
+import { Modal } from '../../components/ui/Modal';
 import { useBranches } from '../../hooks/useBranches';
 import { useMembers, useUpdateMember, useUploadMemberPhoto } from '../../hooks/useMembers';
 
@@ -35,6 +36,7 @@ type MemberRecord = {
 
   memberId?: string | null;
   codeNumber?: string | null;
+  introName?: string | null;
   phone?: string | null;
   alternatePhone?: string | null;
   email?: string | null;
@@ -268,9 +270,13 @@ function getBranchName(member: MemberRecord) {
 function getJoinedDate(member: MemberRecord) {
   const dateValue = member.joinedDate || member.createdAt || member.created_at;
 
-  if (!dateValue) return '—';
+  return formatMemberDate(dateValue);
+}
 
-  const date = new Date(dateValue);
+function formatMemberDate(value?: string | null) {
+  if (!value) return '—';
+
+  const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) return '—';
 
@@ -837,13 +843,11 @@ function BoardDirectorCard({
   );
 }
 
-function DrawerDetailRow({ label, value }: { label: string; value: string | number | null | undefined }) {
+function MemberDetailItem({ label, value }: { label: string; value: string | number | null | undefined }) {
   return (
-    <div className="grid grid-cols-[95px_1fr] gap-3 border-b border-slate-100 py-2.5 last:border-b-0">
-      <p className="text-[10px] font-black uppercase tracking-[0.1em] text-slate-400">{label}</p>
-      <p className="min-w-0 break-words text-[12px] font-bold leading-5 text-slate-900 [overflow-wrap:anywhere]">
-        {toText(value)}
-      </p>
+    <div className="min-h-[78px] rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
+      <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">{label}</p>
+      <p className="mt-2 break-words text-sm font-semibold text-gray-900 [overflow-wrap:anywhere]">{toText(value)}</p>
     </div>
   );
 }
@@ -893,57 +897,51 @@ function MemberDetailsModal({
   if (!open || !member) return null;
 
   const fullAddress = [member.address, member.city, member.district, member.state, member.pincode].filter(Boolean).join(', ');
+  const reportsToName = member.reportsTo?.fullName || member.reportsTo?.name;
+  const isActive = String(member.status ?? '').toUpperCase() === 'ACTIVE';
+  const statusLabel = toText(member.status).toLowerCase().replace(/^\w/, (character) => character.toUpperCase());
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center sm:p-6">
-      <button
-        type="button"
-        onClick={onClose}
-        className="absolute inset-0 bg-slate-950/45 backdrop-blur-[2px]"
-        aria-label="Close member details overlay"
-      />
-
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="member-details-title" tabIndex={-1} className="relative flex h-[100dvh] w-full flex-col overflow-hidden bg-white shadow-[0_24px_80px_rgba(15,20,25,0.32)] outline-none sm:h-auto sm:max-h-[85dvh] sm:max-w-[480px] sm:rounded-2xl">
-        <div className="relative shrink-0 overflow-hidden bg-gradient-to-br from-[#0f1419] via-[#151d2c] to-[#1a2332] px-4 py-4">
-          <div className="absolute -right-20 -top-20 h-48 w-48 rounded-full bg-[#c9a227]/25 blur-3xl" />
-
-          <div className="relative flex items-start justify-between gap-4">
-            <div className="flex min-w-0 items-center gap-3">
-              <Avatar member={member} size="md" />
-
-              <div className="min-w-0">
-                <h2 id="member-details-title" className="break-words text-[18px] font-black leading-tight text-white">{member.fullName}</h2>
-                <p className="mt-1 text-[10px] font-black uppercase tracking-[0.12em] text-[#e8c547]">
-                  {member.role === 'FOUNDER' ? 'Founder & CMD' : ROLE_LABELS[member.role]}
-                </p>
-              </div>
-            </div>
+    <Modal open={open} onClose={onClose} title="Member Details" subtitle={toText(member.memberId || member.id)} size="3xl">
+      <div className="space-y-5 pt-4">
+        <div className="flex items-center gap-4 rounded-lg border border-amber-100 bg-amber-50/60 p-4">
+          <Avatar member={member} size="lg" />
+          <div className="min-w-0">
+            <h3 className="break-words text-lg font-bold text-gray-900">{member.fullName}</h3>
+            <p className="mt-1 text-sm font-semibold text-gray-600">
+              {member.role === 'FOUNDER' ? 'Founder & CMD' : ROLE_LABELS[member.role]}
+            </p>
+            <p className={`mt-1 text-xs font-bold ${isActive ? 'text-teal-700' : 'text-gray-500'}`}>
+              {statusLabel}
+            </p>
+          </div>
+        </div>
 
             <button
               type="button"
               onClick={onClose}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/10 text-white transition hover:bg-white/20"
-              aria-label="Close member details"
+              aria-label="Close drawer"
             >
               <IconClose />
             </button>
           </div>
 
-          <div className="relative mt-3 grid grid-cols-2 gap-2">
-            <div className="rounded-xl border border-white/10 bg-white/10 p-2">
+          <div className="relative mt-5 grid grid-cols-2 gap-3">
+            <div className="rounded-xl border border-white/10 bg-white/10 p-3">
               <p className="text-[9px] font-black uppercase tracking-[0.12em] text-white/45">Team Size</p>
               <p className="mt-1 text-lg font-black text-white">{formatNumber(teamSize)}</p>
             </div>
 
-            <div className="rounded-xl border border-white/10 bg-white/10 p-2">
+            <div className="rounded-xl border border-white/10 bg-white/10 p-3">
               <p className="text-[9px] font-black uppercase tracking-[0.12em] text-white/45">Reports</p>
               <p className="mt-1 text-lg font-black text-white">{formatNumber(directReports)}</p>
             </div>
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-          <div className="rounded-2xl border border-slate-200 bg-white px-3">
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          <div className="rounded-2xl border border-slate-200 bg-white px-4">
             <DrawerDetailRow label="Phone" value={member.phone} />
             <DrawerDetailRow label="Email" value={member.email} />
             <DrawerDetailRow label="Member ID" value={member.memberId || member.id} />
@@ -956,8 +954,18 @@ function MemberDetailsModal({
           </div>
         </div>
 
-
-      </div>
+        <div className="border-t border-slate-200 bg-slate-50 p-4">
+          <button
+            type="button"
+            onClick={onViewTeam}
+            disabled={!hasNextLevel}
+            className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-[#c9a227] px-4 text-[12px] font-black text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:bg-slate-300"
+          >
+            <IconUsers className="h-3.5 w-3.5" />
+            {hasNextLevel ? 'View Team' : 'No Downline'}
+          </button>
+        </div>
+      </aside>
     </div>
   );
 }
