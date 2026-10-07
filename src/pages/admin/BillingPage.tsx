@@ -55,7 +55,6 @@ interface BillingFormState {
 }
 
 interface BillingModalProps {
-  hideFinalSettlement?: boolean;
   mode: BillingFormMode;
   billing?: Billing | null;
   bookings: Booking[];
@@ -86,7 +85,7 @@ const lifecycleLabels: Record<LifecycleStage, string> = {
   COMPLETED: 'Completed',
 };
 
-const selectableLifecycleStages: Exclude<LifecycleStage, 'COMPLETED'>[] = [
+const addBillingLifecycleStages: Exclude<LifecycleStage, 'COMPLETED'>[] = [
   'TOKEN_RECEIVED',
   'ADVANCE_PAYMENT',
   'REGISTRATION_PENDING',
@@ -348,7 +347,7 @@ function lifecycleFromBookingStatus(status?: BookingStatus): LifecycleStage {
   if (status === 'ADVANCE_PAYMENT') return 'ADVANCE_PAYMENT';
   if (status === 'REGISTRATION_PENDING') return 'REGISTRATION_PENDING';
   if (status === 'FINAL_SETTLEMENT_PENDING') return 'FINAL_SETTLEMENT';
-  if (status === 'COMPLETED') return 'COMPLETED';
+  if (status === 'COMPLETED') return 'FINAL_SETTLEMENT';
   return 'TOKEN_RECEIVED';
 }
 
@@ -361,13 +360,13 @@ function lifecycleFromBillingStatus(status?: BillingStatus): LifecycleStage {
 
 function lifecycleToBillingStatus(stage: LifecycleStage): BillingStatus {
   if (stage === 'ADVANCE_PAYMENT') return 'PARTIAL_PAYMENT';
-  if (stage === 'FINAL_SETTLEMENT') return 'FINAL_SETTLEMENT';
+  if (stage === 'FINAL_SETTLEMENT') return 'COMPLETED';
   if (stage === 'COMPLETED') return 'COMPLETED';
   return 'PENDING';
 }
 
 function lifecycleToBookingStatus(stage: LifecycleStage): BookingStatus {
-  if (stage === 'FINAL_SETTLEMENT') return 'FINAL_SETTLEMENT_PENDING';
+  if (stage === 'FINAL_SETTLEMENT') return 'COMPLETED';
   return stage;
 }
 
@@ -419,6 +418,11 @@ function SectionTitle({ children, icon }: { children: React.ReactNode; icon?: Re
   );
 }
 
+function squareFeetValue(value: unknown) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric >= 100 ? String(numeric) : '100';
+}
+
 function billingToForm(billing?: Billing | null): BillingFormState {
   const amount = billing?.amountInNumbers ? String(billing.amountInNumbers) : '';
   const form: BillingFormState = {
@@ -427,7 +431,7 @@ function billingToForm(billing?: Billing | null): BillingFormState {
     applicantPhone: billing?.buyerPhone ?? '',
     projectName: billing ? projectName(billing) : '',
     plotNumber: billing ? plotNumber(billing) : '',
-    squareFeet: billing?.booking?.squareFeet ? String(billing.booking.squareFeet) : '',
+    squareFeet: squareFeetValue(billing?.booking?.squareFeet),
     paymentMethod: billing?.paymentMethod ?? 'CHEQUE',
     bankName: billing?.bankName ?? '',
     favourOf: billing?.favourOf ?? 'Sri Thangam Housing',
@@ -437,9 +441,7 @@ function billingToForm(billing?: Billing | null): BillingFormState {
     cashAmount: billing?.paymentMethod === 'CASH' ? amount : '',
     currentAmount: billing?.paymentMethod !== 'CASH' ? amount : '',
     lifecycleStage:
-      billing?.status === 'COMPLETED'
-        ? 'FINAL_SETTLEMENT'
-        : billing?.status === 'FINAL_SETTLEMENT'
+      billing?.status === 'COMPLETED' || billing?.status === 'FINAL_SETTLEMENT'
           ? 'FINAL_SETTLEMENT'
           : billing?.status === 'PARTIAL_PAYMENT'
             ? 'ADVANCE_PAYMENT'
@@ -532,6 +534,7 @@ function buildPayload(form: BillingFormState): CreateBillingData {
     paymentMethod: form.paymentMethod,
     amountInNumbers: amount,
     totalReceived,
+    status: lifecycleToBillingStatus(form.lifecycleStage),
     operationalNotes: verificationNotesForSubmit(form),
     settlementNotes: form.settlementNotes || undefined,
   };
@@ -667,7 +670,7 @@ function payloadToBilling(payload: CreateBillingData, form: BillingFormState, ex
     cellNumber: payload.buyerPhone,
     projectName: form.projectName,
     plotNumber: form.plotNumber,
-    squareFeet: form.squareFeet ? Number(form.squareFeet) : undefined,
+    squareFeet: Math.max(Number(form.squareFeet) || 100, 100),
     bookingDate: existing?.booking?.bookingDate ?? new Date().toISOString(),
     status: 'ADVANCE_PAYMENT',
     createdAt: existing?.booking?.createdAt ?? new Date().toISOString(),
@@ -699,11 +702,12 @@ function payloadToBilling(payload: CreateBillingData, form: BillingFormState, ex
   };
 }
 
-function BillingFormModal({ mode, billing, bookings, onClose, onSaved, hideFinalSettlement = false }: BillingModalProps) {
+function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: BillingModalProps) {
   const createBilling = useCreateBilling();
   const updateBilling = useUpdateBilling();
   const updateBookingStatus = useUpdateBookingStatus();
   const uploadBillingSignature = useUploadBillingSignature();
+  const selectableLifecycleStages = addBillingLifecycleStages;
   const [form, setForm] = useState<BillingFormState>(() => billingToForm(billing));
   const [signatureFile, setSignatureFile] = useState<File | null>(null);
   const [signaturePreviewUrl, setSignaturePreviewUrl] = useState('');
@@ -787,7 +791,7 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved, hideFinal
       applicantPhone: selectedBooking.cellNumber ?? '',
       projectName: selectedBooking.projectName ?? '',
       plotNumber: selectedBooking.plotNumber ?? '',
-      squareFeet: selectedBooking.squareFeet ? String(selectedBooking.squareFeet) : '',
+      squareFeet: squareFeetValue(selectedBooking.squareFeet),
       lifecycleStage: lifecycleFromBookingStatus(selectedBooking.status),
       currentAmount: mode === 'add' ? '' : current.currentAmount,
       totalReceived: mode === 'add' ? '' : current.totalReceived,
@@ -831,7 +835,7 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved, hideFinal
         applicantPhone: bookingDetails.cellNumber ?? '',
         projectName: bookingDetails.projectName ?? bookingDetails.property?.projectName ?? '',
         plotNumber: bookingDetails.plotNumber ?? bookingDetails.property?.plotNumber ?? '',
-        squareFeet: bookingDetails.squareFeet ? String(bookingDetails.squareFeet) : '',
+        squareFeet: squareFeetValue(bookingDetails.squareFeet),
         paymentMethod: (previousPayment?.paymentMethod ?? current.paymentMethod) as PaymentMethod,
         bankName: previousPayment?.bankName ?? '',
         favourOf: previousPayment?.favourOf ?? current.favourOf,
@@ -1081,10 +1085,14 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved, hideFinal
                 </Field>
                 <Field label="Square Feet">
                   <input
+                    type="number"
+                    min="100"
+                    step="50"
                     value={form.squareFeet}
                     onChange={(event) => updateForm('squareFeet', event.target.value)}
+                    onBlur={(event) => updateForm('squareFeet', squareFeetValue(event.target.value))}
                     className={inputClass}
-                    placeholder="0.00"
+                    placeholder="100"
                   />
                 </Field>
               </div>
@@ -1221,7 +1229,7 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved, hideFinal
                     onChange={(event) => updateForm('lifecycleStage', event.target.value as LifecycleStage)}
                     className={inputClass}
                   >
-                    {selectableLifecycleStages.filter((stage) => !hideFinalSettlement || stage !== 'FINAL_SETTLEMENT').map((stage) => (
+                    {selectableLifecycleStages.map((stage) => (
                       <option key={stage} value={stage}>
                         {lifecycleLabels[stage]}
                       </option>
@@ -1583,7 +1591,7 @@ function BillingDetailsModal({ billing, onClose, onDownload, isDownloading }: Bi
   );
 }
 
-const AdminBillingPage: React.FC<{ hideFinalSettlement?: boolean }> = ({ hideFinalSettlement = false }) => {
+const AdminBillingPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<BillingStatus | ''>('');
@@ -1760,7 +1768,7 @@ const AdminBillingPage: React.FC<{ hideFinalSettlement?: boolean }> = ({ hideFin
               className="h-11 w-full rounded-sm border border-stone-200 bg-amber-50/50 px-3 text-sm font-semibold outline-none focus:border-gold"
             >
               <option value="">All Statuses</option>
-              {Object.entries(statusLabels).filter(([value]) => !hideFinalSettlement || value !== 'FINAL_SETTLEMENT').map(([value, label]) => (
+              {Object.entries(statusLabels).map(([value, label]) => (
                 <option key={value} value={value}>
                   {label}
                 </option>
@@ -1899,7 +1907,6 @@ const AdminBillingPage: React.FC<{ hideFinalSettlement?: boolean }> = ({ hideFin
 
       {modalMode && (
         <BillingFormModal
-          hideFinalSettlement={hideFinalSettlement}
           mode={modalMode}
           billing={editingBilling}
           bookings={availableBillingBookings}

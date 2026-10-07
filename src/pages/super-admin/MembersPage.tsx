@@ -1,5 +1,6 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { UpdateMemberData } from '../../api/members.api';
+import { Modal } from '../../components/ui/Modal';
 import { useBranches } from '../../hooks/useBranches';
 import { useMembers, useUpdateMember, useUploadMemberPhoto } from '../../hooks/useMembers';
 
@@ -35,6 +36,7 @@ type MemberRecord = {
 
   memberId?: string | null;
   codeNumber?: string | null;
+  introName?: string | null;
   phone?: string | null;
   alternatePhone?: string | null;
   email?: string | null;
@@ -268,9 +270,13 @@ function getBranchName(member: MemberRecord) {
 function getJoinedDate(member: MemberRecord) {
   const dateValue = member.joinedDate || member.createdAt || member.created_at;
 
-  if (!dateValue) return '—';
+  return formatMemberDate(dateValue);
+}
 
-  const date = new Date(dateValue);
+function formatMemberDate(value?: string | null) {
+  if (!value) return '—';
+
+  const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) return '—';
 
@@ -423,18 +429,6 @@ function IconChevronRight({ className = 'h-3.5 w-3.5' }: { className?: string })
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-    </svg>
-  );
-}
-
-function IconUsers({ className = 'h-4 w-4' }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.9}>
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5 5 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"
-      />
     </svg>
   );
 }
@@ -746,6 +740,7 @@ function BoardDirectorCard({
   pendingCount,
   downlineMembers,
   onOpen,
+  onOpenMember,
 }: {
   director: HierarchyNode;
   teamSize: number;
@@ -753,9 +748,9 @@ function BoardDirectorCard({
   pendingCount: number;
   downlineMembers: HierarchyNode[];
   onOpen: () => void;
+  onOpenMember: (member: HierarchyNode) => void;
 }) {
   const [expandedParents, setExpandedParents] = useState<Record<string, boolean>>({});
-  const [showAllDownline, setShowAllDownline] = useState(false);
 
   function renderChildren(parent: HierarchyNode, depth = 0): React.ReactNode {
     const children = downlineMembers.filter((member) => getReportsToId(member) === parent.id);
@@ -775,13 +770,16 @@ function BoardDirectorCard({
       >
         {visibleChildren.map((member) => (
           <div key={member.id}>
-            <div
-              className="relative flex w-full items-center justify-between gap-2 rounded-[10px] border border-slate-200 bg-white px-3 py-2.5 text-left shadow-[0_4px_12px_rgba(15,20,25,0.04)]"
+            <button
+              type="button"
+              onClick={() => onOpenMember(member)}
+              aria-label={`View profile of ${member.fullName}`}
+              className="hover:border-[#c9a227] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#c9a227] relative flex w-full items-center justify-between gap-2 rounded-[10px] border border-slate-200 bg-white px-3 py-2.5 text-left shadow-[0_4px_12px_rgba(15,20,25,0.04)]"
             >
               <span className="absolute -left-5 top-1/2 h-px w-5 bg-slate-200" />
               <span className="truncate text-[11px] font-black text-slate-900">{member.fullName}</span>
               <span className="shrink-0 text-[8px] font-bold text-slate-500">{ROLE_LABELS[member.role]}</span>
-            </div>
+            </button>
             {renderChildren(member, depth + 1)}
           </div>
         ))}
@@ -836,40 +834,8 @@ function BoardDirectorCard({
         <div>
           {downlineMembers.length === 0 ? (
             <p className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-3 text-center text-[10px] font-semibold text-slate-400">No downline members</p>
-          ) : !showAllDownline ? (
-            <div className="ml-5 space-y-2 border-l border-slate-200 pb-1 pl-5 pt-4">
-              {downlineMembers.slice(0, 2).map((member) => (
-                <div
-                  key={member.id}
-                  className="relative flex w-full items-center justify-between gap-2 rounded-[10px] border border-slate-200 bg-white px-3 py-2.5 shadow-[0_4px_12px_rgba(15,20,25,0.04)]"
-                >
-                  <span className="absolute -left-5 top-1/2 h-px w-5 bg-slate-200" />
-                  <span className="truncate text-[11px] font-black text-slate-900">{member.fullName}</span>
-                  <span className="shrink-0 text-[8px] font-bold text-slate-500">{ROLE_LABELS[member.role]}</span>
-                </div>
-              ))}
-              {downlineMembers.length > 2 && (
-                <button
-                  type="button"
-                  onClick={() => setShowAllDownline(true)}
-                  className="relative w-full rounded-[10px] border border-[#eadba4] bg-[#fffaf0] px-3 py-2.5 text-left text-[10px] font-black text-[#806000] shadow-[0_4px_12px_rgba(15,20,25,0.04)] hover:bg-[#fff4d6]"
-                >
-                  <span className="absolute -left-5 top-1/2 h-px w-5 bg-slate-200" />
-                  +{downlineMembers.length - 2} Others
-                </button>
-              )}
-            </div>
           ) : (
-            <>
-              {renderChildren(director)}
-              <button
-                type="button"
-                onClick={() => setShowAllDownline(false)}
-                className="mt-2 w-full text-center text-[9px] font-bold text-slate-500 hover:text-slate-800"
-              >
-                Show less
-              </button>
-            </>
+            renderChildren(director)
           )}
         </div>
       </div>
@@ -877,62 +843,79 @@ function BoardDirectorCard({
   );
 }
 
-function DrawerDetailRow({ label, value }: { label: string; value: string | number | null | undefined }) {
+function MemberDetailItem({ label, value }: { label: string; value: string | number | null | undefined }) {
   return (
-    <div className="grid grid-cols-[95px_1fr] gap-3 border-b border-slate-100 py-2.5 last:border-b-0">
-      <p className="text-[10px] font-black uppercase tracking-[0.1em] text-slate-400">{label}</p>
-      <p className="min-w-0 break-words text-[12px] font-bold leading-5 text-slate-900 [overflow-wrap:anywhere]">
-        {toText(value)}
-      </p>
+    <div className="min-h-[78px] rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
+      <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">{label}</p>
+      <p className="mt-2 break-words text-sm font-semibold text-gray-900 [overflow-wrap:anywhere]">{toText(value)}</p>
     </div>
   );
 }
 
-function MemberDrawer({
+function MemberDetailsModal({
   open,
   member,
   teamSize,
   directReports,
-  hasNextLevel,
   onClose,
-  onViewTeam,
 }: {
   open: boolean;
   member: HierarchyNode | null;
   teamSize: number;
   directReports: number;
-  hasNextLevel: boolean;
   onClose: () => void;
-  onViewTeam: () => void;
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    dialogRef.current?.focus();
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+      if (event.key === 'Tab') {
+        const elements = dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input, select, textarea, [tabindex="0"]');
+        if (!elements?.length) { event.preventDefault(); return; }
+        const first = elements[0];
+        const last = elements[elements.length - 1];
+        if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) {
+          event.preventDefault(); last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault(); first.focus();
+        }
+      }
+    };
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleKey);
+      previousFocus?.focus();
+    };
+  }, [open, onClose]);
+
   if (!open || !member) return null;
 
   const fullAddress = [member.address, member.city, member.district, member.state, member.pincode].filter(Boolean).join(', ');
+  const reportsToName = member.reportsTo?.fullName || member.reportsTo?.name;
+  const isActive = String(member.status ?? '').toUpperCase() === 'ACTIVE';
+  const statusLabel = toText(member.status).toLowerCase().replace(/^\w/, (character) => character.toUpperCase());
 
   return (
-    <div className="fixed inset-0 z-[80]">
-      <button
-        type="button"
-        onClick={onClose}
-        className="absolute inset-0 bg-slate-950/45 backdrop-blur-[2px]"
-        aria-label="Close drawer overlay"
-      />
-
-      <aside className="absolute right-0 top-0 flex h-full w-full max-w-[395px] flex-col overflow-hidden bg-white shadow-[0_24px_80px_rgba(15,20,25,0.32)]">
-        <div className="relative overflow-hidden bg-gradient-to-br from-[#0f1419] via-[#151d2c] to-[#1a2332] px-5 pb-6 pt-5">
-          <div className="absolute -right-20 -top-20 h-48 w-48 rounded-full bg-[#c9a227]/25 blur-3xl" />
-
-          <div className="relative flex items-start justify-between gap-4">
-            <div className="flex min-w-0 items-center gap-3">
-              <Avatar member={member} size="lg" />
-
-              <div className="min-w-0">
-                <h2 className="break-words text-[18px] font-black leading-tight text-white">{member.fullName}</h2>
-                <p className="mt-1 text-[10px] font-black uppercase tracking-[0.12em] text-[#e8c547]">
-                  {member.role === 'FOUNDER' ? 'Founder & CMD' : ROLE_LABELS[member.role]}
-                </p>
-              </div>
-            </div>
+    <Modal open={open} onClose={onClose} title="Member Details" subtitle={toText(member.memberId || member.id)} size="3xl">
+      <div className="space-y-5 pt-4">
+        <div className="flex items-center gap-4 rounded-lg border border-amber-100 bg-amber-50/60 p-4">
+          <Avatar member={member} size="lg" />
+          <div className="min-w-0">
+            <h3 className="break-words text-lg font-bold text-gray-900">{member.fullName}</h3>
+            <p className="mt-1 text-sm font-semibold text-gray-600">
+              {member.role === 'FOUNDER' ? 'Founder & CMD' : ROLE_LABELS[member.role]}
+            </p>
+            <p className={`mt-1 text-xs font-bold ${isActive ? 'text-teal-700' : 'text-gray-500'}`}>
+              {statusLabel}
+            </p>
+          </div>
+        </div>
 
             <button
               type="button"
@@ -1395,7 +1378,7 @@ const MembersPage: React.FC = () => {
       response?.total ||
       response?.count ||
       response?.meta?.total ||
-      members.length + 1
+      members.length
     );
   }, [members.length, membersData]);
 
@@ -1545,7 +1528,7 @@ const MembersPage: React.FC = () => {
   );
 
   const filteredMembers = useMemo(() => {
-    return [FOUNDER, ...members].filter((member) => memberMatchesFilters(member));
+    return members.filter((member) => memberMatchesFilters(member));
   }, [members, memberMatchesFilters]);
 
   const directorMembers = useMemo(() => {
@@ -1790,16 +1773,14 @@ const MembersPage: React.FC = () => {
         </section>
 
         <section className="rounded-[20px] border border-slate-200 bg-white p-4 shadow-[0_10px_28px_rgba(15,20,25,0.04)] sm:p-5">
-          <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div className="mb-6 space-y-5">
             <div>
               <div className="mb-2 flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleBreadcrumbRoot}
-                  className="rounded-full bg-[#0f1419] px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.08em] text-white"
-                >
-                  Founder
-                </button>
+                {path.length > 0 && (
+                  <button type="button" onClick={handleBreadcrumbRoot} className="rounded-full bg-slate-100 px-3 py-1.5 text-[10px] font-black text-slate-700">
+                    All Members
+                  </button>
+                )}
 
                 {path.map((item, index) => (
                   <React.Fragment key={item.id}>
@@ -1818,24 +1799,29 @@ const MembersPage: React.FC = () => {
               <h2 className="text-[18px] font-black text-slate-950 sm:text-[20px]">{pageTitle}</h2>
 
               <p className="mt-1 text-[11px] font-semibold text-slate-500">
-                Founder above, directors branch-wise below. Card click opens details. Edit button opens all member fields.
+                Members grouped by reporting hierarchy. Click any member to view their details.
               </p>
             </div>
 
-            <div className="flex flex-wrap gap-2 text-[10px] font-black uppercase tracking-[0.07em]">
-              <span className="rounded-full bg-slate-950 px-3 py-1.5 text-white">
-                Total {formatNumber(totalMembers)}
-              </span>
-              <span className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700">
-                Directors {formatNumber(roleCounts.DIRECTOR)}
-              </span>
-              <span className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700">
-                Managers {formatNumber(roleCounts.SENIOR_MANAGER + roleCounts.BUSINESS_MANAGER)}
-              </span>
-              <span className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700">
-                Agents {formatNumber(roleCounts.AGENT)}
-              </span>
-            </div>
+            <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-7">
+              <div className="col-span-2 flex items-center justify-between rounded-2xl border border-slate-200 border-t-[3px] border-t-slate-400 bg-white px-4 py-4 shadow-sm sm:col-span-3 xl:col-span-1 xl:block">
+                <dt className="text-xs font-semibold text-slate-600 xl:min-h-10">Total Members</dt>
+                <dd className="text-3xl font-extrabold tabular-nums text-slate-900 xl:mt-2">{formatNumber(totalMembers)}</dd>
+              </div>
+              {ROLE_FLOW.map((role, index) => (
+                <div key={role} className={`min-w-0 rounded-2xl border border-t-[3px] px-4 py-4 ${[
+                  'border-amber-200 border-t-amber-500 bg-amber-50/50',
+                  'border-teal-200 border-t-teal-500 bg-teal-50/50',
+                  'border-blue-200 border-t-blue-500 bg-blue-50/50',
+                  'border-violet-200 border-t-violet-500 bg-violet-50/50',
+                  'border-rose-200 border-t-rose-500 bg-rose-50/50',
+                  'border-cyan-200 border-t-cyan-500 bg-cyan-50/50',
+                ][index]}`}>
+                  <dt className="min-h-10 text-xs font-semibold leading-5 text-slate-600">{ROLE_LABELS[role]}</dt>
+                  <dd className="mt-2 text-3xl font-extrabold tabular-nums text-slate-900">{formatNumber(roleCounts[role])}</dd>
+                </div>
+              ))}
+            </dl>
           </div>
 
           {isLoading ? (
@@ -1914,6 +1900,7 @@ const MembersPage: React.FC = () => {
                           pendingCount={descendants.filter((member) => member.status === 'PENDING').length}
                           downlineMembers={descendants}
                           onOpen={() => setSelectedMember(director)}
+                          onOpenMember={setSelectedMember}
                         />
                       );
                     })}
@@ -1962,16 +1949,12 @@ const MembersPage: React.FC = () => {
         </section>
       </div>
 
-      <MemberDrawer
+      <MemberDetailsModal
         open={Boolean(selectedMember)}
         member={selectedMember}
         teamSize={selectedStats.teamSize}
         directReports={selectedStats.directReports}
-        hasNextLevel={selectedStats.hasNextLevel}
         onClose={() => setSelectedMember(null)}
-        onViewTeam={() => {
-          if (selectedMember) handleViewTeam(selectedMember);
-        }}
       />
 
       {editingMember && (

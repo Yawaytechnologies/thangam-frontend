@@ -30,6 +30,7 @@ const workflowLabels: Record<WorkflowStatus, string> = {
   FINAL_SETTLEMENT_PENDING: 'Final Settlement Pending',
   COMPLETED: 'Completed',
 };
+const workflowFilterOptions = Object.entries(workflowLabels).filter(([value]) => value !== 'COMPLETED');
 
 function stringField(value: unknown) {
   return typeof value === 'string' ? value : '';
@@ -690,7 +691,7 @@ const AdminPropertiesPage: React.FC = () => {
             className="h-10 rounded-sm border border-gray-200 bg-amber-50/60 px-4 text-sm font-semibold text-gray-700 outline-none focus:border-gold"
           >
             <option value="">Workflow Stage: All</option>
-            {Object.entries(workflowLabels).map(([value, label]) => (
+            {workflowFilterOptions.map(([value, label]) => (
               <option key={value} value={value}>
                 {label}
               </option>

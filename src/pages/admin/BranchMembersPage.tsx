@@ -1,18 +1,15 @@
 import React, { useMemo, useState } from 'react';
 import {
-  ArrowRight,
   Building2,
   ChevronDown,
-  ChevronsUpDown,
-  GitBranch,
   MapPin,
   Search,
   UserCheck,
-  Users,
 } from 'lucide-react';
-import { useMembers, useTeam } from '../../hooks/useMembers';
+import { useMembers, useTeam, useTeamMember } from '../../hooks/useMembers';
 import { useAuthStore } from '../../stores/auth.store';
 import { resolveFileUrl } from '../../lib/file-url';
+import { Modal } from '../../components/ui/Modal';
 import type { Branch, Member, PaginatedResponse, Role, UserStatus } from '../../types';
 
 interface PersonRecord {
@@ -30,6 +27,8 @@ interface PersonRecord {
 
 interface DirectorRecord extends PersonRecord {
   region: string;
+  source: Member;
+  rank: number;
 }
 
 const hierarchyRoles: Role[] = [
@@ -39,8 +38,6 @@ const hierarchyRoles: Role[] = [
   'BUSINESS_MANAGER',
   'AGENT',
 ];
-
-const fullHierarchyRoles: Role[] = ['DIRECTOR', ...hierarchyRoles];
 
 const roleLabels: Record<Role, string> = {
   SUPER_ADMIN: 'Super Admin',
@@ -131,6 +128,23 @@ function memberIdentifier(member: Member) {
 
 function memberPhone(member: Member) {
   return getStringField(member, ['phone', 'mobile', 'mobile1', 'cellNumber']) || '-';
+}
+
+function detailValue(value: unknown) {
+  if (typeof value === 'string' && value.trim()) return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return '-';
+}
+
+function formatDate(value?: string) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return new Intl.DateTimeFormat('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(date);
 }
 
 function normalizeLookupKey(value: unknown) {
@@ -251,10 +265,6 @@ function parentKeysFor(member: Member) {
   return Array.from(new Set(parentKeys.map(normalizeLookupKey).filter(Boolean)));
 }
 
-function parentIdFor(member: Member) {
-  return parentKeysFor(member)[0] ?? '';
-}
-
 function branchNameFor(member: Member, fallbackBranch?: Branch) {
   return member.branch?.name ?? fallbackBranch?.name ?? '-';
 }
@@ -296,6 +306,22 @@ function collectDescendants(
     { member: child, depth },
     ...collectDescendants(child, childrenByParent, depth + 1, visited),
   ]);
+}
+
+function getDirectChildren(member: Pick<Member, 'id' | 'memberId'>, childrenByParent: Map<string, Member[]>) {
+  const childMap = new Map<string, Member>();
+
+  for (const parentKey of memberLookupKeys(member as Member)) {
+    for (const child of childrenByParent.get(parentKey) ?? []) {
+      childMap.set(child.id, child);
+    }
+  }
+
+  return Array.from(childMap.values()).sort((a, b) => memberName(a).localeCompare(memberName(b)));
+}
+
+function getDownlineMembers(member: Pick<Member, 'id' | 'memberId'>, childrenByParent: Map<string, Member[]>) {
+  return collectDescendants(member, childrenByParent).map(({ member: child }) => child);
 }
 
 function memberMatchesFilters(member: Member, search: string, role: Role | '', status: UserStatus | '') {
@@ -376,21 +402,6 @@ function Avatar({ name, photoUrl, selected = false }: { name: string; photoUrl?:
   );
 }
 
-function RoleBadge({ role }: { role: Role }) {
-  const color =
-    role === 'SENIOR_MANAGER' || role === 'BUSINESS_MANAGER' || role === 'AGENT'
-      ? 'bg-teal-50 text-teal-700'
-      : role === 'DEPUTY_DIRECTOR'
-        ? 'bg-blue-50 text-blue-700'
-        : 'bg-amber-50 text-gold';
-
-  return (
-    <span className={`inline-flex rounded-sm px-2 py-0.5 text-[10px] font-bold uppercase ${color}`}>
-      {roleLabels[role]}
-    </span>
-  );
-}
-
 function EmptyState({ children }: { children: React.ReactNode }) {
   return (
     <div className="rounded-md border border-dashed border-amber-200 bg-white/70 px-4 py-5 text-sm font-semibold text-gray-500">
@@ -399,89 +410,233 @@ function EmptyState({ children }: { children: React.ReactNode }) {
   );
 }
 
+function DownlineTree({
+  root,
+  childrenByParent,
+  onViewMember,
+}: {
+  root: Member;
+  childrenByParent: Map<string, Member[]>;
+  onViewMember: (member: Member) => void;
+}) {
+  const [expandedParents, setExpandedParents] = useState<Record<string, boolean>>({});
+  const directChildren = getDirectChildren(root, childrenByParent);
+
+  const renderChildren = (parent: Member, depth = 0, visited = new Set<string>()): React.ReactNode => {
+    if (visited.has(parent.id)) return null;
+
+    const nextVisited = new Set(visited).add(parent.id);
+    const children = getDirectChildren(parent, childrenByParent).filter((child) => !nextVisited.has(child.id));
+    const expanded = Boolean(expandedParents[parent.id]);
+    const visibleChildren = expanded ? children : children.slice(0, 2);
+    const remainingCount = children.length - visibleChildren.length;
+
+    if (children.length === 0) return null;
+
+    return (
+      <div className={depth === 0 ? 'ml-2 min-w-0 space-y-3 border-l border-gray-200 pb-1 pl-4 pt-4 sm:ml-4 sm:pl-5' : 'mt-3 min-w-0 space-y-3'}>
+        {visibleChildren.map((member) => {
+          const role = normalizeRole(member.role);
+          const roleLabel = role ? roleLabels[role] : String(member.role || '-');
+
+          return (
+            <div key={member.id} className="min-w-0">
+              <div className="relative grid min-h-[56px] w-full min-w-0 grid-cols-[minmax(0,1fr)_minmax(6.5rem,max-content)] items-center gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 text-left shadow-sm">
+                {depth === 0 && <span className="absolute -left-4 top-1/2 h-px w-4 bg-gray-200 sm:-left-5 sm:w-5" />}
+                <button
+                  type="button"
+                  onClick={() => onViewMember(member)}
+                  className="min-w-0 truncate text-left text-base font-bold text-gray-900 hover:text-gold focus:outline-none focus:ring-2 focus:ring-gold/40"
+                  title={memberName(member)}
+                >
+                  {memberName(member)}
+                </button>
+                <span
+                  className="min-w-0 max-w-[8.75rem] truncate text-right text-[12px] font-bold text-gray-500 sm:max-w-[10rem]"
+                  title={roleLabel}
+                >
+                  {roleLabel}
+                </span>
+              </div>
+              {renderChildren(member, depth + 1, nextVisited)}
+            </div>
+          );
+        })}
+
+        {!expanded && remainingCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setExpandedParents((current) => ({ ...current, [parent.id]: true }))}
+            className="relative w-full rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-left text-xs font-bold text-amber-800 shadow-sm hover:bg-amber-100"
+          >
+            <span className="absolute -left-4 top-1/2 h-px w-4 bg-gray-200 sm:-left-5 sm:w-5" />
+            +{remainingCount} {remainingCount === 1 ? 'Other' : 'Others'}
+          </button>
+        )}
+
+        {expanded && children.length > 2 && (
+          <button
+            type="button"
+            onClick={() => setExpandedParents((current) => ({ ...current, [parent.id]: false }))}
+            className="w-full text-center text-xs font-bold text-gray-500 hover:text-gray-800"
+          >
+            Show less
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  if (directChildren.length === 0) {
+    return (
+      <p className="mt-2 rounded-lg border border-dashed border-gray-200 bg-white px-3 py-3 text-center text-xs font-semibold text-gray-400">
+        No downline members
+      </p>
+    );
+  }
+
+  return <div>{renderChildren(root)}</div>;
+}
+
 function DirectorCard({
   director,
   selected,
   onSelect,
+  onViewMember,
+  childrenByParent,
 }: {
   director: DirectorRecord;
   selected: boolean;
   onSelect: () => void;
+  onViewMember: (member: Member) => void;
+  childrenByParent: Map<string, Member[]>;
 }) {
+  const downlineMembers = getDownlineMembers(director.source, childrenByParent);
+  const activeCount = downlineMembers.filter((member) => normalizeStatus(member.status) === 'ACTIVE').length;
+  const pendingCount = downlineMembers.filter((member) => normalizeStatus(member.status) === 'PENDING').length;
+
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={`relative flex min-h-32 flex-col rounded-lg border bg-white p-4 text-left shadow-sm transition hover:border-gold/70 ${
-        selected ? 'border-gold ring-1 ring-gold' : 'border-gray-200'
-      }`}
-    >
-      {selected && (
-        <span className="absolute -top-2 right-4 rounded-sm bg-gold px-2 py-0.5 text-[10px] font-bold text-navy">
-          SELECTED
-        </span>
-      )}
-      <div className="flex items-start gap-3">
-        <Avatar name={director.name} photoUrl={director.photoUrl} selected={selected} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-bold text-gray-900">{director.name}</p>
-              <p className="text-xs font-semibold text-gray-700">{roleLabels[director.role]}</p>
-              <p className="mt-0.5 truncate text-xs text-gray-500">{director.region}</p>
+    <article className="min-w-0">
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onSelect}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onSelect();
+          }
+        }}
+        className={`relative w-full cursor-pointer rounded-lg border bg-white p-4 text-left shadow-sm transition hover:border-gold/70 sm:p-5 ${
+          selected ? 'border-gold ring-1 ring-gold/50' : 'border-gray-200'
+        }`}
+      >
+        <div className="flex items-start gap-4">
+          <Avatar name={director.name} photoUrl={director.photoUrl} selected={selected} />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onViewMember(director.source);
+                  }}
+                  className="block max-w-full truncate text-left text-base font-bold text-gray-900 hover:text-gold focus:outline-none focus:ring-2 focus:ring-gold/40"
+                >
+                  {director.name}
+                </button>
+                <p className="mt-1 truncate text-sm font-semibold text-gray-500">ID: {director.memberId}</p>
+                <p className="mt-2 truncate text-sm font-semibold text-gray-500">{director.region}</p>
+                <p className="mt-2 text-xs font-bold text-gray-400">Rank #{director.rank} - {director.status === 'ACTIVE' ? 'Active' : director.status}</p>
+              </div>
+              <span className="rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-bold uppercase text-emerald-700">
+                Director
+              </span>
             </div>
-            <StatusBadge status={director.status} />
+          </div>
+        </div>
+
+        <div className="mt-5 grid grid-cols-3 divide-x divide-gray-200 rounded-lg bg-gray-50 py-1 text-center">
+          <div className="px-2 py-2">
+            <p className="text-[10px] font-bold uppercase text-gray-400">Team</p>
+            <p className="mt-1 text-lg font-black text-gray-900">{director.taggedCount}</p>
+          </div>
+          <div className="px-2 py-2">
+            <p className="text-[10px] font-bold uppercase text-gray-400">Active</p>
+            <p className="mt-1 text-lg font-black text-gray-900">{activeCount}</p>
+          </div>
+          <div className="px-2 py-2">
+            <p className="text-[10px] font-bold uppercase text-gray-400">Pending</p>
+            <p className="mt-1 text-lg font-black text-amber-700">{pendingCount}</p>
           </div>
         </div>
       </div>
-      <div className="mt-4 border-t border-gray-100 pt-3">
-        <div className="flex items-center justify-between gap-3">
-          <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-700">
-            <Users className="h-3.5 w-3.5 text-gold" />
-            {director.taggedCount} Tagged Members
-          </span>
-          <ArrowRight className="h-5 w-5 text-gold" />
-        </div>
-      </div>
-    </button>
+
+      {selected && <DownlineTree root={director.source} childrenByParent={childrenByParent} onViewMember={onViewMember} />}
+    </article>
   );
 }
 
-function PersonRow({ person }: { person: PersonRecord }) {
+const DetailRow: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
+  <div className="rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
+    <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">{label}</p>
+    <p className="mt-1 break-words text-sm font-semibold text-gray-900">{value}</p>
+  </div>
+);
+
+function MemberDetailsModal({
+  member,
+  childrenByParent,
+  onClose,
+}: {
+  member: Member;
+  childrenByParent: Map<string, Member[]>;
+  onClose: () => void;
+}) {
+  const role = normalizeRole(member.role);
+  const reportsToName = isRecord(member.reportsTo)
+    ? detailValue(member.reportsTo.fullName || member.reportsTo.name || member.reportsTo.memberId)
+    : '-';
+  const address = [member.address, member.city, member.district, member.state, member.pincode].filter(Boolean).join(', ');
+
   return (
-    <div style={{ marginLeft: `${Math.max(0, Math.min(person.depth - 1, 4)) * 1.25}rem` }}>
-      <div className="grid grid-cols-1 items-center gap-4 rounded-md border border-gray-200 bg-white px-4 py-4 shadow-sm md:grid-cols-[1.6fr_1fr_1fr_0.7fr_0.7fr]">
-        <div className="flex min-w-0 items-center gap-3">
-          <Avatar name={person.name} photoUrl={person.photoUrl} />
+    <Modal open onClose={onClose} title="Member Details" subtitle={memberIdentifier(member)} size="3xl">
+      <div className="space-y-5 pt-4">
+        <div className="flex items-center gap-4 rounded-lg border border-amber-100 bg-amber-50/60 p-4">
+          <Avatar name={memberName(member)} photoUrl={memberPhotoUrl(member)} />
           <div className="min-w-0">
-            <p className="truncate text-sm font-bold text-gray-900">{person.name}</p>
-            <p className="mt-0.5 truncate font-mono text-[11px] font-semibold text-gray-500">{person.memberId}</p>
-            <div className="mt-1">
-              <RoleBadge role={person.role} />
-            </div>
+            <h3 className="truncate text-lg font-bold text-gray-900">{memberName(member)}</h3>
+            <p className="mt-1 text-sm font-semibold text-gray-600">{role ? roleLabels[role] : detailValue(member.role)}</p>
+            <p className="mt-1 text-xs font-bold text-teal-700">{normalizeStatus(member.status)}</p>
           </div>
         </div>
-        <div>
-          <p className="text-[10px] font-bold uppercase text-gray-500">Phone</p>
-          <p className="mt-1 text-sm font-semibold text-gray-900">{person.phone}</p>
-        </div>
-        <div>
-          <p className="text-[10px] font-bold uppercase text-gray-500">Branch</p>
-          <p className="mt-1 text-sm font-semibold text-gray-900">{person.branch}</p>
-        </div>
-        <div>
-          <p className="text-[10px] font-bold uppercase text-gray-500">Status</p>
-          <p className="mt-1 flex items-center gap-1 text-sm font-semibold text-teal-700">
-            <span className="h-1.5 w-1.5 rounded-full bg-current" />
-            {person.status === 'ACTIVE' ? 'Active' : person.status}
-          </p>
-        </div>
-        <div>
-          <p className="text-[10px] font-bold uppercase text-gray-500">Tagged</p>
-          <p className="mt-1 text-sm font-semibold text-gray-900">{person.taggedCount} Members</p>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <DetailRow label="Member ID" value={detailValue(memberIdentifier(member))} />
+          <DetailRow label="Code Number" value={detailValue(member.codeNumber)} />
+          <DetailRow label="Phone" value={detailValue(memberPhone(member))} />
+          <DetailRow label="Alternate Phone" value={detailValue(member.alternatePhone)} />
+          <DetailRow label="Email" value={detailValue(member.email)} />
+          <DetailRow label="Role" value={role ? roleLabels[role] : detailValue(member.role)} />
+          <DetailRow label="Branch" value={detailValue(member.branch?.name)} />
+          <DetailRow label="Reports To" value={reportsToName} />
+          <DetailRow label="Direct Reports" value={getDirectChildren(member, childrenByParent).length} />
+          <DetailRow label="Team Members" value={getDownlineMembers(member, childrenByParent).length} />
+          <DetailRow label="Joined Date" value={formatDate(member.createdAt)} />
+          <DetailRow label="Date of Birth" value={formatDate(member.dateOfBirth)} />
+          <DetailRow label="Qualification" value={detailValue(member.qualification)} />
+          <DetailRow label="Experience" value={detailValue(member.experience)} />
+          <DetailRow label="Intro Name" value={detailValue(member.introName)} />
+          <DetailRow label="Nominee Name" value={detailValue(member.nomineeName)} />
+          <DetailRow label="Nominee Relation" value={detailValue(member.nomineeRelation)} />
+          <DetailRow label="Nominee Phone" value={detailValue(member.nomineePhone)} />
+          <DetailRow label="PAN Number" value={detailValue(member.panNumber)} />
+          <DetailRow label="Aadhaar Number" value={detailValue(member.aadhaarNumber)} />
+          <DetailRow label="Address" value={address || '-'} />
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -491,6 +646,8 @@ const BranchMembersPage: React.FC = () => {
   const [role, setRole] = useState<Role | ''>('');
   const [status, setStatus] = useState<UserStatus | ''>('');
   const [selectedDirectorId, setSelectedDirectorId] = useState('');
+  const [selectedMemberId, setSelectedMemberId] = useState('');
+  const selectedMemberQuery = useTeamMember(selectedMemberId);
   const { data: teamMembersData, isLoading: isTeamLoading } = useTeam({ limit: 1000 });
   const { data: allMembersData, isLoading: isMembersLoading } = useMembers({ limit: 1000 });
   const teamMembers = useMemo(() => membersFromResponse(teamMembersData), [teamMembersData]);
@@ -499,16 +656,17 @@ const BranchMembersPage: React.FC = () => {
   const isLoading = isTeamLoading || (!teamMembers.length && isMembersLoading);
   const branch = user?.admin?.branch ?? members.find((member) => member.branch)?.branch;
   const childrenByParent = useMemo(() => buildChildrenByParent(members), [members]);
-  const hasReportingAssignments = useMemo(() => members.some((member) => !!parentIdFor(member)), [members]);
-
   const directors = useMemo<DirectorRecord[]>(() => {
     return members
       .filter((member) => normalizeRole(member.role) === 'DIRECTOR')
       .map((member) => ({
         ...memberToPerson(member, childrenByParent, branch, 0),
         region: branchNameFor(member, branch),
+        source: member,
+        rank: 0,
       }))
-      .sort((a, b) => a.name.localeCompare(b.name));
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((director, index) => ({ ...director, rank: index + 1 }));
   }, [branch, childrenByParent, members]);
 
   const filteredDirectors = useMemo(() => {
@@ -519,58 +677,8 @@ const BranchMembersPage: React.FC = () => {
   }, [directors, members, role, search, status]);
 
   const selectedDirector = directors.find((director) => director.id === selectedDirectorId) ?? directors[0];
-
-  const linkedDirectorDownline = useMemo(() => {
-    return selectedDirector ? collectDescendants(selectedDirector, childrenByParent) : [];
-  }, [childrenByParent, selectedDirector]);
-
-  const showFullBranchByRole = !selectedDirector;
-  const displayedRoleOrder = showFullBranchByRole ? fullHierarchyRoles : hierarchyRoles;
-
-  const displayedMembers = useMemo(() => {
-    const sourceMembers = showFullBranchByRole
-      ? members.map((member) => ({ member, depth: normalizeRole(member.role) === 'DIRECTOR' ? 0 : 1 }))
-      : linkedDirectorDownline;
-
-    return sourceMembers
-      .filter(({ member }) => {
-        const normalizedRole = normalizeRole(member.role);
-        return normalizedRole ? displayedRoleOrder.includes(normalizedRole) : false;
-      })
-      .filter(({ member }) => memberMatchesFilters(member, search, role, status))
-      .map(({ member, depth }) => memberToPerson(member, childrenByParent, branch, depth))
-      .sort((a, b) => {
-        const roleDiff = displayedRoleOrder.indexOf(a.role) - displayedRoleOrder.indexOf(b.role);
-        return roleDiff || a.depth - b.depth || a.name.localeCompare(b.name);
-      });
-  }, [
-    branch,
-    childrenByParent,
-    displayedRoleOrder,
-    linkedDirectorDownline,
-    members,
-    role,
-    search,
-    showFullBranchByRole,
-    status,
-  ]);
-
-  const downlineByRole = useMemo(() => {
-    return displayedRoleOrder.map((item) => ({
-      role: item,
-      members: displayedMembers.filter((person) => person.role === item),
-    }));
-  }, [displayedMembers, displayedRoleOrder]);
-
-  const hierarchyNotice = useMemo(() => {
-    if (!members.length || isLoading) return '';
-    if (!hasReportingAssignments) return 'Members exist, but reporting hierarchy is not assigned.';
-    if (selectedDirector && linkedDirectorDownline.length === 0) {
-      return 'No members are linked under this director.';
-    }
-    if (!selectedDirector) return 'No director members found. Showing all branch members by role.';
-    return '';
-  }, [hasReportingAssignments, isLoading, linkedDirectorDownline.length, members.length, selectedDirector]);
+  const selectedMemberFallback = members.find((member) => member.id === selectedMemberId);
+  const selectedMember = selectedMemberQuery.data ?? selectedMemberFallback;
 
   const totalMembers = members.length;
   const activeMembers = members.filter((member) => normalizeStatus(member.status) === 'ACTIVE').length;
@@ -682,6 +790,8 @@ const BranchMembersPage: React.FC = () => {
                 director={director}
                 selected={selectedDirector?.id === director.id}
                 onSelect={() => setSelectedDirectorId(director.id)}
+                onViewMember={(member) => setSelectedMemberId(member.id)}
+                childrenByParent={childrenByParent}
               />
             ))}
           </div>
@@ -692,78 +802,13 @@ const BranchMembersPage: React.FC = () => {
         )}
       </section>
 
-      <section>
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-lg font-bold text-gray-900">{branchName} Team Network</h2>
-            <p className="mt-1 text-xs text-gray-600">
-              {selectedDirector
-                ? `Hierarchy drill-down for Director: ${selectedDirector.name}`
-                : 'No director members found. Showing all branch members by role.'}
-            </p>
-          </div>
-          <button
-            type="button"
-            className="inline-flex items-center justify-center gap-2 rounded-sm border border-gray-300 bg-white px-4 py-2 text-xs font-semibold text-gray-700 transition hover:bg-gray-50"
-          >
-            <ChevronsUpDown className="h-3.5 w-3.5" />
-            Collapse All
-          </button>
-        </div>
-
-        <div className="rounded-lg bg-amber-50/70 p-4 sm:p-6">
-          <div className="mb-4 flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-gold">
-            <GitBranch className="h-5 w-5" />
-            {showFullBranchByRole ? 'Full Branch Hierarchy' : 'Linked Downline Hierarchy'}
-          </div>
-
-          {hierarchyNotice && (
-            <div className="mb-5 rounded-md border border-amber-200 bg-white px-4 py-3 text-sm font-semibold text-amber-800">
-              {hierarchyNotice}
-            </div>
-          )}
-
-          {!selectedDirector && !members.length && !isLoading ? (
-            <EmptyState>No branch members found.</EmptyState>
-          ) : selectedDirector && linkedDirectorDownline.length === 0 ? (
-            <EmptyState>No members are linked under this director.</EmptyState>
-          ) : (
-            <div className="space-y-6">
-              {downlineByRole.map((group) => (
-                <div key={group.role}>
-                  <h3 className="mb-4 text-sm font-bold uppercase tracking-wide text-gold">
-                    {roleLabels[group.role]}s ({group.members.length})
-                  </h3>
-                  {group.members.length ? (
-                    <div className="relative space-y-4 pl-4 sm:pl-6">
-                      <div className="absolute bottom-2 left-1 top-0 w-px bg-gold/40 sm:left-2" />
-                      {group.members.map((person) => (
-                        <div key={person.id} className="relative">
-                          <div className="absolute left-[-0.75rem] top-8 h-px w-4 bg-gold/40 sm:left-[-1rem] sm:w-5" />
-                          <PersonRow person={person} />
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <EmptyState>No members found for this role.</EmptyState>
-                  )}
-                </div>
-              ))}
-
-              {selectedDirector && linkedDirectorDownline.length > 0 && (
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-2 text-xs font-semibold text-gold"
-                >
-                  <span className="h-px w-8 bg-gold/50" />
-                  {linkedDirectorDownline.length} linked downline members
-                  <ChevronDown className="h-3.5 w-3.5" />
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      </section>
+      {selectedMember && (
+        <MemberDetailsModal
+          member={selectedMember}
+          childrenByParent={childrenByParent}
+          onClose={() => setSelectedMemberId('')}
+        />
+      )}
     </div>
   );
 };
