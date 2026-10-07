@@ -55,7 +55,6 @@ interface BillingFormState {
 }
 
 interface BillingModalProps {
-  hideFinalSettlement?: boolean;
   mode: BillingFormMode;
   billing?: Billing | null;
   bookings: Booking[];
@@ -86,7 +85,7 @@ const lifecycleLabels: Record<LifecycleStage, string> = {
   COMPLETED: 'Completed',
 };
 
-const selectableLifecycleStages: Exclude<LifecycleStage, 'COMPLETED'>[] = [
+const addBillingLifecycleStages: Exclude<LifecycleStage, 'COMPLETED'>[] = [
   'TOKEN_RECEIVED',
   'ADVANCE_PAYMENT',
   'REGISTRATION_PENDING',
@@ -348,7 +347,7 @@ function lifecycleFromBookingStatus(status?: BookingStatus): LifecycleStage {
   if (status === 'ADVANCE_PAYMENT') return 'ADVANCE_PAYMENT';
   if (status === 'REGISTRATION_PENDING') return 'REGISTRATION_PENDING';
   if (status === 'FINAL_SETTLEMENT_PENDING') return 'FINAL_SETTLEMENT';
-  if (status === 'COMPLETED') return 'COMPLETED';
+  if (status === 'COMPLETED') return 'FINAL_SETTLEMENT';
   return 'TOKEN_RECEIVED';
 }
 
@@ -361,13 +360,13 @@ function lifecycleFromBillingStatus(status?: BillingStatus): LifecycleStage {
 
 function lifecycleToBillingStatus(stage: LifecycleStage): BillingStatus {
   if (stage === 'ADVANCE_PAYMENT') return 'PARTIAL_PAYMENT';
-  if (stage === 'FINAL_SETTLEMENT') return 'FINAL_SETTLEMENT';
+  if (stage === 'FINAL_SETTLEMENT') return 'COMPLETED';
   if (stage === 'COMPLETED') return 'COMPLETED';
   return 'PENDING';
 }
 
 function lifecycleToBookingStatus(stage: LifecycleStage): BookingStatus {
-  if (stage === 'FINAL_SETTLEMENT') return 'FINAL_SETTLEMENT_PENDING';
+  if (stage === 'FINAL_SETTLEMENT') return 'COMPLETED';
   return stage;
 }
 
@@ -437,9 +436,7 @@ function billingToForm(billing?: Billing | null): BillingFormState {
     cashAmount: billing?.paymentMethod === 'CASH' ? amount : '',
     currentAmount: billing?.paymentMethod !== 'CASH' ? amount : '',
     lifecycleStage:
-      billing?.status === 'COMPLETED'
-        ? 'FINAL_SETTLEMENT'
-        : billing?.status === 'FINAL_SETTLEMENT'
+      billing?.status === 'COMPLETED' || billing?.status === 'FINAL_SETTLEMENT'
           ? 'FINAL_SETTLEMENT'
           : billing?.status === 'PARTIAL_PAYMENT'
             ? 'ADVANCE_PAYMENT'
@@ -532,6 +529,7 @@ function buildPayload(form: BillingFormState): CreateBillingData {
     paymentMethod: form.paymentMethod,
     amountInNumbers: amount,
     totalReceived,
+    status: lifecycleToBillingStatus(form.lifecycleStage),
     operationalNotes: verificationNotesForSubmit(form),
     settlementNotes: form.settlementNotes || undefined,
   };
@@ -699,11 +697,12 @@ function payloadToBilling(payload: CreateBillingData, form: BillingFormState, ex
   };
 }
 
-function BillingFormModal({ mode, billing, bookings, onClose, onSaved, hideFinalSettlement = false }: BillingModalProps) {
+function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: BillingModalProps) {
   const createBilling = useCreateBilling();
   const updateBilling = useUpdateBilling();
   const updateBookingStatus = useUpdateBookingStatus();
   const uploadBillingSignature = useUploadBillingSignature();
+  const selectableLifecycleStages = addBillingLifecycleStages;
   const [form, setForm] = useState<BillingFormState>(() => billingToForm(billing));
   const [signatureFile, setSignatureFile] = useState<File | null>(null);
   const [signaturePreviewUrl, setSignaturePreviewUrl] = useState('');
@@ -1221,7 +1220,7 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved, hideFinal
                     onChange={(event) => updateForm('lifecycleStage', event.target.value as LifecycleStage)}
                     className={inputClass}
                   >
-                    {selectableLifecycleStages.filter((stage) => !hideFinalSettlement || stage !== 'FINAL_SETTLEMENT').map((stage) => (
+                    {selectableLifecycleStages.map((stage) => (
                       <option key={stage} value={stage}>
                         {lifecycleLabels[stage]}
                       </option>
@@ -1583,7 +1582,7 @@ function BillingDetailsModal({ billing, onClose, onDownload, isDownloading }: Bi
   );
 }
 
-const AdminBillingPage: React.FC<{ hideFinalSettlement?: boolean }> = ({ hideFinalSettlement = false }) => {
+const AdminBillingPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<BillingStatus | ''>('');
@@ -1760,7 +1759,7 @@ const AdminBillingPage: React.FC<{ hideFinalSettlement?: boolean }> = ({ hideFin
               className="h-11 w-full rounded-sm border border-stone-200 bg-amber-50/50 px-3 text-sm font-semibold outline-none focus:border-gold"
             >
               <option value="">All Statuses</option>
-              {Object.entries(statusLabels).filter(([value]) => !hideFinalSettlement || value !== 'FINAL_SETTLEMENT').map(([value, label]) => (
+              {Object.entries(statusLabels).map(([value, label]) => (
                 <option key={value} value={value}>
                   {label}
                 </option>
@@ -1899,7 +1898,6 @@ const AdminBillingPage: React.FC<{ hideFinalSettlement?: boolean }> = ({ hideFin
 
       {modalMode && (
         <BillingFormModal
-          hideFinalSettlement={hideFinalSettlement}
           mode={modalMode}
           billing={editingBilling}
           bookings={availableBillingBookings}

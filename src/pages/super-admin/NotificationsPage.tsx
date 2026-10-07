@@ -18,7 +18,7 @@ import type {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const TYPE_OPTIONS: NotificationType[] = ['PROPERTY_ACTIVITY', 'BOOKING_ACTIVITY', 'BILLING_ACTIVITY'];
+const TYPE_OPTIONS: NotificationType[] = ['PROPERTY_ACTIVITY'];
 
 const TYPE_LABELS: Record<NotificationType, string> = {
   ADMIN_ACTIVITY: 'Admin Activity',

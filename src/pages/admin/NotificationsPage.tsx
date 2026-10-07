@@ -21,16 +21,7 @@ import type { Notification, NotificationRecipient, NotificationStatus, Notificat
 
 type NotificationItem = NotificationRecipient | Notification;
 
-const typeOptions: NotificationType[] = [
-  'ADMIN_ACTIVITY',
-  'MEMBER_ACTIVITY',
-  'BRANCH_ACTIVITY',
-  'PROPERTY_ACTIVITY',
-  'BOOKING_ACTIVITY',
-  'BILLING_ACTIVITY',
-  'SYSTEM_ACTIVITY',
-  'TEAM_ACTIVITY',
-];
+const typeOptions: NotificationType[] = ['PROPERTY_ACTIVITY'];
 
 const typeLabels: Record<NotificationType, string> = {
   ADMIN_ACTIVITY: 'Admin Activity',
@@ -507,7 +498,7 @@ const AdminNotificationsPage: React.FC = () => {
     <div className="space-y-6 p-4 sm:p-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Notifications</h1>
-        <p className="mt-1 text-sm text-gray-700">View branch-related booking, billing, property, and member activity alerts.</p>
+        <p className="mt-1 text-sm text-gray-700">View property activity alerts for your branch.</p>
       </div>
 
       <section className="rounded-md border border-stone-100 bg-white p-4 shadow-sm">
