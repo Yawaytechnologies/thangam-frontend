@@ -419,6 +419,11 @@ function SectionTitle({ children, icon }: { children: React.ReactNode; icon?: Re
   );
 }
 
+function squareFeetValue(value: unknown) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric >= 100 ? String(numeric) : '100';
+}
+
 function billingToForm(billing?: Billing | null): BillingFormState {
   const amount = billing?.amountInNumbers ? String(billing.amountInNumbers) : '';
   const form: BillingFormState = {
@@ -427,7 +432,7 @@ function billingToForm(billing?: Billing | null): BillingFormState {
     applicantPhone: billing?.buyerPhone ?? '',
     projectName: billing ? projectName(billing) : '',
     plotNumber: billing ? plotNumber(billing) : '',
-    squareFeet: billing?.booking?.squareFeet ? String(billing.booking.squareFeet) : '',
+    squareFeet: squareFeetValue(billing?.booking?.squareFeet),
     paymentMethod: billing?.paymentMethod ?? 'CHEQUE',
     bankName: billing?.bankName ?? '',
     favourOf: billing?.favourOf ?? 'Sri Thangam Housing',
@@ -667,7 +672,7 @@ function payloadToBilling(payload: CreateBillingData, form: BillingFormState, ex
     cellNumber: payload.buyerPhone,
     projectName: form.projectName,
     plotNumber: form.plotNumber,
-    squareFeet: form.squareFeet ? Number(form.squareFeet) : undefined,
+    squareFeet: Math.max(Number(form.squareFeet) || 100, 100),
     bookingDate: existing?.booking?.bookingDate ?? new Date().toISOString(),
     status: 'ADVANCE_PAYMENT',
     createdAt: existing?.booking?.createdAt ?? new Date().toISOString(),
@@ -787,7 +792,7 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved, hideFinal
       applicantPhone: selectedBooking.cellNumber ?? '',
       projectName: selectedBooking.projectName ?? '',
       plotNumber: selectedBooking.plotNumber ?? '',
-      squareFeet: selectedBooking.squareFeet ? String(selectedBooking.squareFeet) : '',
+      squareFeet: squareFeetValue(selectedBooking.squareFeet),
       lifecycleStage: lifecycleFromBookingStatus(selectedBooking.status),
       currentAmount: mode === 'add' ? '' : current.currentAmount,
       totalReceived: mode === 'add' ? '' : current.totalReceived,
@@ -831,7 +836,7 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved, hideFinal
         applicantPhone: bookingDetails.cellNumber ?? '',
         projectName: bookingDetails.projectName ?? bookingDetails.property?.projectName ?? '',
         plotNumber: bookingDetails.plotNumber ?? bookingDetails.property?.plotNumber ?? '',
-        squareFeet: bookingDetails.squareFeet ? String(bookingDetails.squareFeet) : '',
+        squareFeet: squareFeetValue(bookingDetails.squareFeet),
         paymentMethod: (previousPayment?.paymentMethod ?? current.paymentMethod) as PaymentMethod,
         bankName: previousPayment?.bankName ?? '',
         favourOf: previousPayment?.favourOf ?? current.favourOf,
@@ -1081,10 +1086,14 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved, hideFinal
                 </Field>
                 <Field label="Square Feet">
                   <input
+                    type="number"
+                    min="100"
+                    step="50"
                     value={form.squareFeet}
                     onChange={(event) => updateForm('squareFeet', event.target.value)}
+                    onBlur={(event) => updateForm('squareFeet', squareFeetValue(event.target.value))}
                     className={inputClass}
-                    placeholder="0.00"
+                    placeholder="100"
                   />
                 </Field>
               </div>

@@ -3,13 +3,15 @@ import {
   BadgeCheck,
   CalendarCheck2,
   CalendarClock,
+  ChevronDown,
   ChevronRight,
   CircleAlert,
   Network,
   UserRoundPlus,
+  X,
 } from 'lucide-react';
 import { useAdminMemberActivity, useAdminStats } from '../../hooks/useDashboard';
-import { useTeam } from '../../hooks/useMembers';
+import { useMembers, useTeam } from '../../hooks/useMembers';
 import { useNavigate } from 'react-router-dom';
 import type { Member, Role } from '../../types';
 
@@ -33,6 +35,9 @@ interface PerformerMember {
   codeNumber?: string;
   fullName: string;
   name?: string;
+  phone?: string;
+  alternatePhone?: string;
+  email?: string;
   role: Role | string;
   reportsToId?: string;
   reportsTo?: Partial<PerformerMember> | string;
@@ -40,6 +45,21 @@ interface PerformerMember {
   status: string;
   createdAt: string;
   branch?: Member['branch'];
+  city?: string;
+  district?: string;
+  state?: string;
+  pincode?: string;
+  address?: string;
+  introName?: string;
+  dateOfBirth?: string;
+  bloodGroup?: string;
+  qualification?: string;
+  experience?: string;
+  nomineeName?: string;
+  nomineeRelation?: string;
+  nomineePhone?: string;
+  panNumber?: string;
+  aadhaarNumber?: string;
   propertyReferralCount?: number;
   directTeamCount?: number;
 }
@@ -207,6 +227,17 @@ function uniqueMembers(members: PerformerMember[]) {
   return members.filter((member, index, list) => list.findIndex((candidate) => candidate.id === member.id) === index);
 }
 
+function mergeMembers(primary: PerformerMember[], secondary: PerformerMember[]) {
+  const membersById = new Map<string, PerformerMember>();
+
+  for (const member of [...secondary, ...primary]) {
+    const existing = membersById.get(member.id);
+    membersById.set(member.id, existing ? { ...existing, ...member } : member);
+  }
+
+  return Array.from(membersById.values());
+}
+
 function countHierarchyMembers(member: PerformerMember, childrenByParent: Map<string, PerformerMember[]>) {
   const visited = new Set<string>();
 
@@ -223,6 +254,45 @@ function countHierarchyMembers(member: PerformerMember, childrenByParent: Map<st
 
   visit(member);
   return visited.size;
+}
+
+function getDirectChildren(member: PerformerMember, childrenByParent: Map<string, PerformerMember[]>) {
+  return uniqueMembers(memberLookupKeys(member).flatMap((key) => childrenByParent.get(key) ?? [])).sort(sortPerformers);
+}
+
+function getDownlineMembers(
+  member: PerformerMember,
+  childrenByParent: Map<string, PerformerMember[]>,
+  visited = new Set<string>(),
+): PerformerMember[] {
+  if (visited.has(member.id)) return [];
+  visited.add(member.id);
+
+  return getDirectChildren(member, childrenByParent).flatMap((child) => [
+    child,
+    ...getDownlineMembers(child, childrenByParent, visited),
+  ]);
+}
+
+function statusLabel(status: string) {
+  return status === 'ACTIVE' ? 'Active' : status.toLowerCase();
+}
+
+function formatDate(value?: string) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return new Intl.DateTimeFormat('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(date);
+}
+
+function detailValue(value: unknown) {
+  if (typeof value === 'string' && value.trim()) return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return '-';
 }
 
 const StatCard: React.FC<StatCardProps> = ({ title, value, accentClass, icon, iconClass }) => (
@@ -248,52 +318,274 @@ const Avatar: React.FC<{ name: string }> = ({ name }) => (
   </div>
 );
 
-const PerformerCard: React.FC<{ member: PerformerMember; index: number; teamMemberCount: number; totalMembers: number; propertyCount: number }> = ({ member, index, teamMemberCount, totalMembers, propertyCount }) => {
-  const teamPercentage = totalMembers ? Math.round((teamMemberCount / totalMembers) * 100) : 0;
+const PerformerCard: React.FC<{
+  member: PerformerMember;
+  index: number;
+  teamMemberCount: number;
+  activeTeamCount: number;
+  pendingTeamCount: number;
+  isExpanded: boolean;
+  onToggle: () => void;
+  onOpenMember: (member: PerformerMember) => void;
+  childrenByParent: Map<string, PerformerMember[]>;
+}> = ({
+  member,
+  index,
+  teamMemberCount,
+  activeTeamCount,
+  pendingTeamCount,
+  isExpanded,
+  onToggle,
+  onOpenMember,
+  childrenByParent,
+}) => {
   const role = normalizeRole(member.role);
 
   return (
-    <div className="rounded-lg border border-amber-100 bg-amber-50/70 p-3 shadow-sm">
-      <div className="flex items-start gap-3">
-        <Avatar name={member.fullName} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-bold text-gray-900">{member.fullName}</p>
-              <p className="mt-0.5 truncate text-xs text-gray-500">{member.memberId}</p>
+    <article className="min-w-0">
+      <button
+        type="button"
+        onClick={() => onOpenMember(member)}
+        className={`w-full rounded-lg border bg-white p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-gold/50 ${
+          isExpanded ? 'border-gold ring-1 ring-gold/30' : 'border-gray-200'
+        }`}
+        aria-label={`View details for ${member.fullName}`}
+      >
+        <div className="flex items-start gap-3">
+          <Avatar name={member.fullName} />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-bold text-gray-900">{member.fullName}</p>
+                <p className="mt-0.5 truncate text-xs font-semibold text-gray-500">ID: {member.memberId}</p>
+              </div>
+              <span className="rounded-full bg-emerald-50 px-2 py-1 text-[9px] font-bold uppercase text-emerald-700">
+                {role ? roleLabels[role] : String(member.role || '-')}
+              </span>
             </div>
-            <span className="rounded-full bg-gold px-2 py-0.5 text-[10px] font-bold text-navy">
-              #{index + 1}
-            </span>
+            <p className="mt-2 truncate text-xs font-semibold text-gray-500">{member.branch?.name ?? 'Branch network'}</p>
+            <p className="mt-1 text-[10px] font-bold text-gray-400">Rank #{index + 1} - {statusLabel(member.status)}</p>
           </div>
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
-            <span className="rounded bg-white px-2 py-0.5 font-semibold text-gray-700">
-              {role ? roleLabels[role] : String(member.role || '-')}
-            </span>
-            <span className="flex items-center gap-1 font-semibold text-teal-700">
-              <span className="h-1.5 w-1.5 rounded-full bg-teal-600" />
-              {member.status === 'ACTIVE' ? 'Active' : member.status.toLowerCase()}
-            </span>
-          </div>
-          <p className="mt-2 truncate text-xs text-gray-500">{member.branch?.name ?? 'Branch network'}</p>
         </div>
-      </div>
 
-      <div className="mt-3 grid grid-cols-2 overflow-hidden rounded-lg border border-amber-100 bg-white/70 text-center">
-        <div className="px-2 py-2">
-          <p className="text-[9px] font-bold uppercase text-gray-500">Team Members</p>
-          <p className="mt-1 text-sm font-black text-gray-900">{teamMemberCount}</p>
-          <p className="text-[9px] font-semibold text-gray-500">{teamPercentage}% of network</p>
+        <div className="mt-4 grid grid-cols-3 divide-x divide-gray-200 rounded-lg bg-gray-50 py-1 text-center">
+          <div className="px-2 py-1.5">
+            <p className="text-[8px] font-bold uppercase text-gray-400">Team</p>
+            <p className="mt-0.5 text-sm font-black text-gray-900">{teamMemberCount}</p>
+          </div>
+          <div className="px-2 py-1.5">
+            <p className="text-[8px] font-bold uppercase text-gray-400">Active</p>
+            <p className="mt-0.5 text-sm font-black text-gray-900">{activeTeamCount}</p>
+          </div>
+          <div className="px-2 py-1.5">
+            <p className="text-[8px] font-bold uppercase text-gray-400">Pending</p>
+            <p className="mt-0.5 text-sm font-black text-amber-700">{pendingTeamCount}</p>
+          </div>
         </div>
-        <div className="border-l border-amber-100 px-2 py-2">
-          <p className="text-[9px] font-bold uppercase text-gray-500">Properties</p>
-          <p className="mt-1 text-sm font-black text-gray-900">{propertyCount}</p>
-          <p className="text-[9px] font-semibold text-gray-500">Completed referrals</p>
-        </div>
+      </button>
+
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={isExpanded}
+        className="mt-2 flex w-full items-center justify-center gap-1 rounded-md py-1.5 text-[11px] font-bold text-gray-500 transition hover:bg-gray-50 hover:text-gray-800 focus:outline-none focus:ring-2 focus:ring-gold/40"
+      >
+        {isExpanded ? 'Hide Team' : 'View Team'}
+        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+      </button>
+
+      {isExpanded && (
+        <DownlineTree root={member} childrenByParent={childrenByParent} onOpenMember={onOpenMember} />
+      )}
+    </article>
+  );
+};
+
+const DownlineTree: React.FC<{
+  root: PerformerMember;
+  childrenByParent: Map<string, PerformerMember[]>;
+  onOpenMember: (member: PerformerMember) => void;
+}> = ({ root, childrenByParent, onOpenMember }) => {
+  const [expandedParents, setExpandedParents] = React.useState<Record<string, boolean>>({});
+  const directChildren = getDirectChildren(root, childrenByParent);
+
+  const renderChildren = (parent: PerformerMember, depth = 0, visited = new Set<string>()): React.ReactNode => {
+    if (visited.has(parent.id)) return null;
+    const nextVisited = new Set(visited).add(parent.id);
+    const children = getDirectChildren(parent, childrenByParent).filter((child) => !nextVisited.has(child.id));
+    const expanded = Boolean(expandedParents[parent.id]);
+    const visibleChildren = expanded ? children : children.slice(0, 2);
+    const remainingCount = children.length - visibleChildren.length;
+
+    if (children.length === 0) return null;
+
+    return (
+      <div className={depth === 0 ? 'ml-5 space-y-2 border-l border-gray-200 pb-1 pl-5 pt-4' : 'ml-4 mt-2 space-y-2 border-l border-gray-200 pl-4'}>
+        {visibleChildren.map((member) => {
+          const role = normalizeRole(member.role);
+
+          return (
+            <div key={member.id}>
+              <button
+                type="button"
+                onClick={() => onOpenMember(member)}
+                className="relative flex w-full items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-left shadow-sm transition hover:border-gold/60 hover:bg-amber-50/50 focus:outline-none focus:ring-2 focus:ring-gold/40"
+              >
+                <span className="absolute -left-5 top-1/2 h-px w-5 bg-gray-200" />
+                <span className="truncate text-xs font-bold text-gray-900">{member.fullName}</span>
+                <span className="shrink-0 text-[9px] font-bold text-gray-500">
+                  {role ? roleLabels[role] : String(member.role || '-')}
+                </span>
+              </button>
+              {renderChildren(member, depth + 1, nextVisited)}
+            </div>
+          );
+        })}
+        {!expanded && remainingCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setExpandedParents((current) => ({ ...current, [parent.id]: true }))}
+            className="relative w-full rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-left text-[10px] font-bold text-amber-800 shadow-sm hover:bg-amber-100"
+          >
+            <span className="absolute -left-5 top-1/2 h-px w-5 bg-gray-200" />
+            +{remainingCount} {remainingCount === 1 ? 'Other' : 'Others'}
+          </button>
+        )}
+        {expanded && children.length > 2 && (
+          <button
+            type="button"
+            onClick={() => setExpandedParents((current) => ({ ...current, [parent.id]: false }))}
+            className="w-full text-center text-[10px] font-bold text-gray-500 hover:text-gray-800"
+          >
+            Show less
+          </button>
+        )}
       </div>
+    );
+  };
+
+  if (directChildren.length === 0) {
+    return (
+      <p className="mt-2 rounded-lg border border-dashed border-gray-200 bg-white px-3 py-3 text-center text-xs font-semibold text-gray-400">
+        No downline members
+      </p>
+    );
+  }
+
+  return <div>{renderChildren(root)}</div>;
+};
+
+const DetailRow: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
+  <div className="grid grid-cols-[92px_minmax(0,1fr)] gap-3 border-b border-slate-100 py-3 last:border-b-0 sm:grid-cols-[120px_minmax(0,1fr)]">
+    <p className="text-[10px] font-black uppercase tracking-[0.08em] text-slate-400">{label}</p>
+    <p className="min-w-0 break-words text-[12px] font-bold leading-5 text-slate-900 [overflow-wrap:anywhere] sm:text-sm">{value}</p>
+  </div>
+);
+
+const MemberDetailsDrawer: React.FC<{
+  member: PerformerMember;
+  childrenByParent: Map<string, PerformerMember[]>;
+  onClose: () => void;
+}> = ({ member, childrenByParent, onClose }) => {
+  const role = normalizeRole(member.role);
+  const reportsToName = isRecord(member.reportsTo)
+    ? detailValue(member.reportsTo.fullName || member.reportsTo.name || member.reportsTo.memberId)
+    : detailValue(member.reportsTo);
+  const directReports = getDirectChildren(member, childrenByParent).length;
+  const teamSize = countHierarchyMembers(member, childrenByParent);
+  const address = [member.address, member.city, member.district, member.state, member.pincode].filter(Boolean).join(', ');
+
+  React.useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-[80]" role="dialog" aria-modal="true" aria-label={`${member.fullName} details`}>
+      <button
+        type="button"
+        onClick={onClose}
+        className="absolute inset-0 bg-slate-950/45 backdrop-blur-[2px]"
+        aria-label="Close member details"
+      />
+
+      <aside className="absolute right-0 top-0 flex h-full w-full max-w-[420px] flex-col overflow-hidden bg-white shadow-[0_24px_80px_rgba(15,20,25,0.32)]">
+        <header className="relative overflow-hidden bg-gradient-to-br from-[#0f1419] via-[#151d2c] to-[#242821] px-5 pb-5 pt-5">
+          <div className="absolute -right-20 -top-20 h-48 w-48 rounded-full bg-[#c9a227]/20 blur-3xl" />
+          <div className="relative flex items-start justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-100 text-sm font-black text-slate-700">
+                {member.fullName.split(' ').filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'M'}
+              </div>
+              <div className="min-w-0">
+                <h2 className="break-words text-lg font-black leading-tight text-white">{member.fullName}</h2>
+                <p className="mt-1 text-[10px] font-black uppercase tracking-[0.12em] text-[#e8c547]">
+                  {role ? roleLabels[role] : detailValue(member.role)}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/10 text-white transition hover:bg-white/20"
+              aria-label="Close member details"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="relative mt-4 grid grid-cols-2 gap-2.5">
+            <div className="rounded-xl border border-white/10 bg-white/10 p-3">
+              <p className="text-[9px] font-black uppercase tracking-[0.12em] text-white/45">Team Size</p>
+              <p className="mt-1 text-lg font-black text-white">{teamSize}</p>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-white/10 p-3">
+              <p className="text-[9px] font-black uppercase tracking-[0.12em] text-white/45">Reports</p>
+              <p className="mt-1 text-lg font-black text-white">{directReports}</p>
+            </div>
+          </div>
+        </header>
+
+        <div className="flex-1 overflow-y-auto px-5 py-1">
+          <div className="rounded-2xl border border-slate-200 bg-white px-4">
+            <DetailRow label="Phone" value={detailValue(member.phone)} />
+            <DetailRow label="Email" value={detailValue(member.email)} />
+            <DetailRow label="Member ID" value={detailValue(member.memberId)} />
+            <DetailRow label="Code" value={detailValue(member.codeNumber)} />
+            <DetailRow label="Branch" value={detailValue(member.branch?.name)} />
+            <DetailRow label="Joined" value={formatDate(member.createdAt)} />
+            <DetailRow label="Team" value={teamSize} />
+            <DetailRow label="Reports" value={directReports} />
+            <DetailRow label="Intro Name" value={detailValue(member.introName)} />
+            <DetailRow label="Alternate Phone" value={detailValue(member.alternatePhone)} />
+            <DetailRow label="Role" value={role ? roleLabels[role] : detailValue(member.role)} />
+            <DetailRow label="Reports To" value={reportsToName} />
+            <DetailRow label="Date of Birth" value={formatDate(member.dateOfBirth)} />
+            <DetailRow label="Blood Group" value={detailValue(member.bloodGroup)} />
+            <DetailRow label="Qualification" value={detailValue(member.qualification)} />
+            <DetailRow label="Experience" value={detailValue(member.experience)} />
+            <DetailRow label="Nominee Name" value={detailValue(member.nomineeName)} />
+            <DetailRow label="Nominee Relation" value={detailValue(member.nomineeRelation)} />
+            <DetailRow label="Nominee Phone" value={detailValue(member.nomineePhone)} />
+            <DetailRow label="PAN Number" value={detailValue(member.panNumber)} />
+            <DetailRow label="Aadhaar Number" value={detailValue(member.aadhaarNumber)} />
+            <DetailRow label="Address" value={address || '-'} />
+          </div>
+        </div>
+      </aside>
     </div>
   );
-
 };
 
 const isSameDay = (date: Date, compare: Date) =>
@@ -322,18 +614,22 @@ const sortPerformers = (a: PerformerMember, b: PerformerMember) => {
 
 const AdminDashboardPage: React.FC = () => {
   const navigate = useNavigate();
+  const [expandedMemberId, setExpandedMemberId] = React.useState<string | null>(null);
+  const [detailMember, setDetailMember] = React.useState<PerformerMember | null>(null);
   const { data: dashboardStats, isLoading: isStatsLoading } = useAdminStats();
   const { data: membersResponse, isLoading: isTeamLoading } = useTeam({ limit: 1000 });
+  const { data: allMembersResponse, isLoading: isAllMembersLoading } = useMembers({ limit: 1000 });
   const { data: memberActivity, isLoading: isActivityLoading } = useAdminMemberActivity();
   const activityMembers = membersFromResponse(memberActivity);
   const referralCountsByMemberId = new Map(activityMembers.map((member) => [member.id, member.propertyReferralCount ?? 0]));
   const directTeamCountsByMemberId = new Map(activityMembers.map((member) => [member.id, member.directTeamCount ?? 0]));
+  const allMembers = membersFromResponse(allMembersResponse);
   const teamResponseMembers = membersFromResponse(membersResponse).map((member) => ({
     ...member,
     propertyReferralCount: referralCountsByMemberId.get(member.id) ?? member.propertyReferralCount ?? 0,
     directTeamCount: directTeamCountsByMemberId.get(member.id) ?? member.directTeamCount,
   }));
-  const members = (teamResponseMembers.length ? teamResponseMembers : activityMembers).filter(
+  const members = mergeMembers(teamResponseMembers.length ? teamResponseMembers : activityMembers, allMembers).filter(
     (member) => normalizeRole(member.role) !== 'SUPER_ADMIN',
   );
   const childrenByParent = members.reduce<Map<string, PerformerMember[]>>((map, member) => {
@@ -343,7 +639,7 @@ const AdminDashboardPage: React.FC = () => {
   const hierarchyTeamCounts = new Map(
     members.map((member) => [member.id, countHierarchyMembers(member, childrenByParent)]),
   );
-  const isLoading = isStatsLoading || isTeamLoading || isActivityLoading;
+  const isLoading = isStatsLoading || isTeamLoading || isAllMembersLoading || isActivityLoading;
   const today = new Date();
   const weekStart = getWeekStart(today);
 
@@ -475,17 +771,29 @@ const AdminDashboardPage: React.FC = () => {
                     Loading performers...
                   </div>
                 ) : performers.length ? (
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-                    {performers.map((member, index) => (
-                      <PerformerCard
-                        key={member.id}
-                        member={member}
-                        index={index}
-                        teamMemberCount={hierarchyTeamCounts.get(member.id) || member.directTeamCount || 0}
-                        totalMembers={members.length}
-                        propertyCount={member.propertyReferralCount ?? 0}
-                      />
-                    ))}
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                      {performers.map((member, index) => {
+                        const downlineMembers = getDownlineMembers(member, childrenByParent);
+                        const activeTeamCount = downlineMembers.filter((child) => child.status === 'ACTIVE').length;
+                        const pendingTeamCount = downlineMembers.filter((child) => child.status === 'PENDING').length;
+
+                        return (
+                          <PerformerCard
+                            key={member.id}
+                            member={member}
+                            index={index}
+                            teamMemberCount={hierarchyTeamCounts.get(member.id) || member.directTeamCount || 0}
+                            activeTeamCount={activeTeamCount}
+                            pendingTeamCount={pendingTeamCount}
+                            isExpanded={expandedMemberId === member.id}
+                            onToggle={() => setExpandedMemberId((current) => (current === member.id ? null : member.id))}
+                            onOpenMember={setDetailMember}
+                            childrenByParent={childrenByParent}
+                          />
+                        );
+                      })}
+                    </div>
                   </div>
                 ) : (
                   <div className="rounded-lg border border-gray-100 bg-gray-50 p-5 text-sm text-gray-500">
@@ -498,6 +806,13 @@ const AdminDashboardPage: React.FC = () => {
         </div>
       </section>
 
+      {detailMember && (
+        <MemberDetailsDrawer
+          member={detailMember}
+          childrenByParent={childrenByParent}
+          onClose={() => setDetailMember(null)}
+        />
+      )}
     </div>
   );
 };
