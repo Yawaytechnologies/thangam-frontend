@@ -1,3 +1,4 @@
+import { Pagination } from '../../components/ui/Pagination';
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
@@ -1828,8 +1829,8 @@ const AdminBillingPage: React.FC = () => {
               ) : filteredBillings.length ? (
                 filteredBillings.map((billing) => (
                   <tr key={billing.id} className="transition hover:bg-amber-50/30">
-                    <td className="px-5 py-4 font-mono text-sm font-bold text-teal-800">{billing.billingId}</td>
-                    <td className="px-5 py-4 font-mono text-sm font-semibold text-gray-700">{bookingCode(billing)}</td>
+                    <td className="whitespace-nowrap px-5 py-4 font-mono text-sm font-bold text-teal-800">{billing.billingId}</td>
+                    <td className="whitespace-nowrap px-5 py-4 font-mono text-sm font-semibold text-gray-700">{bookingCode(billing)}</td>
                     <td className="px-5 py-4">
                       <p className="font-bold text-gray-900">{billing.buyerName}</p>
                       <p className="mt-1 text-xs font-semibold text-gray-600">{billing.buyerPhone}</p>
@@ -1886,23 +1887,8 @@ const AdminBillingPage: React.FC = () => {
             </tbody>
           </table>
         </div>
-        <div className="flex flex-col gap-3 border-t border-stone-100 bg-amber-50/50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs font-bold uppercase tracking-wide text-gray-800">SHOWING 1-10 OF 124 RECORDS</p>
-          <div className="flex items-center gap-2">
-            <button className="rounded-sm border border-stone-200 bg-white px-3 py-2 text-sm text-gray-600">‹</button>
-            {[1, 2, 3].map((item) => (
-              <button
-                key={item}
-                className={`rounded-sm border px-3 py-2 text-sm font-bold ${
-                  item === 1 ? 'border-teal-700 bg-teal-700 text-white' : 'border-stone-200 bg-white text-gray-700'
-                }`}
-              >
-                {item}
-              </button>
-            ))}
-            <button className="rounded-sm border border-stone-200 bg-white px-3 py-2 text-sm text-gray-600">›</button>
-          </div>
-        </div>
+        <Pagination page={page} total={data?.total ?? 0} limit={data?.limit ?? 10} onPageChange={setPage} />
+
       </section>
 
       {modalMode && (

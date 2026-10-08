@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import type { UpdateMemberData } from '../../api/members.api';
 import { Modal } from '../../components/ui/Modal';
 import { useBranches } from '../../hooks/useBranches';
@@ -845,9 +845,9 @@ function BoardDirectorCard({
 
 function MemberDetailItem({ label, value }: { label: string; value: string | number | null | undefined }) {
   return (
-    <div className="min-h-[78px] rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
-      <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">{label}</p>
-      <p className="mt-2 break-words text-sm font-semibold text-gray-900 [overflow-wrap:anywhere]">{toText(value)}</p>
+    <div className="grid grid-cols-[100px_minmax(0,1fr)] items-start gap-4 border-b border-slate-100 py-4 last:border-b-0 sm:grid-cols-[145px_minmax(0,1fr)]">
+      <p className="text-[11px] font-extrabold uppercase tracking-wide text-slate-400">{label}</p>
+      <p className="break-words text-[13px] font-bold text-gray-950 [overflow-wrap:anywhere]">{toText(value)}</p>
     </div>
   );
 }
@@ -865,108 +865,46 @@ function MemberDetailsModal({
   directReports: number;
   onClose: () => void;
 }) {
-  const dialogRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const previousFocus = document.activeElement as HTMLElement | null;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    dialogRef.current?.focus();
-    const handleKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-      if (event.key === 'Tab') {
-        const elements = dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input, select, textarea, [tabindex="0"]');
-        if (!elements?.length) { event.preventDefault(); return; }
-        const first = elements[0];
-        const last = elements[elements.length - 1];
-        if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) {
-          event.preventDefault(); last.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault(); first.focus();
-        }
-      }
-    };
-    document.addEventListener('keydown', handleKey);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      document.removeEventListener('keydown', handleKey);
-      previousFocus?.focus();
-    };
-  }, [open, onClose]);
-
   if (!open || !member) return null;
 
   const fullAddress = [member.address, member.city, member.district, member.state, member.pincode].filter(Boolean).join(', ');
   const reportsToName = member.reportsTo?.fullName || member.reportsTo?.name;
-  const isActive = String(member.status ?? '').toUpperCase() === 'ACTIVE';
-  const statusLabel = toText(member.status).toLowerCase().replace(/^\w/, (character) => character.toUpperCase());
-
   return (
-    <Modal open={open} onClose={onClose} title="Member Details" subtitle={toText(member.memberId || member.id)} size="3xl">
-      <div className="space-y-5 pt-4">
-        <div className="flex items-center gap-4 rounded-lg border border-amber-100 bg-amber-50/60 p-4">
+    <Modal open={open} onClose={onClose} title="Member Details" size="lg" contentClassName="p-4 sm:p-5" header={
+      <div className="shrink-0 bg-gradient-to-br from-[#0f1419] via-[#18202d] to-[#303128] p-5 sm:p-6">
+        <div className="flex items-start gap-4">
           <Avatar member={member} size="lg" />
-          <div className="min-w-0">
-            <h3 className="break-words text-lg font-bold text-gray-900">{member.fullName}</h3>
-            <p className="mt-1 text-sm font-semibold text-gray-600">
-              {member.role === 'FOUNDER' ? 'Founder & CMD' : ROLE_LABELS[member.role]}
-            </p>
-            <p className={`mt-1 text-xs font-bold ${isActive ? 'text-teal-700' : 'text-gray-500'}`}>
-              {statusLabel}
-            </p>
+          <div className="min-w-0 flex-1">
+            <h2 id="modal-title" className="break-words text-lg font-extrabold text-white">{member.fullName}</h2>
+            <p className="mt-1 text-[11px] font-extrabold uppercase tracking-widest text-amber-400">{ROLE_LABELS[member.role]}</p>
           </div>
+          <button type="button" onClick={onClose} aria-label="Close member details" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white hover:bg-white/20"><IconClose /></button>
         </div>
-
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/10 text-white transition hover:bg-white/20"
-              aria-label="Close drawer"
-            >
-              <IconClose />
-            </button>
-          </div>
-
-          <div className="relative mt-5 grid grid-cols-2 gap-3">
-            <div className="rounded-xl border border-white/10 bg-white/10 p-3">
-              <p className="text-[9px] font-black uppercase tracking-[0.12em] text-white/45">Team Size</p>
-              <p className="mt-1 text-lg font-black text-white">{formatNumber(teamSize)}</p>
+        <div className="mt-5 grid grid-cols-2 gap-3">
+          {[['Team Size', teamSize], ['Reports', directReports]].map(([label, value]) => (
+            <div key={label} className="rounded-2xl border border-white/10 bg-white/10 px-4 py-4">
+              <p className="text-[11px] font-extrabold uppercase tracking-widest text-slate-400">{label}</p>
+              <p className="mt-2 text-lg font-extrabold text-white">{value}</p>
             </div>
-
-            <div className="rounded-xl border border-white/10 bg-white/10 p-3">
-              <p className="text-[9px] font-black uppercase tracking-[0.12em] text-white/45">Reports</p>
-              <p className="mt-1 text-lg font-black text-white">{formatNumber(directReports)}</p>
-            </div>
+          ))}
+        </div>
+      </div>
+    }>
+        <div className="rounded-2xl border border-slate-200 px-4 sm:px-5">
+          <div>
+            <MemberDetailItem label="Phone" value={member.phone} />
+            <MemberDetailItem label="Email" value={member.email} />
+            <MemberDetailItem label="Member ID" value={member.memberId || member.id} />
+            <MemberDetailItem label="Code" value={member.codeNumber} />
+            <MemberDetailItem label="Branch" value={getBranchName(member)} />
+            <MemberDetailItem label="Reports To" value={reportsToName} />
+            <MemberDetailItem label="Joined" value={getJoinedDate(member)} />
+            <MemberDetailItem label="Team" value={formatNumber(teamSize)} />
+            <MemberDetailItem label="Reports" value={formatNumber(directReports)} />
+            <MemberDetailItem label="Address" value={fullAddress || '—'} />
           </div>
         </div>
-
-        <div className="flex-1 overflow-y-auto px-5 py-4">
-          <div className="rounded-2xl border border-slate-200 bg-white px-4">
-            <DrawerDetailRow label="Phone" value={member.phone} />
-            <DrawerDetailRow label="Email" value={member.email} />
-            <DrawerDetailRow label="Member ID" value={member.memberId || member.id} />
-            <DrawerDetailRow label="Code" value={member.codeNumber} />
-            <DrawerDetailRow label="Branch" value={getBranchName(member)} />
-            <DrawerDetailRow label="Joined" value={getJoinedDate(member)} />
-            <DrawerDetailRow label="Team" value={formatNumber(teamSize)} />
-            <DrawerDetailRow label="Reports" value={formatNumber(directReports)} />
-            <DrawerDetailRow label="Address" value={fullAddress || '—'} />
-          </div>
-        </div>
-
-        <div className="border-t border-slate-200 bg-slate-50 p-4">
-          <button
-            type="button"
-            onClick={onViewTeam}
-            disabled={!hasNextLevel}
-            className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-[#c9a227] px-4 text-[12px] font-black text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:bg-slate-300"
-          >
-            <IconUsers className="h-3.5 w-3.5" />
-            {hasNextLevel ? 'View Team' : 'No Downline'}
-          </button>
-        </div>
-      </aside>
-    </div>
+    </Modal>
   );
 }
 

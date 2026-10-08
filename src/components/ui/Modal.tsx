@@ -4,6 +4,7 @@ interface ModalProps {
   open: boolean;
   onClose: () => void;
   title: string;
+  header?: React.ReactNode;
   subtitle?: string;
   children: React.ReactNode;
   size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl';
@@ -26,6 +27,7 @@ export const Modal: React.FC<ModalProps> = ({
   open,
   onClose,
   title,
+  header,
   subtitle,
   children,
   size = 'lg',
@@ -69,6 +71,7 @@ export const Modal: React.FC<ModalProps> = ({
       <div
         className={`relative flex max-h-[calc(100dvh-24px)] w-full ${sizeClasses[size]} flex-col overflow-hidden rounded-[20px] bg-white shadow-[0_24px_80px_rgba(15,20,25,0.30)] ring-1 ring-black/5 sm:max-h-[calc(100dvh-32px)] sm:rounded-[26px] ${panelClassName}`}
       >
+        {header ?? (
         <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-100 bg-white px-4 py-4 sm:px-6 sm:py-5">
           <div className="min-w-0">
             <h2
@@ -97,6 +100,7 @@ export const Modal: React.FC<ModalProps> = ({
           </button>
         </div>
 
+        )}
         <div className={`flex-1 overflow-y-auto overflow-x-hidden ${contentClassName}`}>
           {children}
         </div>
