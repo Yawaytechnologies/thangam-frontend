@@ -1525,16 +1525,14 @@ function EditPropertyModal({
 interface KPICardProps {
   label: string;
   value: number | string;
-  note: string;
-  noteColor: string;
+  accent: string;
 }
 
-function KPICard({ label, value, note, noteColor }: KPICardProps) {
+function KPICard({ label, value, accent }: KPICardProps) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 sm:px-5 sm:py-4">
-      <p className="text-xs text-gray-500 font-medium mb-1">{label}</p>
-      <p className="text-2xl font-bold text-gray-900 sm:text-3xl">{value}</p>
-      <p className={`text-xs mt-1 ${noteColor}`}>{note}</p>
+    <div className={`min-h-[120px] rounded-md border border-gray-200 border-t-[3px] bg-[#fcfaf5] px-4 py-4 shadow-sm ${accent}`}>
+      <p className="text-[13px] font-bold leading-5 text-slate-700">{label}</p>
+      <p className="mt-3 text-[30px] font-bold leading-none tabular-nums text-gray-900">{value}</p>
     </div>
   );
 }
@@ -1641,7 +1639,6 @@ const SuperAdminPropertiesPage: React.FC = () => {
 
   const kpiAdvance = useProperties({ workflowStatus: 'ADVANCE_PAYMENT', limit: 1 });
   const kpiSold = useProperties({ workflowStatus: 'COMPLETED', limit: 1 });
-  const kpiDocQueue = useProperties({ workflowStatus: 'REGISTRATION_PENDING', limit: 1 });
   const kpiDocQueue2 = useProperties({ workflowStatus: 'FINAL_SETTLEMENT_PENDING', limit: 1 });
   const kpiAll = useProperties({ limit: 1 });
 
@@ -1649,9 +1646,9 @@ const SuperAdminPropertiesPage: React.FC = () => {
 
   const totalAll = kpiAll.data?.total ?? 0;
   const soldCount = kpiSold.data?.total ?? 0;
-  const activeCount = totalAll - soldCount;
+  const activeCount = Math.max(0, totalAll - soldCount);
   const advancePendingCount = kpiAdvance.data?.total ?? 0;
-  const docQueueCount = (kpiDocQueue.data?.total ?? 0) + (kpiDocQueue2.data?.total ?? 0);
+  const finalSettlementPendingCount = kpiDocQueue2.data?.total ?? 0;
 
   function handleView(p: Property) {
     setSelectedProperty(p);
@@ -1712,34 +1709,12 @@ const SuperAdminPropertiesPage: React.FC = () => {
         </div>
       </div>
 
-      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <KPICard
-          label="Active Inventory"
-          value={isLoading ? '—' : activeCount}
-          note="↑ +12%"
-          noteColor="text-green-600"
-        />
-
-        <KPICard
-          label="Advance Pending"
-          value={isLoading ? '—' : advancePendingCount}
-          note="Requires Action"
-          noteColor="text-red-500"
-        />
-
-        <KPICard
-          label="Sold Units"
-          value={isLoading ? '—' : soldCount}
-          note="Exceeding Target"
-          noteColor="text-green-600"
-        />
-
-        <KPICard
-          label="Doc Verification"
-          value={isLoading ? '—' : docQueueCount}
-          note="In Queue"
-          noteColor="text-gray-500"
-        />
+      <div className="mb-6 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-5">
+        <KPICard label="Active Properties" value={kpiAll.isLoading || kpiSold.isLoading || kpiAll.isError || kpiSold.isError ? '?' : activeCount} accent="border-t-[#c9a227]" />
+        <KPICard label="Sold Properties" value={kpiSold.isLoading || kpiSold.isError ? '?' : soldCount} accent="border-t-[#008477]" />
+        <KPICard label="Advance Paid" value={kpiAdvance.isLoading || kpiAdvance.isError ? '?' : advancePendingCount} accent="border-t-[#edc52f]" />
+        <KPICard label="Final Settlement Pending" value={kpiDocQueue2.isLoading || kpiDocQueue2.isError ? '?' : finalSettlementPendingCount} accent="border-t-[#ef0018]" />
+        <KPICard label="Settlement Completed" value={kpiSold.isLoading || kpiSold.isError ? '?' : soldCount} accent="border-t-[#2ddfc5]" />
       </div>
 
       {filterOpen && (
