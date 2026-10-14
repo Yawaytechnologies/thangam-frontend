@@ -1,3 +1,6 @@
+  import { useQuery } from '@tanstack/react-query';
+import { membersApi } from '../../api/members.api';
+import type { Member } from '../../types';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useSuperAdminStats } from '../../hooks/useDashboard';
 import {
@@ -396,14 +399,76 @@ function PerformerCard({
 
 // ─── Member Profile Modal ─────────────────────────────────────────────────
 
+function ProfileDownline({ member, onSelect }: { member: Member; onSelect: (id: string) => void }) {
+  const query = useQuery({
+    queryKey: ['members', 'profile-hierarchy'],
+    queryFn: async () => {
+      const members: Member[] = [];
+      let page = 1;
+      while (true) {
+        const result = await membersApi.getAll({ page, limit: 100 });
+        members.push(...result.data);
+        if (!result.data.length || members.length >= result.total) break;
+        page += 1;
+      }
+      return members;
+    },
+  });
+  const rows: { member: Member; depth: number; manager: string }[] = [];
+  const visited = new Set([member.id]);
+  function collect(parent: Member, depth: number) {
+    const children = (query.data ?? []).filter((item) => (item.reportsToId || item.reportsTo?.id) === parent.id)
+      .sort((a, b) => MEMBER_ROLES.indexOf(a.role) - MEMBER_ROLES.indexOf(b.role));
+    for (const child of children) {
+      if (visited.has(child.id)) continue;
+      visited.add(child.id);
+      rows.push({ member: child, depth, manager: parent.fullName });
+      collect(child, depth + 1);
+    }
+  }
+  collect(member, 0);
+  return (
+    <MemberSection title="Downline hierarchy">
+      {query.isLoading ? <p className="text-xs text-slate-500">Loading downline...</p> : query.isError ? (
+        <div className="text-xs text-red-600">Unable to load downline. <button type="button" onClick={() => void query.refetch()} className="underline">Retry</button></div>
+      ) : rows.length === 0 ? <p className="text-xs text-slate-500">No downline members assigned.</p> : (
+        <>
+          <p className="mb-4 text-xs text-slate-500">{rows.length} members across all reporting levels. Select a member to view their profile.</p>
+          <ul className="space-y-2" aria-label="Member downline hierarchy">
+            {rows.map(({ member: child, depth, manager }) => {
+              const photo = child.photo || child.avatarUrl || child.profileImage;
+              return (
+                <li key={child.id} style={{ marginLeft: `${Math.min(depth, 5) * 12}px` }} className="border-l-2 border-slate-200 pl-3">
+                  <button type="button" onClick={() => onSelect(child.id)} className="flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left hover:border-amber-400 hover:bg-amber-50/30">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-100 text-xs font-bold text-slate-700">
+                      {photo ? <img src={photo} alt={child.fullName} className="h-full w-full object-cover" /> : getInitials(child.fullName)}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block break-words text-[13px] font-bold text-slate-900">{child.fullName}</span>
+                      <span className="block text-[10px] font-bold text-amber-700">{ROLE_BADGES[child.role]}</span>
+                      <span className="mt-1 block break-words text-[11px] text-slate-500">{child.memberId} / Reports to {manager}</span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
+    </MemberSection>
+  );
+}
+
 function MemberProfileModal({
   id,
   open,
   onClose,
+  onSelectMember,
 }: {
   id: string | null;
   open: boolean;
   onClose: () => void;
+  onSelectMember: (id: string) => void;
 }) {
   const memberQuery = useMember(id ?? '');
 
@@ -572,6 +637,7 @@ function MemberProfileModal({
                 <MemberInfoItem label="Aadhaar No" value={m.aadhaarNumber} formatValue={formatValue} />
               </div>
             </MemberSection>
+            <ProfileDownline member={m} onSelect={onSelectMember} />
           </div>
         </div>
       ) : (
@@ -1312,7 +1378,7 @@ const SuperAdminDashboardPage: React.FC = () => {
         }}
       />
 
-      <MemberProfileModal id={viewMemberId} open={!!viewMemberId} onClose={() => setViewMemberId(null)} />
+      <MemberProfileModal onSelectMember={setViewMemberId} id={viewMemberId} open={!!viewMemberId} onClose={() => setViewMemberId(null)} />
 
       <UnfreezeConfirmModal
         open={unfreezeOpen}
