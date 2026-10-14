@@ -494,39 +494,25 @@ function hasRequiredPaymentDetails(form: BillingFormState) {
   return true;
 }
 
-function valueOrDash(value?: string | number | null) {
-  const text = String(value ?? '').trim();
-  return text || '-';
+function defaultVerificationNote(form: BillingFormState, previousAmount?: number) {
+  const current = enteredBillingAmount(form);
+  const total = Number(form.totalReceived || 0);
+  const safeCurrent = Number.isFinite(current) ? Math.max(0, current) : 0;
+  const safeTotal = Number.isFinite(total) ? Math.max(safeCurrent, total) : safeCurrent;
+  const previouslyPaid = previousAmount ?? Math.max(0, safeTotal - safeCurrent);
+  const money = (value: number) => `\u20b9${value.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+  return `Previously paid: ${money(previouslyPaid)}. Current payment: ${money(safeCurrent)} received by ${methodLabel(form.paymentMethod)}. Total paid: ${money(previouslyPaid + safeCurrent)}.`;
 }
 
-function defaultVerificationNote(form: BillingFormState) {
-  const amount = formatCurrency(enteredBillingAmount(form));
-  const bookingId = valueOrDash(form.bookingId);
-  const applicantSuffix = form.applicantName.trim() ? ` Applicant: ${form.applicantName.trim()}.` : '';
-  const lifecycleSuffix = ` Lifecycle: ${lifecycleLabels[form.lifecycleStage]}.`;
-
-  if (requiresFinalSettlementValidation(form.lifecycleStage)) {
-    return `Final settlement payment of ${amount} received for booking ${bookingId}.${applicantSuffix}${lifecycleSuffix}`;
-  }
-
-  if (isCashPayment(form.paymentMethod)) {
-    return `Cash payment of ${amount} received for booking ${bookingId}.${applicantSuffix}${lifecycleSuffix}`;
-  }
-
-  if (isChequePayment(form.paymentMethod)) {
-    return `Cheque payment of ${amount} received for booking ${bookingId}. Cheque No: ${valueOrDash(form.chequeNumber)}.${applicantSuffix}${lifecycleSuffix}`;
-  }
-
-  return `Online payment of ${amount} received for booking ${bookingId}. Reference No: ${valueOrDash(form.gpayReference)}.${applicantSuffix}${lifecycleSuffix}`;
+function verificationNotesForSubmit(form: BillingFormState, previousAmount: number) {
+  const summary = defaultVerificationNote(form, previousAmount);
+  const remarks = form.paymentNotes.trim().replace(/^Previously paid:[^\n]*\. Total paid:[^\n]*\.(?:\nAdditional notes: )?/, '').trim();
+  return remarks ? `${summary}\nAdditional notes: ${remarks}` : summary;
 }
 
-function verificationNotesForSubmit(form: BillingFormState) {
-  return form.paymentNotes.trim() || defaultVerificationNote(form);
-}
-
-function buildPayload(form: BillingFormState): CreateBillingData {
+function buildPayload(form: BillingFormState, previousAmount: number): CreateBillingData {
   const amount = enteredBillingAmount(form);
-  const totalReceived = Number(form.totalReceived || 0);
+  const totalReceived = previousAmount + amount;
   const payload: CreateBillingData = {
     bookingId: form.bookingId,
     buyerName: form.applicantName,
@@ -536,7 +522,7 @@ function buildPayload(form: BillingFormState): CreateBillingData {
     amountInNumbers: amount,
     totalReceived,
     status: lifecycleToBillingStatus(form.lifecycleStage),
-    operationalNotes: verificationNotesForSubmit(form),
+    operationalNotes: verificationNotesForSubmit(form, previousAmount),
     settlementNotes: form.settlementNotes || undefined,
   };
 
@@ -557,15 +543,15 @@ function buildPayload(form: BillingFormState): CreateBillingData {
   return payload;
 }
 
-function buildUpdatePayload(form: BillingFormState): UpdateBillingData {
+function buildUpdatePayload(form: BillingFormState, previousAmount: number): UpdateBillingData {
   const amount = enteredBillingAmount(form);
-  const totalReceived = Number(form.totalReceived || 0);
+  const totalReceived = previousAmount + amount;
 
   const payload: UpdateBillingData = {
     paymentMethod: form.paymentMethod,
     amountInNumbers: amount,
     totalReceived,
-    operationalNotes: verificationNotesForSubmit(form),
+    operationalNotes: verificationNotesForSubmit(form, previousAmount),
     settlementNotes: form.settlementNotes || undefined,
     status: lifecycleToBillingStatus(form.lifecycleStage),
   };
@@ -717,6 +703,7 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
   );
   const [bookingTotalAmount, setBookingTotalAmount] = useState<number | null>(() => requiredTotalFromBilling(billing));
   const [isLoadingBookingDetails, setIsLoadingBookingDetails] = useState(false);
+  const [paymentHistoryError, setPaymentHistoryError] = useState(false);
 
   const title = mode === 'add' ? 'Add Billing' : 'Edit Billing';
   const subtitle =
@@ -741,11 +728,18 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
   };
 
   const handlePaymentMethodChange = (paymentMethod: PaymentMethod) => {
-    setForm((current) => cleanPaymentFieldsForMethod(current, paymentMethod));
+    setForm((current) => cleanPaymentFieldsForMethod({ ...current, cashAmount: '', currentAmount: '', totalReceived: '', amountInWords: '' }, paymentMethod));
   };
 
   const handleCashAmountChange = (value: string) => {
-    setForm((current) => ({ ...current, cashAmount: value }));
+    const amount = Number(value);
+    const valid = value.trim() !== '' && Number.isFinite(amount) && amount > 0;
+    setForm((current) => ({
+      ...current,
+      cashAmount: value,
+      totalReceived: valid ? String(previousReceivedAmount + amount) : '',
+      amountInWords: valid ? numberToWords(amount) : '',
+    }));
   };
 
   const handleCurrentAmountChange = (value: string) => {
@@ -757,16 +751,6 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
       ...current,
       currentAmount: value,
       totalReceived,
-      amountInWords: hasValidAmount ? numberToWords(amount) : '',
-    }));
-  };
-
-  const handleTotalReceivedChange = (value: string) => {
-    const amount = Number(value);
-    const hasValidAmount = value.trim() !== '' && Number.isFinite(amount) && amount > 0;
-    setForm((current) => ({
-      ...current,
-      totalReceived: value,
       amountInWords: hasValidAmount ? numberToWords(amount) : '',
     }));
   };
@@ -798,29 +782,32 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
       totalReceived: mode === 'add' ? '' : current.totalReceived,
       amountInWords: mode === 'add' ? '' : current.amountInWords,
     }));
+    setPaymentHistoryError(false);
+    setPreviousReceivedAmount(0);
     setIsLoadingBookingDetails(true);
 
     try {
       const bookingDetails = await bookingsApi.getOne(selectedBooking.id);
-      let previousBillings: Billing[] = [];
-      try {
-        const billingResponse = await billingApi.getAll({ bookingId: selectedBooking.id, limit: 1000 });
-        previousBillings = (billingResponse.data ?? []).filter(
-          (item) => item.bookingId === selectedBooking.id || item.booking?.id === selectedBooking.id,
-        );
-      } catch {
-        previousBillings = [];
+      const previousBillings: Billing[] = [];
+      let historyPage = 1;
+      let loadedCount = 0;
+      while (true) {
+        const response = await billingApi.getAll({ bookingId: selectedBooking.id, page: historyPage, limit: 100 });
+        loadedCount += response.data.length;
+        previousBillings.push(...response.data.filter((item) => item.bookingId === selectedBooking.id || item.booking?.id === selectedBooking.id));
+        if (!response.data.length || loadedCount >= response.total) break;
+        historyPage += 1;
       }
       const latestBilling = [...previousBillings].sort(
         (a, b) => new Date(b.billingDate || b.createdAt).getTime() - new Date(a.billingDate || a.createdAt).getTime(),
       )[0];
       const previousBillingReceived = previousBillings.reduce(
-        (highest, item) => Math.max(highest, Number(item.totalReceived) || 0),
+        (total, item) => total + (Number(item.amountInNumbers) || 0),
         0,
       );
       const bookingPaymentReceived =
         bookingDetails.payments?.reduce((total, payment) => total + (Number(payment.totalAmount) || 0), 0) ?? 0;
-      const previousReceived = Math.max(previousBillingReceived, bookingPaymentReceived);
+      const previousReceived = previousBillingReceived + bookingPaymentReceived;
       const latestKnownTotal = latestBilling
         ? (Number(latestBilling.totalReceived) || 0) + (Number(latestBilling.totalBalance) || 0)
         : 0;
@@ -850,18 +837,19 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
         cashAmount: '',
         currentAmount: '',
         amountInWords: mode === 'add' ? '' : current.amountInWords,
-        paymentNotes: latestBilling?.operationalNotes ?? '',
+        paymentNotes: mode === 'add' ? '' : current.paymentNotes,
         settlementNotes: latestBilling?.settlementNotes ?? '',
       }, (previousPayment?.paymentMethod ?? current.paymentMethod) as PaymentMethod));
     } catch {
-      toast.error('Unable to load booking details. Please try again.');
+      setPaymentHistoryError(true);
+      toast.error('Unable to load payment history. Select the booking again before saving.');
     } finally {
       setIsLoadingBookingDetails(false);
     }
   };
 
   const saveFallback = () => {
-    const payload = buildPayload(form);
+    const payload = buildPayload(form, previousReceivedAmount);
     const nextBilling = payloadToBilling(payload, form, billing);
     toast.success(successText);
     onSaved(nextBilling);
@@ -951,6 +939,10 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (isLoadingBookingDetails || paymentHistoryError) {
+      toast.error('Wait for payment history to load, or select the booking again.');
+      return;
+    }
     const canCreateBilling = form.bookingId && !form.bookingId.startsWith('fallback-');
     const amount = enteredBillingAmount(form);
     const currentTotalReceived = Number(form.totalReceived);
@@ -986,7 +978,7 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
     try {
       if (mode === 'edit' && billing) {
         if (isApiBackedBilling(billing)) {
-          const updated = await updateBilling.mutateAsync({ id: billing.id, data: buildUpdatePayload(form) });
+          const updated = await updateBilling.mutateAsync({ id: billing.id, data: buildUpdatePayload(form, previousReceivedAmount) });
           await finishApiSave(updated, billing.booking?.id || billing.bookingId, billing.id);
           return;
         }
@@ -996,7 +988,7 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
       }
 
       if (mode === 'add' && canCreateBilling) {
-        const payload = buildPayload(form);
+        const payload = buildPayload(form, previousReceivedAmount);
         const created = await createBilling.mutateAsync(payload);
         await finishApiSave(created, payload.bookingId);
         return;
@@ -1237,10 +1229,13 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
                     ))}
                   </select>
                 </Field>
+                <Field label="Previously Paid">
+                  <input value={formatCurrency(previousReceivedAmount)} readOnly className={`${inputClass} bg-stone-100`} />
+                </Field>
                 <Field label="Total Received">
                   <input
                     value={form.totalReceived}
-                    onChange={(event) => handleTotalReceivedChange(event.target.value)}
+                    readOnly
                     className={inputClass}
                     placeholder="₹ 0.00"
                   />
@@ -1260,12 +1255,16 @@ function BillingFormModal({ mode, billing, bookings, onClose, onSaved }: Billing
               <div>
                 <SectionTitle>Notes</SectionTitle>
                 <div className="space-y-4">
-                  <Field label="Payment Notes">
+                  <div className="rounded-lg border border-teal-200 bg-teal-50 p-3" aria-live="polite">
+                    <p className="mb-1 text-xs font-bold text-teal-900">Payment summary</p>
+                    <p className="text-sm leading-6 text-teal-900">{isLoadingBookingDetails ? 'Loading payment history...' : paymentHistoryError ? 'Payment history could not be loaded. Select the booking again.' : defaultVerificationNote(form, previousReceivedAmount)}</p>
+                  </div>
+                  <Field label="Additional Payment Notes">
                     <textarea
                       value={form.paymentNotes}
                       onChange={(event) => updateForm('paymentNotes', event.target.value)}
                       className={textareaClass}
-                      placeholder="Specific bank details or transfer remarks..."
+                      placeholder="Optional remarks about this payment"
                     />
                   </Field>
                   <Field label="Settlement Notes">
@@ -1527,13 +1526,13 @@ function BillingDetailsModal({ billing, onClose, onDownload, isDownloading }: Bi
                 <div>
                   <p className="text-xs font-extrabold uppercase tracking-wide text-gray-500">Payment Notes</p>
                   <p className="mt-2 rounded-sm bg-amber-50 p-3 text-sm font-semibold text-gray-800">
-                    {billing.operationalNotes || 'First installment received via cheque'}
+                    {billing.operationalNotes || 'No notes added.'}
                   </p>
                 </div>
                 <div>
                   <p className="text-xs font-extrabold uppercase tracking-wide text-gray-500">Settlement Notes</p>
                   <p className="mt-2 rounded-sm bg-amber-50 p-3 text-sm font-semibold text-gray-800">
-                    {billing.settlementNotes || 'Verified by branch head'}
+                    {billing.settlementNotes || 'No notes added.'}
                   </p>
                 </div>
               </div>

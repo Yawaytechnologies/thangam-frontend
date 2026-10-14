@@ -28,6 +28,8 @@ type ReportsToRecord = {
 };
 
 type MemberRecord = {
+  weddingDate?: string | null;
+  parentGuardianName?: string | null;
   id?: string | number | null;
   fullName?: string | null;
   name?: string | null;
@@ -111,7 +113,7 @@ type MembersApiResponse = {
   };
 };
 
-type HierarchyNode = MemberRecord & {
+export type HierarchyNode = MemberRecord & {
   id: string;
   fullName: string;
   role: MemberRole;
@@ -265,12 +267,6 @@ function getAvatarUrl(member: MemberRecord) {
 
 function getBranchName(member: MemberRecord) {
   return member.branch?.name || member.branch?.branchName || member.branchName || member.city || 'Unassigned Branch';
-}
-
-function getJoinedDate(member: MemberRecord) {
-  const dateValue = member.joinedDate || member.createdAt || member.created_at;
-
-  return formatMemberDate(dateValue);
 }
 
 function formatMemberDate(value?: string | null) {
@@ -733,7 +729,7 @@ function BranchDirectorSection({
   );
 }
 
-function BoardDirectorCard({
+export function BoardDirectorCard({
   director,
   teamSize,
   activeCount,
@@ -750,15 +746,15 @@ function BoardDirectorCard({
   onOpen: () => void;
   onOpenMember: (member: HierarchyNode) => void;
 }) {
-  const [expandedParents, setExpandedParents] = useState<Record<string, boolean>>({});
+  const [expanded, setExpanded] = useState(false);
+  const visibleIds = new Set((expanded ? downlineMembers : downlineMembers.slice(0, 2)).map((member) => member.id));
+  const remainingCount = Math.max(0, downlineMembers.length - 2);
 
   function renderChildren(parent: HierarchyNode, depth = 0): React.ReactNode {
     const children = downlineMembers.filter((member) => getReportsToId(member) === parent.id);
-    const expanded = Boolean(expandedParents[parent.id]);
-    const visibleChildren = expanded ? children : children.slice(0, 2);
-    const remainingCount = children.length - visibleChildren.length;
+    const visibleChildren = children.filter((member) => visibleIds.has(member.id));
 
-    if (children.length === 0) return null;
+    if (visibleChildren.length === 0) return null;
 
     return (
       <div
@@ -777,26 +773,37 @@ function BoardDirectorCard({
               className="hover:border-[#c9a227] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#c9a227] relative flex w-full items-center justify-between gap-2 rounded-[10px] border border-slate-200 bg-white px-3 py-2.5 text-left shadow-[0_4px_12px_rgba(15,20,25,0.04)]"
             >
               <span className="absolute -left-5 top-1/2 h-px w-5 bg-slate-200" />
-              <span className="truncate text-[11px] font-black text-slate-900">{member.fullName}</span>
-              <span className="shrink-0 text-[8px] font-bold text-slate-500">{ROLE_LABELS[member.role]}</span>
+              <Avatar member={member} size="sm" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[11px] font-bold text-slate-900">{member.fullName}</span>
+                <span className="mt-0.5 block text-[9px] font-medium text-slate-500">{ROLE_LABELS[member.role]}</span>
+              </span>
+              <IconChevronRight className="h-3.5 w-3.5 shrink-0 text-slate-400" />
             </button>
             {renderChildren(member, depth + 1)}
           </div>
         ))}
-        {!expanded && remainingCount > 0 && (
+        {depth === 0 && !expanded && remainingCount > 0 && (
           <button
             type="button"
-            onClick={() => setExpandedParents((current) => ({ ...current, [parent.id]: true }))}
-            className="relative w-full rounded-[10px] border border-[#eadba4] bg-[#fffaf0] px-3 py-2.5 text-left text-[10px] font-black text-[#806000] shadow-[0_4px_12px_rgba(15,20,25,0.04)] hover:bg-[#fff4d6]"
+            onClick={() => setExpanded(true)}
+            aria-expanded={false}
+            aria-label={`Show ${remainingCount} more members in ${director.fullName}'s downline`}
+            className="relative flex w-full items-center gap-2 rounded-[10px] border border-[#eadba4] bg-[#fffaf0] px-3 py-2.5 text-left text-[10px] font-black text-[#806000] shadow-[0_4px_12px_rgba(15,20,25,0.04)] hover:bg-[#fff4d6]"
           >
             <span className="absolute -left-5 top-1/2 h-px w-5 bg-slate-200" />
-            +{remainingCount} {remainingCount === 1 ? 'Other' : 'Others'}
+            <span className="flex h-9 min-w-9 shrink-0 items-center justify-center rounded-lg bg-[#d4af37] px-1 text-xs font-bold text-slate-950">+{remainingCount}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[11px] font-bold text-slate-900">{remainingCount === 1 ? 'Other member' : 'Others'}</span>
+              <span className="mt-0.5 block text-[9px] font-medium text-slate-500">View more members</span>
+            </span>
+            <span aria-hidden="true" className="text-base text-slate-500">...</span>
           </button>
         )}
-        {expanded && children.length > 2 && (
+        {depth === 0 && expanded && downlineMembers.length > 2 && (
           <button
             type="button"
-            onClick={() => setExpandedParents((current) => ({ ...current, [parent.id]: false }))}
+            onClick={() => setExpanded(false)}
             className="w-full text-center text-[9px] font-bold text-slate-500 hover:text-slate-800"
           >
             Show less
@@ -815,7 +822,7 @@ function BoardDirectorCard({
             <div className="flex items-start justify-between gap-2">
               <h3 className="truncate text-[14px] font-black text-slate-950">{director.fullName}</h3>
               <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-1 text-[8px] font-black uppercase text-emerald-700">
-                Director
+                {ROLE_LABELS[director.role]}
               </span>
             </div>
             <p className="mt-1 truncate text-[10px] font-bold text-slate-500">ID: {toText(director.memberId || director.id)}</p>
@@ -845,65 +852,145 @@ function BoardDirectorCard({
 
 function MemberDetailItem({ label, value }: { label: string; value: string | number | null | undefined }) {
   return (
-    <div className="grid grid-cols-[100px_minmax(0,1fr)] items-start gap-4 border-b border-slate-100 py-4 last:border-b-0 sm:grid-cols-[145px_minmax(0,1fr)]">
-      <p className="text-[11px] font-extrabold uppercase tracking-wide text-slate-400">{label}</p>
-      <p className="break-words text-[13px] font-bold text-gray-950 [overflow-wrap:anywhere]">{toText(value)}</p>
+    <div className="min-w-0 rounded-lg bg-slate-50/80 px-3 py-3">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">{label}</p>
+      <p className="mt-1.5 break-words text-[13px] font-semibold leading-5 text-slate-900 [overflow-wrap:anywhere]">{toText(value)}</p>
     </div>
   );
 }
 
-function MemberDetailsModal({
+export function MemberDetailsModal({
   open,
   member,
   teamSize,
   directReports,
   onClose,
+  members,
+  onSelectMember,
 }: {
   open: boolean;
   member: HierarchyNode | null;
   teamSize: number;
   directReports: number;
   onClose: () => void;
+  members: HierarchyNode[];
+  onSelectMember: (member: HierarchyNode) => void;
 }) {
   if (!open || !member) return null;
 
-  const fullAddress = [member.address, member.city, member.district, member.state, member.pincode].filter(Boolean).join(', ');
-  const reportsToName = member.reportsTo?.fullName || member.reportsTo?.name;
+  const downline: { member: HierarchyNode; depth: number; manager: string }[] = [];
+  const visited = new Set([member.id]);
+  function collect(parent: HierarchyNode, depth: number) {
+    const children = members.filter((candidate) => getReportsToId(candidate) === parent.id)
+      .sort((first, second) => ROLE_FLOW.indexOf(first.role) - ROLE_FLOW.indexOf(second.role));
+    for (const child of children) {
+      if (visited.has(child.id)) continue;
+      visited.add(child.id);
+      downline.push({ member: child, depth, manager: parent.fullName });
+      collect(child, depth + 1);
+    }
+  }
+  collect(member, 0);
+
   return (
-    <Modal open={open} onClose={onClose} title="Member Details" size="lg" contentClassName="p-4 sm:p-5" header={
-      <div className="shrink-0 bg-gradient-to-br from-[#0f1419] via-[#18202d] to-[#303128] p-5 sm:p-6">
+    <Modal open={open} onClose={onClose} title="Member Details" size="2xl" contentClassName="space-y-5 bg-[#f8fafc] p-4 sm:p-6" header={
+      <div className="shrink-0 border-b border-slate-800 bg-[#131c29] p-5 sm:p-6">
         <div className="flex items-start gap-4">
           <Avatar member={member} size="lg" />
           <div className="min-w-0 flex-1">
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Member profile</p>
             <h2 id="modal-title" className="break-words text-lg font-extrabold text-white">{member.fullName}</h2>
-            <p className="mt-1 text-[11px] font-extrabold uppercase tracking-widest text-amber-400">{ROLE_LABELS[member.role]}</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className="rounded-md bg-amber-400/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-300">{ROLE_LABELS[member.role]}</span>
+              <span className="text-[11px] text-slate-300">{member.memberId || member.id}</span>
+              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${member.status === 'ACTIVE' ? 'bg-emerald-400/10 text-emerald-300' : 'bg-white/10 text-slate-300'}`}>{toText(member.status)}</span>
+            </div>
           </div>
           <button type="button" onClick={onClose} aria-label="Close member details" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white hover:bg-white/20"><IconClose /></button>
         </div>
         <div className="mt-5 grid grid-cols-2 gap-3">
-          {[['Team Size', teamSize], ['Reports', directReports]].map(([label, value]) => (
-            <div key={label} className="rounded-2xl border border-white/10 bg-white/10 px-4 py-4">
+          {[['Total downline', teamSize], ['Direct reports', directReports]].map(([label, value]) => (
+            <div key={label} className="flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-3">
               <p className="text-[11px] font-extrabold uppercase tracking-widest text-slate-400">{label}</p>
-              <p className="mt-2 text-lg font-extrabold text-white">{value}</p>
+              <p className="text-lg font-bold tabular-nums text-white">{value}</p>
             </div>
           ))}
         </div>
       </div>
     }>
-        <div className="rounded-2xl border border-slate-200 px-4 sm:px-5">
-          <div>
-            <MemberDetailItem label="Phone" value={member.phone} />
-            <MemberDetailItem label="Email" value={member.email} />
-            <MemberDetailItem label="Member ID" value={member.memberId || member.id} />
-            <MemberDetailItem label="Code" value={member.codeNumber} />
-            <MemberDetailItem label="Branch" value={getBranchName(member)} />
-            <MemberDetailItem label="Reports To" value={reportsToName} />
-            <MemberDetailItem label="Joined" value={getJoinedDate(member)} />
-            <MemberDetailItem label="Team" value={formatNumber(teamSize)} />
-            <MemberDetailItem label="Reports" value={formatNumber(directReports)} />
-            <MemberDetailItem label="Address" value={fullAddress || '—'} />
-          </div>
+      <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <h3 className="mb-3 text-[13px] font-bold text-slate-900">Member Details</h3>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <MemberDetailItem label="Intro No" value={member.codeNumber} />
+          <MemberDetailItem label="Intro Name" value={member.introName} />
+          <MemberDetailItem label="Full Name" value={member.fullName} />
+          <MemberDetailItem label="Mobile 1" value={member.phone} />
+          <MemberDetailItem label="Mobile 2" value={member.alternatePhone} />
+          <MemberDetailItem label="Email ID" value={member.email} />
         </div>
+      </section>
+      <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <h3 className="mb-3 text-[13px] font-bold text-slate-900">Personal Details</h3>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <MemberDetailItem label="Date of Birth" value={formatMemberDate(member.dateOfBirth)} />
+          <MemberDetailItem label="Wedding Date" value={formatMemberDate(member.weddingDate)} />
+          <MemberDetailItem label="Blood Group" value={member.bloodGroup} />
+          <MemberDetailItem label="Qualification" value={member.qualification} />
+          <MemberDetailItem label="Experience (Years)" value={member.experience} />
+          <MemberDetailItem label="Parent/Guardian Name" value={member.parentGuardianName} />
+        </div>
+      </section>
+      <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <h3 className="mb-3 text-[13px] font-bold text-slate-900">Address</h3>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <MemberDetailItem label="Address" value={member.address} />
+          <MemberDetailItem label="City" value={member.city} />
+          <MemberDetailItem label="District" value={member.district} />
+          <MemberDetailItem label="State" value={member.state} />
+          <MemberDetailItem label="Pincode" value={member.pincode} />
+        </div>
+      </section>
+      <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <h3 className="mb-3 text-[13px] font-bold text-slate-900">Nominee Details</h3>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <MemberDetailItem label="Nominee Name" value={member.nomineeName} />
+          <MemberDetailItem label="Relationship" value={member.nomineeRelation} />
+          <MemberDetailItem label="Nominee Mobile" value={member.nomineePhone} />
+        </div>
+      </section>
+      <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <h3 className="mb-3 text-[13px] font-bold text-slate-900">Identity Details</h3>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <MemberDetailItem label="PAN No" value={member.panNumber} />
+          <MemberDetailItem label="Aadhaar No" value={member.aadhaarNumber} />
+        </div>
+      </section>
+      <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h3 className="text-sm font-bold text-slate-900">Downline hierarchy</h3>
+          <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-800">{downline.length} members</span>
+        </div>
+        <p className="mb-4 text-xs text-slate-500">All reporting levels. Select a member to view their profile.</p>
+        {downline.length === 0 ? (
+          <p className="py-5 text-center text-xs text-slate-500">No downline members assigned.</p>
+        ) : (
+          <ul className="space-y-2" aria-label="Member downline hierarchy">
+            {downline.map(({ member: child, depth, manager }) => (
+              <li key={child.id} style={{ marginLeft: `${Math.min(depth, 5) * 12}px` }} className="border-l-2 border-slate-200 pl-3">
+                <button type="button" onClick={() => onSelectMember(child)} className="flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:border-amber-400 hover:bg-amber-50/30 focus-visible:outline-2 focus-visible:outline-amber-500">
+                  <Avatar member={child} size="sm" />
+                  <div className="min-w-0 flex-1">
+                    <p className="break-words text-[13px] font-bold text-slate-900">{child.fullName}</p>
+                    <p className="mt-0.5 text-[10px] font-bold text-amber-700">{ROLE_LABELS[child.role]}</p>
+                    <p className="mt-1 break-words text-[11px] text-slate-500">{child.memberId || child.id} ? Reports to {manager}</p>
+                  </div>
+                  <IconChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </Modal>
   );
 }
@@ -1890,6 +1977,8 @@ const MembersPage: React.FC = () => {
       <MemberDetailsModal
         open={Boolean(selectedMember)}
         member={selectedMember}
+        members={members}
+        onSelectMember={setSelectedMember}
         teamSize={selectedStats.teamSize}
         directReports={selectedStats.directReports}
         onClose={() => setSelectedMember(null)}

@@ -522,7 +522,7 @@ const SuperAdminNotificationsPage: React.FC = () => {
                       <button
                         type="button"
                         disabled={deleteNotification.isPending}
-                        onClick={() => { setDeleteError(''); setDeleteTarget(nr.id); }}
+                        onClick={() => { setDeleteError(''); setDeleteTarget(nr.notificationId); }}
                         className="text-xs font-medium text-red-600 hover:text-red-700 disabled:opacity-50"
                       >Delete</button>
                       {isUnread && (
